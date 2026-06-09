@@ -404,6 +404,10 @@
     }
 
     const updateRoles = () => {
+      clearForm(assignmentForm);
+      assignmentForm.elements.meeting_id.value = meetingSelect.value;
+      toggleSpeechTitle('');
+
       const meeting = (root._meetings || []).find(m => String(m.id) === meetingSelect.value);
       let html = '<option value="">-- Existing Slots (Select to Edit) --</option>';
       html += (meeting?.assignments || []).map(a => 
@@ -431,12 +435,15 @@
 
     roleSelect.addEventListener("change", () => {
       const val = roleSelect.value;
+      const meetingId = meetingSelect.value;
       if (!val) {
+        clearForm(assignmentForm);
+        assignmentForm.elements.meeting_id.value = meetingId;
         toggleSpeechTitle('');
         return;
       }
 
-      const meeting = (root._meetings || []).find(m => String(m.id) === meetingSelect.value);
+      const meeting = (root._meetings || []).find(m => String(m.id) === meetingId);
       let selectedRoleName = '';
 
       if (val.startsWith('id:')) {
@@ -444,13 +451,16 @@
         const assignment = meeting?.assignments.find(a => String(a.id) === id);
         if (assignment) {
           fillForm(assignmentForm, assignment);
+          roleSelect.value = val; // Restore VPE selection ID so it doesn't null out
           selectedRoleName = assignment.role_name;
         }
       } else if (val.startsWith('name:')) {
+        const name = val.split(':')[1];
         clearForm(assignmentForm);
-        assignmentForm.elements.meeting_id.value = meetingSelect.value;
-        selectedRoleName = val.split(':')[1];
-        assignmentForm._tmp_role_name = selectedRoleName; 
+        assignmentForm.elements.meeting_id.value = meetingId;
+        roleSelect.value = val; // Restore template selection ID so it doesn't null out
+        selectedRoleName = name;
+        assignmentForm._tmp_role_name = selectedRoleName;
       }
       toggleSpeechTitle(selectedRoleName);
     });
