@@ -137,6 +137,72 @@ class TMP_Repository {
         return $rows;
     }
 
+    public static function get_recommendations($member) {
+        $level = (int) ($member['level'] ?? 1);
+        $recs = array();
+
+        if ($level === 1) {
+            $recs[] = array('title' => 'Ice Breaker', 'type' => 'Speech', 'note' => 'Your first 4-6 minute speech.');
+            $recs[] = array('title' => 'Evaluation & Feedback (Part 1)', 'type' => 'Speech', 'note' => 'Incorporate feedback from your first speech.');
+        } else {
+            $recs[] = array('title' => "Level {$level} Project Speech", 'type' => 'Speech', 'note' => 'Focus on your path-specific elective.');
+            $recs[] = array('title' => 'Speech Evaluator', 'type' => 'Role', 'note' => 'Practice active listening and constructive feedback.');
+        }
+
+        $recs[] = array('title' => 'Timer or Grammarian', 'type' => 'Role', 'note' => 'Great for building confidence on stage.');
+        return $recs;
+    }
+
+    public static function get_open_slots() {
+        global $wpdb;
+        $meetings = self::meeting_table();
+        $assignments = self::assignment_table();
+        $today = gmdate('Y-m-d');
+
+        return $wpdb->get_results($wpdb->prepare("SELECT m.meeting_date, m.theme, a.id as assignment_id, a.role_name FROM {$meetings} m JOIN {$assignments} a ON m.id = a.meeting_id WHERE m.meeting_date >= %s AND a.member_id IS NULL ORDER BY m.meeting_date ASC LIMIT 10", $today), ARRAY_A);
+    }
+
+    public static function get_suggestions($meeting_id) {
+        global $wpdb;
+        $assignments_table = self::assignment_table();
+        $members_table = self::member_table();
+
+        // Find open slots for this meeting
+        $slots = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, role_name FROM {$assignments_table} WHERE meeting_id = %d AND member_id IS NULL",
+            $meeting_id
+        ), ARRAY_A);
+
+        if (empty($slots)) return [];
+
+        // Get members and their current progress
+        $members = self::members();
+        $suggestions = [];
+
+        foreach ($slots as $slot) {
+            $role = strtolower($slot['role_name']);
+            foreach ($members as $member) {
+                $match = false;
+                $level = (int)$member['level'];
+
+                // Logic: Speakers for those who need it or are Level 1 (Ice Breakers)
+                if (strpos($role, 'speaker') !== false && ($member['state'] === 'Needs speech slot' || $level === 1)) {
+                    $match = true;
+                } 
+                // Logic: Evaluators for Level 2+ members
+                elseif (strpos($role, 'evaluator') !== false && $level >= 2) {
+                    $match = true;
+                }
+
+                if ($match) {
+                    $suggestions[] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name']]);
+                    break; // Assign first best match and move to next slot
+                }
+            }
+        }
+        return $suggestions;
+    }
+
     public static function save_meeting($data) {
         global $wpdb;
         $table = self::meeting_table();

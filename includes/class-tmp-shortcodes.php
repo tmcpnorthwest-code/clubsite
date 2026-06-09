@@ -95,6 +95,14 @@ class TMP_Shortcodes {
                     <h3>Officer Notes</h3>
                     <p data-tmp-notes></p>
                 </article>
+                <article class="tmp-panel tmp-wide">
+                    <h3>Smart Recommendations</h3>
+                    <div class="tmp-rec-grid" data-tmp-recommendations>Loading suggestions...</div>
+                </article>
+                <article class="tmp-panel tmp-wide">
+                    <h3>Available Meeting Slots</h3>
+                    <div class="tmp-slot-list" data-tmp-open-slots>Checking for open roles...</div>
+                </article>
             </div>
         </div>
         <?php
@@ -192,6 +200,7 @@ class TMP_Shortcodes {
                 <label>Status
                     <select name="status">
                         <option>Planned</option>
+                        <option>Requested</option>
                         <option>Confirmed</option>
                         <option>Needs replacement</option>
                         <option>Completed</option>

@@ -18,6 +18,22 @@ class TMP_REST_API {
             },
         ));
 
+        register_rest_route('toastmasters/v1', '/me/recommendations', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => array(__CLASS__, 'get_my_recommendations'),
+            'permission_callback' => function () {
+                return is_user_logged_in();
+            },
+        ));
+
+        register_rest_route('toastmasters/v1', '/meetings/open-slots', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => array(__CLASS__, 'get_open_slots'),
+            'permission_callback' => function () {
+                return is_user_logged_in();
+            },
+        ));
+
         register_rest_route('toastmasters/v1', '/members', array(
             array(
                 'methods' => WP_REST_Server::READABLE,
@@ -68,6 +84,12 @@ class TMP_REST_API {
             'permission_callback' => array(__CLASS__, 'can_manage_meetings'),
         ));
 
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/suggestions', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => array(__CLASS__, 'get_meeting_suggestions'),
+            'permission_callback' => array(__CLASS__, 'can_manage_meetings'),
+        ));
+
         register_rest_route('toastmasters/v1', '/enrol', array(
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => array(__CLASS__, 'enrol'),
@@ -75,6 +97,22 @@ class TMP_REST_API {
                 return true;
             },
         ));
+    }
+
+    public static function get_my_recommendations() {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return array();
+        }
+        return rest_ensure_response(TMP_Repository::get_recommendations($member));
+    }
+
+    public static function get_open_slots() {
+        return rest_ensure_response(TMP_Repository::get_open_slots());
+    }
+
+    public static function get_meeting_suggestions(WP_REST_Request $request) {
+        return rest_ensure_response(TMP_Repository::get_suggestions((int) $request['id']));
     }
 
     public static function can_manage_members() {

@@ -82,6 +82,42 @@
         const className = number < level ? "tmp-done" : number === level ? "tmp-active" : "";
         return `<li class="${className}">${esc(label)}</li>`;
       }).join("");
+
+      const recs = await api("/me/recommendations");
+      qs("[data-tmp-recommendations]", root).innerHTML = recs.map(r => `
+        <div class="tmp-rec-item">
+          <strong>${esc(r.title)}</strong>
+          <small>${esc(r.type)}</small>
+          <p>${esc(r.note)}</p>
+        </div>
+      `).join("");
+
+      const slots = await api("/meetings/open-slots");
+      const slotsContainer = qs("[data-tmp-open-slots]", root);
+      slotsContainer.innerHTML = slots.length ? slots.map(s => `
+        <div class="tmp-slot-item">
+          <span>${esc(s.meeting_date)} - <strong>${esc(s.role_name)}</strong> (${esc(s.theme)})</span>
+          <button class="tmp-small-button" data-claim-slot="${s.assignment_id}">Request Role</button>
+        </div>
+      `).join("") : "<p>No open roles available right now.</p>";
+
+      slotsContainer.addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-claim-slot]");
+        if (!btn) return;
+        
+        btn.disabled = true;
+        btn.textContent = "Requesting...";
+        try {
+          await api("/assignments", {
+            method: "POST",
+            body: JSON.stringify({ id: btn.dataset.claimSlot, member_id: member.id, status: "Requested" })
+          });
+          initMemberDashboard();
+        } catch (err) {
+          alert(err.message);
+          btn.disabled = false;
+        }
+      });
     } catch (error) {
       root.innerHTML = `<div class="tmp-panel"><h2>Dashboard unavailable</h2><p>${esc(error.message)}</p></div>`;
     }
@@ -210,10 +246,11 @@
           <p>${esc(meeting.venue || "Venue not set")}</p>
           <p>${esc(meeting.agenda_notes || "")}</p>
           <ul class="tmp-assignment-list">
-            ${(meeting.assignments || []).map((assignment) => `
+            ${(meeting.assignments || []).sort((a,b) => (a.status === 'Requested' ? -1 : 1)).map((assignment) => `
               <li>
                 <span>
-                  <strong>${esc(assignment.role_name)}</strong>
+                  <strong>${esc(assignment.role_name)}</strong> 
+                  ${assignment.status === 'Requested' ? '<span class="tmp-tag" style="background:#ffd700; padding:2px 4px; border-radius:3px; font-size:10px;">PRIORITY REQUEST</span>' : ''}
                   ${assignment.member_name ? ` - ${esc(assignment.member_name)}` : ""}
                   ${assignment.speech_title ? `<br>${esc(assignment.speech_title)}` : ""}
                 </span>
@@ -224,6 +261,7 @@
               </li>
             `).join("") || "<li><span>No roles scheduled yet.</span></li>"}
           </ul>
+          <button class="tmp-button tmp-secondary tmp-small" data-suggest-roles="${meeting.id}">Get Intelligent Suggestions</button>
         </article>
       `).join("")}</div>`;
     }
@@ -251,13 +289,20 @@
     qs("[data-tmp-clear-meeting]", root)?.addEventListener("click", () => clearForm(meetingForm));
     qs("[data-tmp-clear-assignment]", root)?.addEventListener("click", () => clearForm(assignmentForm));
 
-    meetingList.addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-delete-assignment]");
-      if (!button) {
-        return;
+    meetingList.addEventListener("click", async (e) => {
+      const del = e.target.closest("[data-delete-assignment]");
+      const suggest = e.target.closest("[data-suggest-roles]");
+
+      if (del) {
+        await api(`/assignments/${del.dataset.deleteAssignment}`, { method: "DELETE" });
+        await renderMeetings();
+      } else if (suggest) {
+        const suggestions = await api(`/meetings/${suggest.dataset.suggestRoles}/suggestions`);
+        if (!suggestions.length) return alert("No suggestions found for current open slots.");
+        
+        const summary = suggestions.map(s => `• ${s.role_name}: ${s.suggested_member_name}`).join("\n");
+        alert("Intelligent Recommendations:\n\n" + summary);
       }
-      await api(`/assignments/${button.dataset.deleteAssignment}`, { method: "DELETE" });
-      await renderMeetings();
     });
 
     await renderMembers();
