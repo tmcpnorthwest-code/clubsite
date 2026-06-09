@@ -21,6 +21,67 @@
     "'": "&#039;",
   }[char]));
 
+  function formatTime(totalMinutes) {
+    const h = Math.floor(totalMinutes / 60) % 24;
+    const m = totalMinutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  function generatePrintView(meeting) {
+    const printWindow = window.open('', '_blank');
+    const [h, m] = (meeting.start_time || "18:30:00").split(':').map(Number);
+    let runningTime = h * 60 + m;
+
+    const agendaRows = (meeting.assignments || []).map((a) => {
+      const start = formatTime(runningTime);
+      const dur = Number(a.duration || 0);
+      runningTime += dur;
+      const end = formatTime(runningTime);
+      return `
+        <tr>
+          <td>${start}</td>
+          <td>${dur}m</td>
+          <td>${end}</td>
+          <td><strong>${esc(a.role_name)}</strong></td>
+          <td>${esc(a.member_name || 'Unassigned')}</td>
+          <td>${esc(a.speech_title || '')}</td>
+        </tr>`;
+    }).join('');
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Meeting Agenda - ${esc(meeting.meeting_date)}</title>
+          <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 50px; line-height: 1.6; color: #333; }
+            h1 { color: #004165; border-bottom: 2px solid #004165; padding-bottom: 10px; margin-bottom: 20px; }
+            .details { margin-bottom: 30px; background: #f9f9f9; padding: 20px; border-radius: 5px; border-left: 5px solid #004165; }
+            table { width: 100%; border-collapse: collapse; }
+            th { background: #004165; color: white; padding: 12px; text-align: left; }
+            td { border-bottom: 1px solid #ddd; padding: 12px; vertical-align: top; }
+            .notes { margin-top: 40px; white-space: pre-wrap; color: #555; font-style: italic; border-top: 1px solid #eee; padding-top: 20px; }
+            @media print { .no-print { display: none; } }
+          </style>
+        </head>
+        <body>
+          <h1>Toastmasters Meeting Agenda</h1>
+          <div class="details">
+            <strong>Date:</strong> ${esc(meeting.meeting_date)} | 
+            <strong>Theme:</strong> ${esc(meeting.theme)} | 
+            <strong>Venue:</strong> ${esc(meeting.venue || 'TBD')}
+          </div>
+          <table>
+            <thead><tr><th width="10%">Start</th><th width="10%">Dur</th><th width="10%">End</th><th width="25%">Role</th><th width="20%">Member</th><th width="25%">Speech Title / Notes</th></tr></thead>
+            <tbody>${agendaRows}</tbody>
+          </table>
+          <div class="notes"><strong>Agenda Notes:</strong><br>${esc(meeting.agenda_notes || 'No additional notes.')}</div>
+          <script>window.onload = () => { window.print(); window.close(); };</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  }
+
   async function api(path, options = {}) {
     const response = await fetch(`${TMPortal.restUrl}${path}`, {
       ...options,
@@ -274,13 +335,7 @@
       ).join("");
     }
 
-    function formatTime(totalMinutes) {
-      const h = Math.floor(totalMinutes / 60) % 24;
-      const m = totalMinutes % 60;
-      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    }
-
-    async function renderMeetings() {
+    async function renderMeetings(selectedId = null) {
       const meetings = await api("/meetings") || [];
       root._meetings = Array.isArray(meetings) ? meetings : [];
       
@@ -289,24 +344,28 @@
         meetings.map((meeting) =>
         `<option value="${esc(meeting.id)}">${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</option>`
       ).join("");
+
+      if (selectedId) {
+        meetingSelect.value = selectedId;
+      }
+
       updateRoles();
 
       meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting) => {
         const [h, m] = (meeting.start_time || "18:30:00").split(':').map(Number);
-        const startTimeInMins = (h * 60) + m;
+        const startTimeInMins = (h * 60) + (m || 0);
         let runningTime = startTimeInMins;
 
         const agendaHtml = (meeting.assignments || []).map((assignment) => {
           const start = formatTime(runningTime);
-          runningTime += Number(assignment.duration || 0);
+          const duration = Number(assignment.duration || 0);
+          runningTime += duration;
           const end = formatTime(runningTime);
           
           return `
               <li>
                 <span>
-                  <small class="tmp-time-tag">${start} - ${end}</small>
-                  <strong>${esc(assignment.role_name)}</strong> - 
-                  ${assignment.member_name ? esc(assignment.member_name) : "<em>Unassigned</em>"}
+                  <strong>${esc(assignment.role_name)}</strong> / ${assignment.member_name ? esc(assignment.member_name) : "Unassigned"} / <small class="tmp-time-tag">${start} / ${duration}m / ${end}</small>
                   ${assignment.speech_title ? `<br><small>Title: ${esc(assignment.speech_title)}</small>` : ""}
                 </span>
                 <span>
@@ -402,13 +461,13 @@
       if (btn) btn.disabled = true;
 
       try {
-        await api("/meetings", {
+        const newMeeting = await api("/meetings", {
           method: "POST",
           body: JSON.stringify(formData(meetingForm)),
         });
         alert("Meeting created successfully with role templates!");
         clearForm(meetingForm);
-        await renderMeetings();
+        await renderMeetings(newMeeting.id);
       } catch (err) {
         alert("Failed to save meeting: " + err.message);
       } finally {
