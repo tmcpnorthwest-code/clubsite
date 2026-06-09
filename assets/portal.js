@@ -275,10 +275,12 @@
     }
 
     async function renderMeetings() {
-      const meetings = await api("/meetings");
-      root._meetings = meetings;
+      const meetings = await api("/meetings") || [];
+      root._meetings = Array.isArray(meetings) ? meetings : [];
+      
       meetingCount.textContent = `${meetings.length} ${meetings.length === 1 ? "meeting" : "meetings"}`;
-      meetingSelect.innerHTML = meetings.map((meeting) =>
+      meetingSelect.innerHTML = '<option value="">Select a meeting...</option>' + 
+        meetings.map((meeting) =>
         `<option value="${esc(meeting.id)}">${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</option>`
       ).join("");
       updateRoles();
