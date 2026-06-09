@@ -424,51 +424,88 @@ class TMP_Repository {
                     $member_id = (int)$member['id'];
                     if (in_array($member_id, $assigned_ids)) continue;
 
-                    $match = false;
-                    $level = (int)$member['level'];
-                    $state = $member['state'] ?? 'Active';
-                    // Ensure completed_roles_at_level is correctly fetched for the member's current level
-                    $completed_roles = $member_participation_counts[$member_id] ?? [];
+        foreach ($slots as $slot) {
+            if (isset($suggestions[$slot['id']])) continue;
 
-                    if (strpos($role_lower, 'speaker') !== false || strpos($role_lower, 'ice breaker') !== false) {
-                        // Speakers: Prioritize members needing a speech slot or at Level 1
-                        $match = true;
-                        $priority = ($state === 'Needs speech slot' || $level === 1) ? "Priority" : "General";
-                        $trace[] = "Matched Speaker: " . $member['full_name'] . " ($priority match)";
-                    } elseif (strpos($role_lower, 'evaluator') !== false) {
-                        if ($level >= 2) {
-                            $match = true;
-                            $trace[] = "Matched Evaluator: " . $member['full_name'] . " (Level $level >= 2)";
-                        }
-                    } elseif (strpos($role_lower, 'toastmaster') !== false || strpos($role_lower, 'topics') !== false || strpos($role_lower, 'general') !== false || strpos($role_lower, 'presiding') !== false) {
-                        if ($level >= 3) {
-                            $match = true;
-                            $trace[] = "Matched Leadership ($role_label): " . $member['full_name'] . " (Level $level >= 3)";
-                        }
-                    } else {
-                        $match = true;
-                        $trace[] = "Matched " . $slot['role_name'] . ": " . $member['full_name'];
-                    }
+            $role_label = $slot['role_name'];
+            $base_role = self::get_base_role_name($role_label);
+            $role_lower = strtolower($base_role);
+            $found_match = false;
 
-                    if ($match) { // This 'if ($match)' was problematic as 'match' might be true from an earlier, incorrect block
-                        $suggestions[$slot['id']] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name']]);
-                        $assigned_ids[] = $member_id;
-                        $found_match = true;
-                        
-                        if (self::is_singular_role($base_role)) {
-                            $singular_role_map[$base_role] = $member_id;
-                        }
-                        break; 
-                    }
-                }
-
-                if (!$found_match) {
-                    $trace[] = "Could not find a suitable unassigned member for: " . $slot['role_name'];
+            // Rule: Singular roles (TMOD, GE, etc) must use the same member if already assigned in this meeting
+            if (self::is_singular_role($base_role) && isset($singular_role_map[$base_role])) {
+                $m_id = $singular_role_map[$base_role];
+                $m_data = array_values(array_filter($members, function($m) use ($m_id) { return (int)$m['id'] === $m_id; }))[0] ?? null;
+                if ($m_data) {
+                    $suggestions[$slot['id']] = array_merge($slot, ['suggested_member_id' => $m_id, 'suggested_member_name' => $m_data['full_name']]);
+                    $trace[] = "Re-using {$m_data['full_name']} for singular role segment: $role_label";
+                    continue;
                 }
             }
+
+            // Sub-Phase 2a: Try Progression Match (Highest priority in Phase 2)
+            foreach ($members as $member) {
+                $member_id = (int)$member['id'];
+                if (in_array($member_id, $assigned_ids)) continue;
+
+                $level = (int)$member['level'];
+                $history = $member_participation_counts[$member_id][$level] ?? [];
+                $needs_progression = false;
+                $reason = '';
+
+                if ($level === 1) {
+                    if (strpos($role_lower, 'table topics speaker') !== false && !isset($history['Table Topics Speaker'])) { $needs_progression = true; $reason = 'Needs TTS (L1)'; }
+                    elseif (strpos($role_lower, 'evaluator') !== false && !isset($history['Evaluator'])) { $needs_progression = true; $reason = 'Needs Evaluator (L1)'; }
+                    elseif ((strpos($role_lower, 'timer') !== false || strpos($role_lower, 'ah-counter') !== false) && !isset($history['Timer']) && !isset($history['Ah-Counter'])) { $needs_progression = true; $reason = 'Needs Timer/Ah-Counter (L1)'; }
+                } elseif ($level === 2) {
+                    if (strpos($role_lower, 'grammarian') !== false && !isset($history['Grammarian'])) { $needs_progression = true; $reason = 'Needs Grammarian (L2)'; }
+                    elseif (strpos($role_lower, 'table topics master') !== false && !isset($history['Table Topics Master'])) { $needs_progression = true; $reason = 'Needs TTM (L2)'; }
+                    elseif (strpos($role_lower, 'evaluator') !== false && !isset($history['Evaluator'])) { $needs_progression = true; $reason = 'Needs Evaluator (L2)'; }
+                } elseif ($level === 3 && strpos($role_lower, 'toastmaster') !== false && !isset($history['Toastmaster of the Day'])) { $needs_progression = true; $reason = 'Needs TMOD (L3)'; }
+                elseif ($level === 4 && strpos($role_lower, 'general evaluator') !== false && !isset($history['General Evaluator'])) { $needs_progression = true; $reason = 'Needs GE (L4)'; }
+                elseif ($level === 5 && strpos($role_lower, 'presiding officer') !== false && !isset($history['Presiding Officer'])) { $needs_progression = true; $reason = 'Needs PO (L5)'; }
+
+                if ($needs_progression) {
+                    $suggestions[$slot['id']] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name'], 'progression_note' => $reason]);
+                    $assigned_ids[] = $member_id;
+                    $found_match = true;
+                    if (self::is_singular_role($base_role)) $singular_role_map[$base_role] = $member_id;
+                    $trace[] = "Progression Match: {$member['full_name']} matched for {$role_label} ({$reason})";
+                    break;
+                }
+            }
+            if ($found_match) continue;
+
+            // Sub-Phase 2b: Fallback to General Suitability
+            foreach ($members as $member) {
+                $member_id = (int)$member['id'];
+                if (in_array($member_id, $assigned_ids)) continue;
+
+                $level = (int)$member['level'];
+                $match = false;
+
+                if (strpos($role_lower, 'speaker') !== false) $match = true;
+                elseif (strpos($role_lower, 'evaluator') !== false && $level >= 2) $match = true;
+                elseif ((strpos($role_lower, 'toastmaster') !== false || strpos($role_lower, 'topics') !== false || strpos($role_lower, 'general') !== false || strpos($role_lower, 'presiding') !== false) && $level >= 3) $match = true;
+                elseif (!in_array($role_lower, ['speaker', 'evaluator', 'toastmaster', 'topics', 'general', 'presiding'])) $match = true; // Support roles
+
+                if ($match) {
+                    $suggestions[$slot['id']] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name']]);
+                    $assigned_ids[] = $member_id;
+                    $found_match = true;
+                    if (self::is_singular_role($base_role)) $singular_role_map[$base_role] = $member_id;
+                    $trace[] = "General Match: {$member['full_name']} for {$role_label} (Level $level)";
+                    break;
+                }
+            }
+
+            if (!$found_match) {
+                $trace[] = "No suitable unassigned member found for: " . $slot['role_name'];
+            }
         }
-        return ['suggestions' => array_values($suggestions), 'trace' => $trace];
     }
+    return ['suggestions' => array_values($suggestions), 'trace' => $trace];
+}
 
     public static function save_meeting($data) {
         global $wpdb;
