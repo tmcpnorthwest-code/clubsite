@@ -453,10 +453,28 @@
     const table = qs("[data-tmp-member-table]", root);
     const count = qs("[data-tmp-member-count]", root);
 
-    async function render() {
-      const members = await api("/members");
-      count.textContent = `${members.length} ${members.length === 1 ? "record" : "records"}`;
-      table.innerHTML = members.map((member) => `
+    async function render(force = false) {
+      if (force === true || !root._members) {
+        root._members = await api("/members");
+      }
+      const members = root._members;
+
+      const searchTerm = qs("[data-tmp-admin-search]", root)?.value.toLowerCase() || "";
+      const groupKey = qs("[data-tmp-admin-group-by]", root)?.value || "none";
+      const statusFilter = qs("[data-tmp-admin-status]", root)?.value || "all";
+      const levelFilter = qs("[data-tmp-admin-level]", root)?.value || "all";
+
+      const filtered = members.filter(m => 
+        (!searchTerm || 
+          m.full_name.toLowerCase().includes(searchTerm) || 
+          m.email.toLowerCase().includes(searchTerm)) &&
+        (statusFilter === "all" || m.state === statusFilter) &&
+        (levelFilter === "all" || String(m.level) === levelFilter)
+      );
+
+      count.textContent = `${filtered.length} ${filtered.length === 1 ? "record" : "records"}`;
+
+      const memberToRow = (member) => `
         <tr>
           <td><strong>${esc(member.full_name)}</strong></td>
           <td>${esc(member.customer_id || "")}</td>
@@ -471,9 +489,23 @@
               <button class="tmp-small-button tmp-danger" type="button" data-delete-member="${esc(member.id)}">Delete</button>
             </div>
           </td>
-        </tr>
-      `).join("");
-      root._members = members;
+        </tr>`;
+
+      if (groupKey === "none") {
+        table.innerHTML = filtered.map(memberToRow).join("");
+      } else {
+        const groups = filtered.reduce((acc, m) => {
+          const key = (groupKey === 'level' ? `Level ${m.level}` : m[groupKey]) || "Unassigned";
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(m);
+          return acc;
+        }, {});
+
+        table.innerHTML = Object.keys(groups).sort().map(groupName => `
+          <tr class="tmp-group-row"><td colspan="8" style="background:#f5f5f5; font-weight:bold; padding:8px; border-bottom:1px solid #ccc;">${esc(groupName)} (${groups[groupName].length})</td></tr>
+          ${groups[groupName].map(memberToRow).join("")}
+        `).join("");
+      }
     }
 
     form.addEventListener("submit", async (event) => {
@@ -483,7 +515,7 @@
         body: JSON.stringify(formData(form)),
       });
       clearForm(form);
-      await render();
+      await render(true);
     });
 
     importForm?.addEventListener("submit", async (event) => {
@@ -506,10 +538,15 @@
 
       importStatus.textContent = `Imported ${data.imported_members} members. Created ${data.created_users} users, updated ${data.updated_users}.`;
       importForm.reset();
-      await render();
+      await render(true);
     });
 
     qs("[data-tmp-clear-member]", root)?.addEventListener("click", () => clearForm(form));
+
+    qs("[data-tmp-admin-search]", root)?.addEventListener("input", () => render());
+    qs("[data-tmp-admin-group-by]", root)?.addEventListener("change", () => render());
+    qs("[data-tmp-admin-status]", root)?.addEventListener("change", () => render());
+    qs("[data-tmp-admin-level]", root)?.addEventListener("change", () => render());
 
     table.addEventListener("click", async (event) => {
       const edit = event.target.closest("[data-edit-member]");
@@ -528,12 +565,12 @@
           const row = event.target.closest("tr");
           if (row) row.style.display = "none";
           await api(`/members/${del.dataset.deleteMember}`, { method: "DELETE" });
-          await render();
+          await render(true);
         }
       }
     });
 
-    await render();
+    await render(true);
   }
 
   async function initVPEducation() {

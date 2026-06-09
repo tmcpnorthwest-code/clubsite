@@ -171,6 +171,28 @@ class TMP_Shortcodes {
                     <h3>Members</h3>
                     <span data-tmp-member-count>0 records</span>
                 </div>
+                <div class="tmp-admin-filters" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; background: #f9f9f9; padding: 12px; border-radius: 4px; border: 1px solid #eee;">
+                    <input type="text" data-tmp-admin-search placeholder="Search by name or email..." style="flex: 1; min-width: 200px;">
+                    <select data-tmp-admin-status>
+                        <option value="all">All (Paid/Unpaid)</option>
+                        <option value="Paid">Paid Only</option>
+                        <option value="Unpaid">Unpaid Only</option>
+                    </select>
+                    <select data-tmp-admin-level>
+                        <option value="all">All Levels</option>
+                        <option value="1">Level 1</option>
+                        <option value="2">Level 2</option>
+                        <option value="3">Level 3</option>
+                        <option value="4">Level 4</option>
+                        <option value="5">Level 5</option>
+                    </select>
+                    <select data-tmp-admin-group-by>
+                        <option value="none">No Grouping</option>
+                        <option value="state">Group by Status</option>
+                        <option value="level">Group by Level</option>
+                        <option value="pathway">Group by Pathway</option>
+                    </select>
+                </div>
                 <div class="tmp-table-wrap">
                     <table class="tmp-table">
                         <thead>
@@ -181,6 +203,7 @@ class TMP_Shortcodes {
                                 <th>Pathway</th>
                                 <th>Level</th>
                                 <th>State</th>
+                                <th>Exempt?</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
