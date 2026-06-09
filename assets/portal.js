@@ -22,10 +22,7 @@
   }[char]));
 
   async function api(path, options = {}) {
-    const url = new URL(`${TMPortal.restUrl}${path}`);
-    if (options.method === 'GET' || !options.method) url.searchParams.set('_', Date.now());
-
-    const response = await fetch(url, {
+    const response = await fetch(`${TMPortal.restUrl}${path}`, {
       ...options,
       headers: {
         "Content-Type": "application/json",
@@ -69,67 +66,6 @@
     if (form.elements.id) {
       form.elements.id.value = "";
     }
-  }
-
-  function formatTime(totalMinutes) {
-    const h = Math.floor(totalMinutes / 60) % 24;
-    const m = totalMinutes % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-  }
-
-  function generatePrintView(meeting) {
-    const printWindow = window.open('', '_blank');
-    const [h, m] = (meeting.start_time || "18:30:00").split(':').map(Number);
-    let runningTime = h * 60 + m;
-
-    const agendaRows = (meeting.assignments || []).map((a) => {
-      const start = formatTime(runningTime);
-      const dur = Number(a.duration || 0);
-      runningTime += dur;
-      const end = formatTime(runningTime);
-      return `
-        <tr>
-          <td>${start}</td>
-          <td>${dur}m</td>
-          <td>${end}</td>
-          <td><strong>${esc(a.role_name)}</strong></td>
-          <td>${esc(a.member_name || 'Unassigned')}</td>
-          <td>${esc(a.speech_title || '')}</td>
-        </tr>`;
-    }).join('');
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Meeting Agenda - ${esc(meeting.meeting_date)}</title>
-          <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 50px; line-height: 1.6; color: #333; }
-            h1 { color: #004165; border-bottom: 2px solid #004165; padding-bottom: 10px; margin-bottom: 20px; }
-            .details { margin-bottom: 30px; background: #f9f9f9; padding: 20px; border-radius: 5px; border-left: 5px solid #004165; }
-            table { width: 100%; border-collapse: collapse; }
-            th { background: #004165; color: white; padding: 12px; text-align: left; }
-            td { border-bottom: 1px solid #ddd; padding: 12px; vertical-align: top; }
-            .notes { margin-top: 40px; white-space: pre-wrap; color: #555; font-style: italic; border-top: 1px solid #eee; padding-top: 20px; }
-            @media print { .no-print { display: none; } }
-          </style>
-        </head>
-        <body>
-          <h1>Toastmasters Meeting Agenda</h1>
-          <div class="details">
-            <strong>Date:</strong> ${esc(meeting.meeting_date)} | 
-            <strong>Theme:</strong> ${esc(meeting.theme)} | 
-            <strong>Venue:</strong> ${esc(meeting.venue || 'TBD')}
-          </div>
-          <table>
-            <thead><tr><th width="10%">Start</th><th width="10%">Dur</th><th width="10%">End</th><th width="25%">Role</th><th width="20%">Member</th><th width="25%">Speech Title / Notes</th></tr></thead>
-            <tbody>${agendaRows}</tbody>
-          </table>
-          <div class="notes"><strong>Agenda Notes:</strong><br>${esc(meeting.agenda_notes || 'No additional notes.')}</div>
-          <script>window.onload = () => { window.print(); window.close(); };</script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
   }
 
   /**
@@ -338,7 +274,13 @@
       ).join("");
     }
 
-    async function renderMeetings(selectedId = null) {
+    function formatTime(totalMinutes) {
+      const h = Math.floor(totalMinutes / 60) % 24;
+      const m = totalMinutes % 60;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+
+    async function renderMeetings() {
       const meetings = await api("/meetings") || [];
       root._meetings = Array.isArray(meetings) ? meetings : [];
       
@@ -347,28 +289,24 @@
         meetings.map((meeting) =>
         `<option value="${esc(meeting.id)}">${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</option>`
       ).join("");
-
-      if (selectedId) {
-        meetingSelect.value = selectedId;
-      }
-
       updateRoles();
 
       meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting) => {
         const [h, m] = (meeting.start_time || "18:30:00").split(':').map(Number);
-        const startTimeInMins = h * 60 + m;
+        const startTimeInMins = (h * 60) + m;
         let runningTime = startTimeInMins;
 
         const agendaHtml = (meeting.assignments || []).map((assignment) => {
           const start = formatTime(runningTime);
-          const duration = Number(assignment.duration || 0);
-          runningTime += duration;
+          runningTime += Number(assignment.duration || 0);
           const end = formatTime(runningTime);
           
           return `
               <li>
                 <span>
-                  <strong>${esc(assignment.role_name)}</strong> / ${assignment.member_name ? esc(assignment.member_name) : "Unassigned"} / <small class="tmp-time-tag">${start} / ${duration}m / ${end}</small>
+                  <small class="tmp-time-tag">${start} - ${end}</small>
+                  <strong>${esc(assignment.role_name)}</strong> - 
+                  ${assignment.member_name ? esc(assignment.member_name) : "<em>Unassigned</em>"}
                   ${assignment.speech_title ? `<br><small>Title: ${esc(assignment.speech_title)}</small>` : ""}
                 </span>
                 <span>
@@ -464,15 +402,13 @@
       if (btn) btn.disabled = true;
 
       try {
-        const newMeeting = await api("/meetings", {
+        await api("/meetings", {
           method: "POST",
           body: JSON.stringify(formData(meetingForm)),
         });
         alert("Meeting created successfully with role templates!");
         clearForm(meetingForm);
-        await renderMeetings(newMeeting.id);
-        // Also refresh member dashboard slots if present
-        updateMemberDashboard().catch(() => {});
+        await renderMeetings();
       } catch (err) {
         alert("Failed to save meeting: " + err.message);
       } finally {
@@ -508,7 +444,6 @@
         clearForm(assignmentForm);
         toggleSpeechTitle('');
         await renderMeetings();
-        updateMemberDashboard().catch(() => {});
       } catch (err) {
         alert("Failed to save assignment: " + err.message);
       } finally {
@@ -523,7 +458,6 @@
       const del = e.target.closest("[data-delete-assignment]");
       const approve = e.target.closest("[data-approve-assignment]");
       const suggest = e.target.closest("[data-suggest-roles]");
-      const print = e.target.closest("[data-print-agenda]");
 
       if (del) {
         await api(`/assignments/${del.dataset.deleteAssignment}`, { method: "DELETE" });
@@ -534,11 +468,6 @@
           body: JSON.stringify({ id: approve.dataset.approveAssignment, status: "Confirmed" })
         });
         await renderMeetings();
-      } else if (print) {
-        const meeting = root._meetings.find(m => String(m.id) === print.dataset.printAgenda);
-        if (meeting) {
-          generatePrintView(meeting);
-        }
       } else if (suggest) {
         const data = await api(`/meetings/${suggest.dataset.suggestRoles}/suggestions`);
         const suggestions = data.suggestions || [];
