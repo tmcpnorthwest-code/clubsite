@@ -94,38 +94,54 @@
         return `<li class="${className}">${esc(label)}</li>`;
       }).join("");
 
-      const recs = await api("/me/recommendations");
-      qs("[data-tmp-recommendations]", root).innerHTML = recs.map(r => `
-        <div class="tmp-rec-item">
-          <strong>${esc(r.title)}</strong>
-          <small>${esc(r.type)}</small>
-          <p>${esc(r.note)}</p>
-        </div>
-      `).join("");
+      try {
+        const recs = await api("/me/recommendations");
+        qs("[data-tmp-recommendations]", root).innerHTML = recs.map(r => `
+          <div class="tmp-rec-item">
+            <strong>${esc(r.title)}</strong>
+            <small>${esc(r.type)}</small>
+            <p>${esc(r.note)}</p>
+          </div>
+        `).join("");
+      } catch (e) {
+        qs("[data-tmp-recommendations]", root).innerHTML = "<p>Recommendations unavailable.</p>";
+      }
 
       const slots = await api("/meetings/open-slots");
-      const slotsContainer = qs("[data-tmp-open-slots]", root);
-      slotsContainer.innerHTML = slots.length ? slots.map(s => `
-        <div class="tmp-slot-item">
-          <span>${esc(s.meeting_date)} - <strong>${esc(s.role_name)}</strong> (${esc(s.theme)})</span>
-          <button class="tmp-small-button" data-claim-slot="${s.assignment_id}">Request Role</button>
-        </div>
-      `).join("") : "<p>No open roles available right now.</p>";
+      const reqForm = qs("[data-tmp-member-request-form]", root);
+      const mSelect = qs("[data-tmp-req-meeting-select]", reqForm);
+      const rSelect = qs("[data-tmp-req-role-select]", reqForm);
 
-      slotsContainer.addEventListener("click", async (e) => {
-        const btn = e.target.closest("[data-claim-slot]");
-        if (!btn) return;
-        
+      const grouped = slots.reduce((acc, s) => {
+        const key = `${s.meeting_date} - ${s.theme}`;
+        if (!acc[key]) acc[key] = { id: s.meeting_id, text: key, roles: [] };
+        acc[key].roles.push(s);
+        return acc;
+      }, {});
+
+      mSelect.innerHTML = '<option value="">Select a meeting...</option>' + 
+        Object.values(grouped).map(g => `<option value="${esc(g.id)}">${esc(g.text)} (${g.roles.length} roles open)</option>`).join("");
+
+      mSelect.addEventListener("change", () => {
+        const group = Object.values(grouped).find(g => String(g.id) === mSelect.value);
+        rSelect.innerHTML = group ? group.roles.map(r => `<option value="${esc(r.assignment_id)}">${esc(r.role_name)}</option>`).join("") : "";
+      });
+
+      reqForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!rSelect.value) return;
+        const btn = reqForm.querySelector('button');
         btn.disabled = true;
-        btn.textContent = "Requesting...";
         try {
           await api("/assignments", {
             method: "POST",
-            body: JSON.stringify({ id: btn.dataset.claimSlot, member_id: member.id, status: "Requested" })
+            body: JSON.stringify({ id: rSelect.value, member_id: member.id, status: "Requested" })
           });
+          alert("Role requested successfully!");
           initMemberDashboard();
         } catch (err) {
           alert(err.message);
+        } finally {
           btn.disabled = false;
         }
       });
@@ -233,6 +249,7 @@
     const meetingForm = qs("[data-tmp-meeting-form]", root);
     const assignmentForm = qs("[data-tmp-assignment-form]", root);
     const meetingSelect = qs("[data-tmp-meeting-select]", root);
+    const roleSelect = qs("[data-tmp-role-select]", root);
     const memberSelect = qs("[data-tmp-member-select]", root);
     const meetingList = qs("[data-tmp-meeting-list]", root);
     const meetingCount = qs("[data-tmp-meeting-count]", root);
@@ -246,10 +263,32 @@
 
     async function renderMeetings() {
       const meetings = await api("/meetings");
+      root._meetings = meetings;
       meetingCount.textContent = `${meetings.length} ${meetings.length === 1 ? "meeting" : "meetings"}`;
       meetingSelect.innerHTML = meetings.map((meeting) =>
         `<option value="${esc(meeting.id)}">${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</option>`
       ).join("");
+      
+      // Populate roles based on selected meeting
+      const updateRoles = () => {
+        const meeting = root._meetings.find(m => String(m.id) === meetingSelect.value);
+        roleSelect.innerHTML = (meeting?.assignments || []).map(a => 
+          `<option value="${esc(a.role_name)}" data-id="${esc(a.id)}">${esc(a.role_name)}</option>`
+        ).join("");
+      };
+
+      meetingSelect.addEventListener("change", updateRoles);
+      updateRoles();
+
+      // Auto-fill assignment form when role is picked
+      roleSelect.addEventListener("change", () => {
+        const meeting = root._meetings.find(m => String(m.id) === meetingSelect.value);
+        const assignment = meeting.assignments.find(a => a.role_name === roleSelect.value);
+        if (assignment) {
+          assignmentForm.elements.id.value = assignment.id;
+          fillForm(assignmentForm, assignment);
+        }
+      });
 
       meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting) => `
         <article class="tmp-agenda-card">
@@ -368,8 +407,14 @@
       }
     });
 
-    await renderMembers();
-    await renderMeetings();
+    try {
+      // Run these independently so one failure doesn't block the other
+      renderMembers().catch(err => console.error("Members load failed:", err));
+      await renderMeetings();
+    } catch (err) {
+      console.error("VPE Dashboard Initialization Error:", err);
+      meetingList.innerHTML = `<div class="tmp-panel tmp-danger"><h3>Error loading agendas</h3><p>${esc(err.message)}</p></div>`;
+    }
   }
 
   async function initEnrolment() {

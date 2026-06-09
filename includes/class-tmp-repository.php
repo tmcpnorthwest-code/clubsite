@@ -133,6 +133,10 @@ class TMP_Repository {
         $members = self::member_table();
 
         $rows = $wpdb->get_results("SELECT * FROM {$meetings} ORDER BY meeting_date DESC, id DESC LIMIT 25", ARRAY_A);
+        if (!is_array($rows)) {
+            return array();
+        }
+
         foreach ($rows as &$meeting) {
             $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
                 "SELECT a.*, m.full_name AS member_name
@@ -141,7 +145,7 @@ class TMP_Repository {
                  WHERE a.meeting_id = %d
                  ORDER BY a.sort_order ASC, a.id ASC",
                 $meeting['id']
-            ), ARRAY_A);
+            ), ARRAY_A) ?: array();
 
             foreach ($meeting['assignments'] as &$assignment) {
                 if (!empty($assignment['member_id'])) {

@@ -101,7 +101,18 @@ class TMP_Shortcodes {
                 </article>
                 <article class="tmp-panel tmp-wide">
                     <h3>Available Meeting Slots</h3>
-                    <div class="tmp-slot-list" data-tmp-open-slots>Checking for open roles...</div>
+                    <form class="tmp-panel tmp-form" data-tmp-member-request-form style="margin-top:10px; border:1px dashed #ccc;">
+                        <p class="tmp-eyebrow">Request a role</p>
+                        <div class="tmp-grid" style="grid-template-columns: 1fr 1fr auto; align-items: end; gap: 10px;">
+                            <label>Meeting 
+                                <select name="meeting_id" required data-tmp-req-meeting-select>
+                                    <option value="">Select a meeting...</option>
+                                </select>
+                            </label>
+                            <label>Role <select name="assignment_id" required data-tmp-req-role-select></select></label>
+                            <button class="tmp-button tmp-primary" type="submit">Submit Request</button>
+                        </div>
+                    </form>
                 </article>
             </div>
         </div>
@@ -208,7 +219,7 @@ class TMP_Shortcodes {
                 <input type="hidden" name="id" />
                 <label>Meeting <select name="meeting_id" required data-tmp-meeting-select></select></label>
                 <div class="tmp-wide"><small>Create unassigned role slots here. Members can then request these roles, and you can approve them with one click.</small></div>
-                <label>Role <input name="role_name" required placeholder="Toastmaster, Speaker, Evaluator" /></label>
+                <label>Role <select name="role_name" required data-tmp-role-select></select></label>
                 <label>Member <select name="member_id" data-tmp-member-select></select></label>
                 <label>Speech title <input name="speech_title" placeholder="Optional speech title" /></label>
                 <label>Status
