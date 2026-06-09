@@ -68,11 +68,13 @@
     }
   }
 
-  async function initMemberDashboard() {
+  /**
+   * Fetches data and updates the Member Dashboard UI.
+   * Does NOT attach event listeners.
+   */
+  async function updateMemberDashboard() {
     const root = qs("[data-tmp-member-dashboard]");
-    if (!root) {
-      return;
-    }
+    if (!root) return;
 
     try {
       const member = await api("/me");
@@ -94,25 +96,12 @@
         return `<li class="${className}">${esc(label)}</li>`;
       }).join("");
 
-      try {
-        const recs = await api("/me/recommendations");
-        qs("[data-tmp-recommendations]", root).innerHTML = recs.map(r => `
-          <div class="tmp-rec-item">
-            <strong>${esc(r.title)}</strong>
-            <small>${esc(r.type)}</small>
-            <p>${esc(r.note)}</p>
-          </div>
-        `).join("");
-      } catch (e) {
-        qs("[data-tmp-recommendations]", root).innerHTML = "<p>Recommendations unavailable.</p>";
-      }
-
       const slots = await api("/meetings/open-slots");
       const reqForm = qs("[data-tmp-member-request-form]", root);
       const mSelect = qs("[data-tmp-req-meeting-select]", reqForm);
       const rSelect = qs("[data-tmp-req-role-select]", reqForm);
 
-      const grouped = slots.reduce((acc, s) => {
+      root._groupedSlots = slots.reduce((acc, s) => {
         const key = `${s.meeting_date} - ${s.theme}`;
         if (!acc[key]) acc[key] = { id: s.meeting_id, text: key, roles: [] };
         acc[key].roles.push(s);
@@ -120,34 +109,58 @@
       }, {});
 
       mSelect.innerHTML = '<option value="">Select a meeting...</option>' + 
-        Object.values(grouped).map(g => `<option value="${esc(g.id)}">${esc(g.text)} (${g.roles.length} roles open)</option>`).join("");
+        Object.values(root._groupedSlots).map(g => `<option value="${esc(g.id)}">${esc(g.text)} (${g.roles.length} roles open)</option>`).join("");
+      rSelect.innerHTML = '<option value="">Select a meeting first...</option>';
 
-      mSelect.addEventListener("change", () => {
-        const group = Object.values(grouped).find(g => String(g.id) === mSelect.value);
-        rSelect.innerHTML = group ? group.roles.map(r => `<option value="${esc(r.assignment_id)}">${esc(r.role_name)}</option>`).join("") : "";
-      });
+      const recs = await api("/me/recommendations").catch(() => []);
+      qs("[data-tmp-recommendations]", root).innerHTML = recs.length ? recs.map(r => `
+        <div class="tmp-rec-item">
+          <strong>${esc(r.title)}</strong>
+          <small>${esc(r.type)}</small>
+          <p>${esc(r.note)}</p>
+        </div>
+      `).join("") : "<p>No recommendations today.</p>";
 
-      reqForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        if (!rSelect.value) return;
-        const btn = reqForm.querySelector('button');
-        btn.disabled = true;
-        try {
-          await api("/assignments", {
-            method: "POST",
-            body: JSON.stringify({ id: rSelect.value, member_id: member.id, status: "Requested" })
-          });
-          alert("Role requested successfully!");
-          initMemberDashboard();
-        } catch (err) {
-          alert(err.message);
-        } finally {
-          btn.disabled = false;
-        }
-      });
+      root._member = member;
     } catch (error) {
       root.innerHTML = `<div class="tmp-panel"><h2>Dashboard unavailable</h2><p>${esc(error.message)}</p></div>`;
     }
+  }
+
+  async function initMemberDashboard() {
+    const root = qs("[data-tmp-member-dashboard]");
+    if (!root) return;
+
+    const reqForm = qs("[data-tmp-member-request-form]", root);
+    const mSelect = qs("[data-tmp-req-meeting-select]", reqForm);
+    const rSelect = qs("[data-tmp-req-role-select]", reqForm);
+
+    await updateMemberDashboard();
+
+    mSelect.addEventListener("change", () => {
+      const group = Object.values(root._groupedSlots || {}).find(g => String(g.id) === mSelect.value);
+      rSelect.innerHTML = '<option value="">Select an available role...</option>' + 
+        (group ? group.roles.map(r => `<option value="${esc(r.assignment_id)}">${esc(r.role_name)}</option>`).join("") : "");
+    });
+
+    reqForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!rSelect.value || !root._member) return;
+      const btn = reqForm.querySelector('button');
+      btn.disabled = true;
+      try {
+        await api("/assignments", {
+          method: "POST",
+          body: JSON.stringify({ id: rSelect.value, member_id: root._member.id, status: "Requested" })
+        });
+        alert("Role requested successfully!");
+        await updateMemberDashboard();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
   }
 
   async function initAdmin() {
@@ -268,27 +281,7 @@
       meetingSelect.innerHTML = meetings.map((meeting) =>
         `<option value="${esc(meeting.id)}">${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</option>`
       ).join("");
-      
-      // Populate roles based on selected meeting
-      const updateRoles = () => {
-        const meeting = root._meetings.find(m => String(m.id) === meetingSelect.value);
-        roleSelect.innerHTML = (meeting?.assignments || []).map(a => 
-          `<option value="${esc(a.role_name)}" data-id="${esc(a.id)}">${esc(a.role_name)}</option>`
-        ).join("");
-      };
-
-      meetingSelect.addEventListener("change", updateRoles);
       updateRoles();
-
-      // Auto-fill assignment form when role is picked
-      roleSelect.addEventListener("change", () => {
-        const meeting = root._meetings.find(m => String(m.id) === meetingSelect.value);
-        const assignment = meeting.assignments.find(a => a.role_name === roleSelect.value);
-        if (assignment) {
-          assignmentForm.elements.id.value = assignment.id;
-          fillForm(assignmentForm, assignment);
-        }
-      });
 
       meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting) => `
         <article class="tmp-agenda-card">
@@ -318,6 +311,38 @@
       `).join("")}</div>`;
     }
 
+    const updateRoles = () => {
+      const meeting = (root._meetings || []).find(m => String(m.id) === meetingSelect.value);
+      let html = '<option value="">-- Existing Slots (Select to Edit) --</option>';
+      html += (meeting?.assignments || []).map(a => 
+        `<option value="id:${esc(a.id)}">${esc(a.role_name)} ${a.member_name ? '('+esc(a.member_name)+')' : '(Unassigned)'}</option>`
+      ).join("");
+
+      html += '<option value="">-- Standard Roles (Create New) --</option>';
+      html += Object.keys(TMPortal.standardRoles).map(role => 
+        `<option value="name:${esc(role)}">${esc(role)}</option>`
+      ).join("");
+      
+      roleSelect.innerHTML = html;
+    };
+
+    meetingSelect.addEventListener("change", updateRoles);
+
+    roleSelect.addEventListener("change", () => {
+      const val = roleSelect.value;
+      if (!val) return;
+      const meeting = (root._meetings || []).find(m => String(m.id) === meetingSelect.value);
+      if (val.startsWith('id:')) {
+        const id = val.split(':')[1];
+        const assignment = meeting?.assignments.find(a => String(a.id) === id);
+        if (assignment) fillForm(assignmentForm, assignment);
+      } else if (val.startsWith('name:')) {
+        clearForm(assignmentForm);
+        assignmentForm.elements.meeting_id.value = meetingSelect.value;
+        assignmentForm._tmp_role_name = val.split(':')[1]; 
+      }
+    });
+
     meetingForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const btn = event.target.querySelector('button[type="submit"]');
@@ -344,11 +369,25 @@
       if (btn) btn.disabled = true;
 
       try {
+        const data = formData(assignmentForm);
+        
+        // Logic check: If we are using a template role, ensure the role_name is correctly set
+        if (assignmentForm._tmp_role_name && !data.id) {
+            data.role_name = assignmentForm._tmp_role_name;
+        } else if (roleSelect.value.startsWith('id:')) {
+            // If editing an existing slot, ensure we don't accidentally pass "id:XX" as the role name
+            const id = roleSelect.value.split(':')[1];
+            const meeting = root._meetings.find(m => String(m.id) === data.meeting_id);
+            const assignment = meeting?.assignments.find(a => String(a.id) === id);
+            if (assignment) data.role_name = assignment.role_name;
+        }
+
         await api("/assignments", {
           method: "POST",
-          body: JSON.stringify(formData(assignmentForm)),
+          body: JSON.stringify(data),
         });
         alert("Assignment saved.");
+        delete assignmentForm._tmp_role_name;
         clearForm(assignmentForm);
         await renderMeetings();
       } catch (err) {

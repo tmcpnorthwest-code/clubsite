@@ -20,6 +20,17 @@ class TMP_Repository {
         return $wpdb->prefix . 'tmp_role_assignments';
     }
 
+    public static function get_standard_roles() {
+        return [
+            'Toastmaster of the Day' => 'TMOD',
+            'Table Topics Master'    => 'Topics Master',
+            'General Evaluator'      => 'GE',
+            'Timer'                 => 'Timer',
+            'Ah Counter'            => 'Ah Counter',
+            'Grammarian'            => 'Grammarian',
+        ];
+    }
+
     private static function log($message) {
         if (defined('WP_DEBUG') && WP_DEBUG) {
             error_log($message);

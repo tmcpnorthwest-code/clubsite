@@ -24,6 +24,7 @@ class TMP_Shortcodes {
         wp_localize_script('tmp-portal', 'TMPortal', array(
             'restUrl' => esc_url_raw(rest_url('toastmasters/v1')),
             'nonce' => wp_create_nonce('wp_rest'),
+            'standardRoles' => TMP_Repository::get_standard_roles(),
             'loginUrl' => wp_login_url(get_permalink()),
             'logoutUrl' => wp_logout_url(home_url('/')),
             'currentUser' => is_user_logged_in() ? array(
@@ -198,12 +199,9 @@ class TMP_Shortcodes {
                 <div class="tmp-wide tmp-roles-setup" style="margin: 10px 0; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
                     <p class="tmp-eyebrow">Meeting Template (New meetings only)</p>
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 10px;">
-                        <label><input type="checkbox" name="roles[]" value="Toastmaster of the Day" checked> TMOD</label>
-                        <label><input type="checkbox" name="roles[]" value="Grammarian" checked> Grammarian</label>
-                        <label><input type="checkbox" name="roles[]" value="Ah Counter" checked> Ah Counter</label>
-                        <label><input type="checkbox" name="roles[]" value="Timer" checked> Timer</label>
-                        <label><input type="checkbox" name="roles[]" value="General Evaluator" checked> General Evaluator</label>
-                        <label><input type="checkbox" name="roles[]" value="Table Topics Master" checked> Topics Master</label>
+                        <?php foreach (TMP_Repository::get_standard_roles() as $fullName => $shortName) : ?>
+                            <label><input type="checkbox" name="roles[]" value="<?php echo esc_attr($fullName); ?>" checked> <?php echo esc_html($shortName); ?></label>
+                        <?php endforeach; ?>
                     </div>
                     <label>Number of Speech Slots <input type="number" name="speech_slots" value="3" min="0" max="10" /></label>
                     <p style="font-size: 11px; color: #666; margin-top: 5px;">* This will automatically create matching Evaluator slots.</p>
