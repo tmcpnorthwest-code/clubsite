@@ -22,6 +22,8 @@ class TMP_Repository {
 
     public static function get_standard_roles() {
         return [
+            'Sergeant at Arms'       => 'SAA',
+            'Presiding Officer'      => 'Presiding Officer',
             'Toastmaster of the Day' => 'TMOD',
             'Table Topics Master'    => 'Topics Master',
             'General Evaluator'      => 'GE',
@@ -178,7 +180,7 @@ class TMP_Repository {
         if (strpos($role, 'evaluator') !== false) {
             return $level >= 2 ? ['suitable' => true, 'reason' => 'L2+'] : ['suitable' => false, 'reason' => 'Needs L2+'];
         }
-        if (strpos($role, 'toastmaster') !== false || strpos($role, 'topics') !== false || strpos($role, 'general') !== false) {
+        if (strpos($role, 'toastmaster') !== false || strpos($role, 'topics') !== false || strpos($role, 'general') !== false || strpos($role, 'presiding') !== false) {
             return $level >= 3 ? ['suitable' => true, 'reason' => 'L3+'] : ['suitable' => false, 'reason' => 'Needs L3+'];
         }
         
@@ -311,6 +313,8 @@ class TMP_Repository {
 
         $record = array(
             'meeting_date' => sanitize_text_field($data['meeting_date'] ?? ''),
+            'start_time' => sanitize_text_field($data['start_time'] ?? '18:30'),
+            'total_duration' => absint($data['total_duration'] ?? 120),
             'theme' => sanitize_text_field($data['theme'] ?? ''),
             'venue' => sanitize_text_field($data['venue'] ?? ''),
             'agenda_notes' => sanitize_textarea_field($data['agenda_notes'] ?? ''),
@@ -330,34 +334,66 @@ class TMP_Repository {
             $id = (int) $wpdb->insert_id;
 
             // Auto-generate assignments for new meetings
-            $roles = $data['roles'] ?? [];
+            $selected_roles = $data['roles'] ?? [];
+            $agenda = [];
+            
+            // 1. SAA
+            if (in_array('Sergeant at Arms', $selected_roles)) {
+                $agenda[] = ['role' => 'Sergeant at Arms', 'note' => 'Starts meeting', 'dur' => 2];
+            }
+            // 2. Presiding Officer Intro
+            if (in_array('Presiding Officer', $selected_roles)) {
+                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Address and guests', 'dur' => 5];
+            }
+            // 3. TMOD Theme Intro
+            if (in_array('Toastmaster of the Day', $selected_roles)) {
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Intro of theme', 'dur' => 5];
+            }
+            // 4. Role Intros
+            $intro_roles = ['Grammarian', 'Timer', 'Ah Counter', 'General Evaluator'];
+            foreach ($intro_roles as $r) {
+                if (in_array($r, $selected_roles)) $agenda[] = ['role' => $r, 'note' => 'Intro', 'dur' => 2];
+            }
+            // 5. TMOD Segments
+            if (in_array('Toastmaster of the Day', $selected_roles)) {
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Intro segments', 'dur' => 3];
+            }
+            // 6. Speaker/Evaluator Sequence
+            $slots = absint($data['speech_slots'] ?? 0);
+            for ($i = 1; $i <= $slots; $i++) {
+                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Intro speaker', 'dur' => 1];
+                $agenda[] = ['role' => "Speaker $i", 'note' => 'Speech', 'dur' => 7];
+            }
+            // 7. Break
+            $agenda[] = ['role' => 'Break', 'note' => 'Networking', 'dur' => 5];
+            // 8. TMOD Discuss theme
+            if (in_array('Toastmaster of the Day', $selected_roles)) {
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Discuss theme', 'dur' => 3];
+            }
+            // 9. Evaluations
+            for ($i = 1; $i <= $slots; $i++) {
+                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 2];
+            }
+            // 10. Reports
+            if (in_array('Timer', $selected_roles)) $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 2];
+            if (in_array('Grammarian', $selected_roles)) $agenda[] = ['role' => 'Grammarian', 'note' => 'Report', 'dur' => 3];
+            if (in_array('Ah Counter', $selected_roles)) $agenda[] = ['role' => 'Ah Counter', 'note' => 'Report', 'dur' => 3];
+            if (in_array('General Evaluator', $selected_roles)) $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 5];
+            // 11. Closing
+            if (in_array('Presiding Officer', $selected_roles)) {
+                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Closing address', 'dur' => 4];
+            }
+
             $order = 10;
-            foreach ($roles as $role) {
+            foreach ($agenda as $item) {
                 self::save_assignment([
                     'meeting_id' => $id,
-                    'role_name' => sanitize_text_field($role),
+                    'role_name' => sanitize_text_field($item['role'] . ($item['note'] ? " (" . $item['note'] . ")" : "")),
+                    'duration' => $item['dur'],
                     'status' => 'Planned',
                     'sort_order' => $order
                 ]);
                 $order += 10;
-            }
-
-            $slots = absint($data['speech_slots'] ?? 0);
-            for ($i = 1; $i <= $slots; $i++) {
-                self::save_assignment([
-                    'meeting_id' => $id,
-                    'role_name' => "Speaker $i",
-                    'status' => 'Planned',
-                    'sort_order' => 100 + $i
-                ]);
-            }
-            for ($i = 1; $i <= $slots; $i++) {
-                self::save_assignment([
-                    'meeting_id' => $id,
-                    'role_name' => "Evaluator $i",
-                    'status' => 'Planned',
-                    'sort_order' => 200 + $i
-                ]);
             }
         }
 
@@ -374,6 +410,7 @@ class TMP_Repository {
         if (isset($data['member_id'])) $record['member_id'] = !empty($data['member_id']) ? absint($data['member_id']) : null;
         if (isset($data['role_name'])) $record['role_name'] = sanitize_text_field($data['role_name']);
         if (isset($data['speech_title'])) $record['speech_title'] = sanitize_text_field($data['speech_title']);
+        if (isset($data['duration'])) $record['duration'] = absint($data['duration']);
         if (isset($data['status'])) $record['status'] = sanitize_text_field($data['status']);
         if (isset($data['sort_order'])) $record['sort_order'] = absint($data['sort_order']);
         

@@ -68,6 +68,64 @@
     }
   }
 
+  function formatTime(totalMinutes) {
+    const h = Math.floor(totalMinutes / 60) % 24;
+    const m = totalMinutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  function generatePrintView(meeting) {
+    const printWindow = window.open('', '_blank');
+    const [h, m] = (meeting.start_time || "18:30:00").split(':').map(Number);
+    let runningTime = h * 60 + m;
+
+    const agendaRows = (meeting.assignments || []).map((a) => {
+      const start = formatTime(runningTime);
+      runningTime += Number(a.duration || 0);
+      const end = formatTime(runningTime);
+      return `
+        <tr>
+          <td>${start} - ${end}</td>
+          <td><strong>${esc(a.role_name)}</strong></td>
+          <td>${esc(a.member_name || 'Unassigned')}</td>
+          <td>${esc(a.speech_title || '')}</td>
+        </tr>`;
+    }).join('');
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Meeting Agenda - ${esc(meeting.meeting_date)}</title>
+          <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 50px; line-height: 1.6; color: #333; }
+            h1 { color: #004165; border-bottom: 2px solid #004165; padding-bottom: 10px; margin-bottom: 20px; }
+            .details { margin-bottom: 30px; background: #f9f9f9; padding: 20px; border-radius: 5px; border-left: 5px solid #004165; }
+            table { width: 100%; border-collapse: collapse; }
+            th { background: #004165; color: white; padding: 12px; text-align: left; }
+            td { border-bottom: 1px solid #ddd; padding: 12px; vertical-align: top; }
+            .notes { margin-top: 40px; white-space: pre-wrap; color: #555; font-style: italic; border-top: 1px solid #eee; padding-top: 20px; }
+            @media print { .no-print { display: none; } }
+          </style>
+        </head>
+        <body>
+          <h1>Toastmasters Meeting Agenda</h1>
+          <div class="details">
+            <strong>Date:</strong> ${esc(meeting.meeting_date)} | 
+            <strong>Theme:</strong> ${esc(meeting.theme)} | 
+            <strong>Venue:</strong> ${esc(meeting.venue || 'TBD')}
+          </div>
+          <table>
+            <thead><tr><th width="15%">Time</th><th width="30%">Role</th><th width="25%">Member</th><th width="30%">Speech Title / Notes</th></tr></thead>
+            <tbody>${agendaRows}</tbody>
+          </table>
+          <div class="notes"><strong>Agenda Notes:</strong><br>${esc(meeting.agenda_notes || 'No additional notes.')}</div>
+          <script>window.onload = () => { window.print(); window.close(); };</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  }
+
   /**
    * Fetches data and updates the Member Dashboard UI.
    * Does NOT attach event listeners.
@@ -285,32 +343,57 @@
       ).join("");
       updateRoles();
 
-      meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting) => `
-        <article class="tmp-agenda-card">
-          <h4>${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</h4>
-          <p>${esc(meeting.venue || "Venue not set")}</p>
-          <p>${esc(meeting.agenda_notes || "")}</p>
-          <ul class="tmp-assignment-list">
-            ${(meeting.assignments || []).sort((a,b) => (a.status === 'Requested' ? -1 : 1)).map((assignment) => `
+      meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting) => {
+        const [h, m] = (meeting.start_time || "18:30:00").split(':').map(Number);
+        const startTimeInMins = h * 60 + m;
+        let runningTime = startTimeInMins;
+
+        const agendaHtml = (meeting.assignments || []).map((assignment) => {
+          const start = formatTime(runningTime);
+          runningTime += Number(assignment.duration || 0);
+          const end = formatTime(runningTime);
+          
+          return `
               <li>
                 <span>
-                  <strong>${esc(assignment.role_name)}</strong> 
-                  ${assignment.status === 'Requested' ? '<span class="tmp-tag" style="background:#ffd700; padding:2px 4px; border-radius:3px; font-size:10px;">PRIORITY REQUEST</span>' : ''}
-                  ${assignment.member_name ? ` - ${esc(assignment.member_name)}` : ""}
-                  ${assignment.suitability ? `<span class="tmp-tag" style="background:${assignment.suitability.suitable ? '#e1f5fe' : '#ffebee'}; color:${assignment.suitability.suitable ? '#01579b' : '#b71c1c'}; padding:2px 4px; border-radius:3px; font-size:10px; margin-left:5px;">${esc(assignment.suitability.reason)}</span>` : ""}
-                  ${assignment.speech_title ? `<br>${esc(assignment.speech_title)}` : ""}
+                  <small class="tmp-time-tag">${start} - ${end}</small>
+                  <strong>${esc(assignment.role_name)}</strong> - 
+                  ${assignment.member_name ? esc(assignment.member_name) : "<em>Unassigned</em>"}
+                  ${assignment.speech_title ? `<br><small>Title: ${esc(assignment.speech_title)}</small>` : ""}
                 </span>
                 <span>
-                  ${esc(assignment.status)}
                   ${assignment.status === 'Requested' ? `<button class="tmp-small-button" style="background:#2e7d32; color:white;" type="button" data-approve-assignment="${esc(assignment.id)}">Approve</button>` : ""}
                   <button class="tmp-small-button tmp-danger" type="button" data-delete-assignment="${esc(assignment.id)}">Delete</button>
                 </span>
               </li>
-            `).join("") || "<li><span>No roles scheduled yet.</span></li>"}
+          `;
+        }).join("");
+
+        const totalAssigned = runningTime - startTimeInMins;
+        const limit = Number(meeting.total_duration || 120);
+        const warning = (totalAssigned > limit) ? 
+          `<p class="tmp-tag" style="background:#b71c1c; color:white; display:block; margin:10px 0; text-align:center; padding:5px; border-radius:4px;">
+            Warning: Agenda (${totalAssigned}m) exceeds limit (${limit}m)
+          </p>` : '';
+
+        return `
+        <article class="tmp-agenda-card">
+          <div class="tmp-card-head">
+            <h4>${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</h4>
+            <span class="tmp-tag">${esc(meeting.start_time ? meeting.start_time.substring(0,5) : "18:30")}</span>
+          </div>
+          <p>${esc(meeting.venue || "Venue not set")}</p>
+          <p>${esc(meeting.agenda_notes || "")}</p>
+          ${warning}
+          <ul class="tmp-assignment-list">
+            ${agendaHtml || "<li><span>No roles scheduled yet.</span></li>"}
           </ul>
-          <button class="tmp-button tmp-secondary tmp-small" data-suggest-roles="${meeting.id}">Get Intelligent Suggestions</button>
+          <div style="display:flex; gap:10px; margin-top:15px;">
+            <button class="tmp-button tmp-secondary tmp-small" data-suggest-roles="${meeting.id}">Get Intelligent Suggestions</button>
+            <button class="tmp-button tmp-secondary tmp-small" data-print-agenda="${meeting.id}">Print Agenda</button>
+          </div>
         </article>
-      `).join("")}</div>`;
+      `}).join("")}</div>`;
     }
 
     const updateRoles = () => {
@@ -328,21 +411,41 @@
       roleSelect.innerHTML = html;
     };
 
+    const speechTitleWrapper = qs("[data-tmp-speech-title-wrapper]", assignmentForm);
+    const toggleSpeechTitle = (roleName) => {
+      if (roleName && roleName.toLowerCase().includes('speaker')) {
+        speechTitleWrapper.style.display = 'block';
+      } else {
+        speechTitleWrapper.style.display = 'none';
+      }
+    };
+
     meetingSelect.addEventListener("change", updateRoles);
 
     roleSelect.addEventListener("change", () => {
       const val = roleSelect.value;
-      if (!val) return;
+      if (!val) {
+        toggleSpeechTitle('');
+        return;
+      }
+
       const meeting = (root._meetings || []).find(m => String(m.id) === meetingSelect.value);
+      let selectedRoleName = '';
+
       if (val.startsWith('id:')) {
         const id = val.split(':')[1];
         const assignment = meeting?.assignments.find(a => String(a.id) === id);
-        if (assignment) fillForm(assignmentForm, assignment);
+        if (assignment) {
+          fillForm(assignmentForm, assignment);
+          selectedRoleName = assignment.role_name;
+        }
       } else if (val.startsWith('name:')) {
         clearForm(assignmentForm);
         assignmentForm.elements.meeting_id.value = meetingSelect.value;
-        assignmentForm._tmp_role_name = val.split(':')[1]; 
+        selectedRoleName = val.split(':')[1];
+        assignmentForm._tmp_role_name = selectedRoleName; 
       }
+      toggleSpeechTitle(selectedRoleName);
     });
 
     meetingForm.addEventListener("submit", async (event) => {
@@ -391,6 +494,7 @@
         alert("Assignment saved.");
         delete assignmentForm._tmp_role_name;
         clearForm(assignmentForm);
+        toggleSpeechTitle('');
         await renderMeetings();
       } catch (err) {
         alert("Failed to save assignment: " + err.message);
@@ -406,6 +510,7 @@
       const del = e.target.closest("[data-delete-assignment]");
       const approve = e.target.closest("[data-approve-assignment]");
       const suggest = e.target.closest("[data-suggest-roles]");
+      const print = e.target.closest("[data-print-agenda]");
 
       if (del) {
         await api(`/assignments/${del.dataset.deleteAssignment}`, { method: "DELETE" });
@@ -416,6 +521,11 @@
           body: JSON.stringify({ id: approve.dataset.approveAssignment, status: "Confirmed" })
         });
         await renderMeetings();
+      } else if (print) {
+        const meeting = root._meetings.find(m => String(m.id) === print.dataset.printAgenda);
+        if (meeting) {
+          generatePrintView(meeting);
+        }
       } else if (suggest) {
         const data = await api(`/meetings/${suggest.dataset.suggestRoles}/suggestions`);
         const suggestions = data.suggestions || [];

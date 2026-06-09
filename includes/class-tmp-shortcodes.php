@@ -194,6 +194,8 @@ class TMP_Shortcodes {
             <form class="tmp-panel tmp-form" data-tmp-meeting-form>
                 <input type="hidden" name="id" />
                 <label>Meeting date <input type="date" name="meeting_date" required /></label>
+                <label>Start time <input type="time" name="start_time" value="18:30" /></label>
+                <label>Total Duration (mins) <input type="number" name="total_duration" value="120" min="0" /></label>
                 <label>Theme <input name="theme" required placeholder="Meeting theme" /></label>
                 <label>Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
                 <div class="tmp-wide tmp-roles-setup" style="margin: 10px 0; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
@@ -219,7 +221,8 @@ class TMP_Shortcodes {
                 <div class="tmp-wide"><small>Create unassigned role slots here. Members can then request these roles, and you can approve them with one click.</small></div>
                 <label>Role <select name="role_name" required data-tmp-role-select></select></label>
                 <label>Member <select name="member_id" data-tmp-member-select></select></label>
-                <label>Speech title <input name="speech_title" placeholder="Optional speech title" /></label>
+                <label data-tmp-speech-title-wrapper>Speech title <input name="speech_title" placeholder="Optional speech title" /></label>
+                <label>Duration (mins) <input type="number" name="duration" min="0" placeholder="e.g. 7" /></label>
                 <label>Status
                     <select name="status">
                         <option>Planned</option>

@@ -99,6 +99,8 @@ class TMP_Activator {
         dbDelta("CREATE TABLE {$meetings} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             meeting_date DATE NOT NULL,
+            start_time TIME NULL,
+            total_duration INT UNSIGNED NOT NULL DEFAULT 120,
             theme VARCHAR(190) NOT NULL,
             venue VARCHAR(190) NULL,
             agenda_notes TEXT NULL,
@@ -114,6 +116,7 @@ class TMP_Activator {
             member_id BIGINT UNSIGNED NULL,
             role_name VARCHAR(120) NOT NULL,
             speech_title VARCHAR(190) NULL,
+            duration INT UNSIGNED NOT NULL DEFAULT 0,
             status VARCHAR(80) NOT NULL DEFAULT 'Planned',
             sort_order INT UNSIGNED NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
