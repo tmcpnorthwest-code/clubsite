@@ -83,7 +83,12 @@ class TMP_Repository {
      * Checks if a role is singular (e.g., only one person performs all TMOD segments).
      */
     public static function is_singular_role($base_role) {
-        return array_key_exists($base_role, self::get_standard_roles());
+        if (array_key_exists($base_role, self::get_standard_roles())) {
+            return true;
+        }
+
+        // Also treat numbered slots (Speaker 1, Evaluator 2, etc.) as singular entities
+        return (bool) preg_match('/^(Speaker|Evaluator)\s+\d+$/i', $base_role);
     }
 
     public static function save_member($data) {
@@ -292,7 +297,9 @@ class TMP_Repository {
             // Rule: If this is a singular role and we already suggested/assigned someone, reuse them.
             if (self::is_singular_role($base_role) && isset($singular_role_map[$base_role])) {
                 $m_id = $singular_role_map[$base_role];
-                $m_data = array_values(array_filter($members, fn($m) => (int)$m['id'] === $m_id))[0] ?? null;
+                $m_data = array_values(array_filter($members, function($m) use ($m_id) {
+                    return (int)$m['id'] === $m_id;
+                }))[0] ?? null;
                 if ($m_data) {
                     $suggestions[] = array_merge($slot, [
                         'suggested_member_id' => $m_id, 
@@ -324,7 +331,7 @@ class TMP_Repository {
                 } elseif (strpos($role_lower, 'toastmaster') !== false || strpos($role_lower, 'topics') !== false || strpos($role_lower, 'general') !== false || strpos($role_lower, 'presiding') !== false) {
                     if ($level >= 3) {
                         $match = true;
-                        $trace[] = "Matched Leadership ($role): " . $member['full_name'] . " (Level $level >= 3)";
+                        $trace[] = "Matched Leadership ($role_label): " . $member['full_name'] . " (Level $level >= 3)";
                     }
                 } else {
                     $match = true;
@@ -470,11 +477,12 @@ class TMP_Repository {
                 $base = self::get_base_role_name($full_role);
                 if (self::is_singular_role($base)) {
                     $wpdb->query($wpdb->prepare(
-                        "UPDATE {$table} SET member_id = %d, status = %s WHERE meeting_id = %d AND role_name LIKE %s",
+                        "UPDATE {$table} SET member_id = %d, status = %s WHERE meeting_id = %d AND (role_name = %s OR role_name LIKE %s)",
                         $record['member_id'],
                         $record['status'] ?? 'Confirmed',
                         $record['meeting_id'],
-                        $wpdb->esc_like($base) . '%'
+                        $base,
+                        $wpdb->esc_like($base) . ' (%'
                     ));
                 }
             }
