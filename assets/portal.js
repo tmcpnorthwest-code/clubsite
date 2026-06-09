@@ -569,6 +569,11 @@
     const memberSelect = qs("[data-tmp-member-select]", root);
     const meetingList = qs("[data-tmp-meeting-list]", root);
     const meetingCount = qs("[data-tmp-meeting-count]", root);
+    const vpeSearch = qs("[data-tmp-vpe-search]", root);
+    const vpePathway = qs("[data-tmp-vpe-pathway]", root);
+    const vpeLevel = qs("[data-tmp-vpe-level]", root);
+    const overviewList = qs("[data-tmp-vpe-member-list]", root);
+    const overviewCount = qs("[data-tmp-vpe-member-count]", root);
 
     async function renderMembers(force = false) {
       if (force === true || !root._allMembers) {
@@ -576,23 +581,23 @@
       }
       const allMembers = root._allMembers;
 
-      const searchTerm = qs("[data-tmp-vpe-search]", root)?.value.toLowerCase() || "";
-      const pathwayFilter = qs("[data-tmp-vpe-pathway]", root)?.value || "all";
-      const levelFilter = qs("[data-tmp-vpe-level]", root)?.value || "all";
+      const searchTerm = (vpeSearch?.value || "").toLowerCase();
+      const pathwayFilter = vpePathway?.value || "all";
+      const levelFilter = vpeLevel?.value || "all";
 
       const filteredEligibleMembers = (allMembers || []).filter(m => m.is_eligible &&
-        (!searchTerm || m.full_name.toLowerCase().includes(searchTerm) || m.email.toLowerCase().includes(searchTerm)) &&
+        (!searchTerm || 
+          m.full_name.toLowerCase().includes(searchTerm) || 
+          m.email.toLowerCase().includes(searchTerm)) &&
         (pathwayFilter === "all" || m.pathway === pathwayFilter) &&
         (levelFilter === "all" || String(m.level) === levelFilter));
 
-      memberSelect.innerHTML = `<option value="">Unassigned</option>` + filteredEligibleMembers.map((member) =>
+      if (memberSelect) memberSelect.innerHTML = `<option value="">Unassigned</option>` + filteredEligibleMembers.map((member) =>
         `<option value="${esc(member.id)}">${esc(member.formatted_name)}</option>`
       ).join("");
 
-      const overviewList = qs("[data-tmp-vpe-member-list]", root);
-      const overviewCount = qs("[data-tmp-vpe-member-count]", root);
       if (overviewList) {
-        overviewCount.textContent = `${filteredEligibleMembers.length} members`;
+        if (overviewCount) overviewCount.textContent = `${filteredEligibleMembers.length} members`;
         overviewList.innerHTML = filteredEligibleMembers.length ? `
           <div class="tmp-table-wrap">
             <table class="tmp-table">
@@ -910,9 +915,9 @@
       }
     });
 
-    qs("[data-tmp-vpe-search]", root)?.addEventListener("input", () => renderMembers());
-    qs("[data-tmp-vpe-pathway]", root)?.addEventListener("change", () => renderMembers());
-    qs("[data-tmp-vpe-level]", root)?.addEventListener("change", () => renderMembers());
+    vpeSearch?.addEventListener("input", () => renderMembers());
+    vpePathway?.addEventListener("change", () => renderMembers());
+    vpeLevel?.addEventListener("change", () => renderMembers());
 
     try {
       // Run these independently so one failure doesn't block the other
