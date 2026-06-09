@@ -42,6 +42,22 @@ class TMP_REST_API {
             },
         ));
 
+        register_rest_route('toastmasters/v1', '/mentor/mentees', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => function() {
+                return rest_ensure_response(TMP_Repository::get_mentees_for_current_user());
+            },
+            'permission_callback' => 'is_user_logged_in',
+        ));
+
+        register_rest_route('toastmasters/v1', '/club/kpis', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => function() {
+                return rest_ensure_response(TMP_Repository::get_club_kpis());
+            },
+            'permission_callback' => array(__CLASS__, 'can_view_all_members'),
+        ));
+
         register_rest_route('toastmasters/v1', '/me/requests/history', array(
             'methods' => WP_REST_Server::READABLE,
             'callback' => array(__CLASS__, 'get_my_request_history'),

@@ -105,6 +105,17 @@ class TMP_Shortcodes {
                     <p data-tmp-notes></p>
                 </article>
                 <article class="tmp-panel tmp-wide">
+                    <h3>My Milestones</h3>
+                    <div class="tmp-milestone-track" data-tmp-milestones>
+                        <div class="tmp-m-item" data-m="joined">Joined</div>
+                        <div class="tmp-m-item" data-m="orientation">Orientation</div>
+                        <div class="tmp-m-item" data-m="first_role">First Role</div>
+                        <div class="tmp-m-item" data-m="icebreaker_draft">Ice Breaker Draft</div>
+                        <div class="tmp-m-item" data-m="icebreaker_delivered">Ice Breaker Delivered</div>
+                        <div class="tmp-m-item" data-m="level1_completed">Level 1 Completed</div>
+                    </div>
+                </article>
+                <article class="tmp-panel tmp-wide">
                     <h3>My Role History</h3>
                     <div data-tmp-role-history>Loading history...</div>
                 </article>
@@ -132,6 +143,11 @@ class TMP_Shortcodes {
                         </div>
                     </form>
                 </article>
+            </div>
+            <div class="tmp-panel" data-tmp-mentor-dashboard style="display:none;">
+                <p class="tmp-eyebrow">Mentor Dashboard</p>
+                <h3>My Mentees</h3>
+                <div data-tmp-mentee-list>Loading mentees...</div>
             </div>
         </div>
         <?php
@@ -248,6 +264,7 @@ class TMP_Shortcodes {
                     <input type="text" data-tmp-vpe-search placeholder="Search by name or email..." style="flex: 1; min-width: 200px;">
                     <select data-tmp-vpe-pathway>
                         <option value="all">All Pathways</option>
+                        <option>No pathway registered</option>
                         <option>Presentation Mastery</option>
                         <option>Dynamic Leadership</option>
                         <option>Engaging Humor</option>

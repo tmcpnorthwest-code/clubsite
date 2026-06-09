@@ -182,6 +182,17 @@
         return `<li class="${className}">${esc(label)}</li>`;
       }).join("");
 
+      // Update Milestones
+      if (member.milestones) {
+        qsa("[data-m]", root).forEach(el => {
+          const key = el.dataset.m;
+          if (member.milestones[key]) {
+            el.classList.add('tmp-done');
+            el.title = `Completed: ${member.milestones[key]}`;
+          }
+        });
+      }
+
       const requests = await api("/me/requests").catch(() => []);
       qs("[data-tmp-active-requests]", root).innerHTML = requests.length ? `
         <div class="tmp-table-wrap">
@@ -335,6 +346,27 @@
       `).join("") : "<p>No recommendations today.</p>";
 
       root._member = member;
+
+      // Initialize Mentor Dashboard if applicable
+      const mentees = await api("/mentor/mentees").catch(() => []);
+      if (mentees.length > 0) {
+        const mentorDash = qs("[data-tmp-mentor-dashboard]", root);
+        mentorDash.style.display = 'block';
+        qs("[data-tmp-mentee-list]", mentorDash).innerHTML = `
+          <div class="tmp-table-wrap">
+            <table class="tmp-table">
+              <thead><tr><th>Mentee</th><th>Level</th><th>Status</th><th>At Risk?</th></tr></thead>
+              <tbody>${mentees.map(m => `
+                <tr>
+                  <td><strong>${esc(m.full_name)}</strong><br><small>${esc(m.pathway)}</small></td>
+                  <td>Level ${m.level}</td>
+                  <td>${esc(m.onboarding_status)}</td>
+                  <td>${m.is_at_risk ? '<span style="color:red; font-weight:bold;">YES</span>' : 'No'}</td>
+                </tr>
+              `).join("")}</tbody>
+            </table>
+          </div>`;
+      }
     } catch (error) {
       root.innerHTML = `<div class="tmp-panel"><h2>Dashboard unavailable</h2><p>${esc(error.message)}</p></div>`;
     }

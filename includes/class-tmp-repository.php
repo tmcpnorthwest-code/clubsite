@@ -153,6 +153,9 @@ class TMP_Repository {
             'is_exempt_from_unpaid_block' => isset($data['is_exempt_from_unpaid_block']) ? (bool) $data['is_exempt_from_unpaid_block'] : 0,
             'pathways_enrolled' => sanitize_text_field($data['pathways_enrolled'] ?? ''),
             'current_project' => sanitize_text_field($data['current_project'] ?? ''),
+            'onboarding_status' => sanitize_text_field($data['onboarding_status'] ?? 'Pending'),
+            'orientation_date' => !empty($data['orientation_date']) ? sanitize_text_field($data['orientation_date']) : null,
+            'icebreaker_draft_date' => !empty($data['icebreaker_draft_date']) ? sanitize_text_field($data['icebreaker_draft_date']) : null,
             'mentor' => sanitize_text_field($data['mentor'] ?? ''),
             'next_action' => sanitize_text_field($data['next_action'] ?? ''),
             'officer_notes' => sanitize_textarea_field($data['officer_notes'] ?? ''),
@@ -209,6 +212,67 @@ class TMP_Repository {
         $id = absint($id);
         $wpdb->delete(self::assignment_table(), array('meeting_id' => $id));
         return (bool) $wpdb->delete(self::meeting_table(), array('id' => $id));
+    }
+
+    public static function get_mentees_for_current_user() {
+        $me = self::current_member();
+        if (!$me) return [];
+        
+        global $wpdb;
+        $table = self::member_table();
+        $history_table = self::participation_history_table();
+        
+        // Find members where the 'mentor' field matches current user's name
+        $mentees = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE mentor = %s ORDER BY full_name ASC",
+            $me['full_name']
+        ), ARRAY_A);
+
+        foreach ($mentees as &$m) {
+            $m['milestones'] = self::calculate_milestones($m);
+            $m['is_at_risk'] = $m['recent_participation_count'] == 0 && $m['total_recent_meetings_checked'] > 0;
+        }
+        return $mentees;
+    }
+
+    private static function calculate_milestones($member) {
+        global $wpdb;
+        $history_table = self::participation_history_table();
+        
+        $first_role = $wpdb->get_var($wpdb->prepare("SELECT MIN(meeting_date) FROM {$history_table} WHERE member_id = %d", $member['id']));
+        $ice_breaker = $wpdb->get_var($wpdb->prepare("SELECT meeting_date FROM {$history_table} WHERE member_id = %d AND role_name LIKE 'Speaker%%' AND level_at_completion = 1 LIMIT 1", $member['id']));
+        
+        return [
+            'joined' => $member['created_at'],
+            'orientation' => $member['orientation_date'],
+            'first_role' => $first_role,
+            'icebreaker_draft' => $member['icebreaker_draft_date'],
+            'icebreaker_delivered' => $ice_breaker,
+            'level1_completed' => ($member['level'] > 1) ? 'Completed' : null
+        ];
+    }
+
+    public static function get_club_kpis() {
+        global $wpdb;
+        $members_table = self::member_table();
+        $history_table = self::participation_history_table();
+
+        // Days to first speech (Average)
+        $avg_first_speech = $wpdb->get_var("
+            SELECT AVG(DATEDIFF(h.meeting_date, m.created_at)) 
+            FROM {$members_table} m 
+            JOIN (SELECT member_id, MIN(meeting_date) as meeting_date FROM {$history_table} WHERE role_name LIKE 'Speaker%%' GROUP BY member_id) h 
+            ON m.id = h.member_id
+        ");
+
+        // Retention: Members active in last 90 days / Total members
+        $active_90 = $wpdb->get_var("SELECT COUNT(DISTINCT member_id) FROM {$history_table} WHERE meeting_date >= DATE_SUB(NOW(), INTERVAL 90 DAY)");
+        $total = $wpdb->get_var("SELECT COUNT(*) FROM {$members_table}");
+
+        return [
+            'avg_days_to_speech' => round($avg_first_speech ?? 0, 1),
+            'retention_rate' => $total > 0 ? round(($active_90 / $total) * 100, 1) . '%' : '0%',
+        ];
     }
 
     public static function meetings() {
