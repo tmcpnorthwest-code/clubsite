@@ -20,6 +20,16 @@ class TMP_Repository {
         return $wpdb->prefix . 'tmp_role_assignments';
     }
 
+    private static function log($message) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log($message);
+            // Fallback: Write directly to the plugin directory if wp-content/debug.log is blocked
+            $log_file = TMP_PLUGIN_DIR . 'debug.log';
+            $timestamp = gmdate('Y-m-d H:i:s');
+            @file_put_contents($log_file, "[$timestamp] $message" . PHP_EOL, FILE_APPEND);
+        }
+    }
+
     public static function current_member() {
         $user = wp_get_current_user();
         if (!$user || !$user->ID) {
@@ -132,9 +142,32 @@ class TMP_Repository {
                  ORDER BY a.sort_order ASC, a.id ASC",
                 $meeting['id']
             ), ARRAY_A);
+
+            foreach ($meeting['assignments'] as &$assignment) {
+                if (!empty($assignment['member_id'])) {
+                    $assignment['suitability'] = self::check_suitability($assignment['role_name'], $assignment['member_id']);
+                }
+            }
         }
 
         return $rows;
+    }
+
+    public static function check_suitability($role_name, $member_id) {
+        $member = self::get_member($member_id);
+        if (!$member) return ['suitable' => false, 'reason' => 'No member'];
+        
+        $role = strtolower($role_name);
+        $level = (int)$member['level'];
+
+        if (strpos($role, 'evaluator') !== false) {
+            return $level >= 2 ? ['suitable' => true, 'reason' => 'L2+'] : ['suitable' => false, 'reason' => 'Needs L2+'];
+        }
+        if (strpos($role, 'toastmaster') !== false || strpos($role, 'topics') !== false || strpos($role, 'general') !== false) {
+            return $level >= 3 ? ['suitable' => true, 'reason' => 'L3+'] : ['suitable' => false, 'reason' => 'Needs L3+'];
+        }
+        
+        return ['suitable' => true, 'reason' => 'Suitable'];
     }
 
     public static function get_recommendations($member) {
@@ -167,40 +200,93 @@ class TMP_Repository {
         $assignments_table = self::assignment_table();
         $members_table = self::member_table();
 
-        // Find open slots for this meeting
+        $trace = [];
+        $trace[] = "Starting suggestion engine for meeting ID: $meeting_id";
+        
+        $total_assignments = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$assignments_table} WHERE meeting_id = %d",
+            $meeting_id
+        ));
+        $trace[] = "Total roles defined for this meeting: $total_assignments";
+
         $slots = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, role_name FROM {$assignments_table} WHERE meeting_id = %d AND member_id IS NULL",
+            "SELECT id, role_name FROM {$assignments_table} WHERE meeting_id = %d AND (member_id IS NULL OR member_id = 0)",
             $meeting_id
         ), ARRAY_A);
 
-        if (empty($slots)) return [];
+        $open_count = count($slots);
+        self::log("TMP Debug: Found $open_count open slots for meeting ID: $meeting_id");
+        $trace[] = "Found $open_count unassigned roles to fill.";
 
-        // Get members and their current progress
+        if ($open_count === 0) {
+            if ($total_assignments === 0) {
+                $trace[] = "Hint: Add roles to this meeting first using the 'Save Assignment' form. Leave the 'Member' dropdown as 'Unassigned' to create an open slot.";
+            } else {
+                $trace[] = "Hint: All roles in this meeting already have members assigned.";
+            }
+            return ['suggestions' => [], 'trace' => $trace];
+        }
+
         $members = self::members();
+        $trace[] = "Found " . count($members) . " total members in database.";
+        if (empty($members)) $trace[] = "Warning: No members found in database. Add members first.";
+
         $suggestions = [];
+        
+        // Track already assigned members in this specific meeting to avoid double-booking suggestions
+        $assigned_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT member_id FROM {$assignments_table} WHERE meeting_id = %d AND member_id > 0",
+            $meeting_id
+        ));
+        $assigned_ids = array_map('intval', $assigned_ids);
+        self::log("TMP Debug: Already assigned member IDs in this meeting: " . implode(', ', $assigned_ids));
+        $trace[] = "Excluding " . count($assigned_ids) . " member(s) already holding roles in this meeting.";
 
         foreach ($slots as $slot) {
             $role = strtolower($slot['role_name']);
+            $found_match = false;
+
             foreach ($members as $member) {
+                $member_id = (int)$member['id'];
+                if (in_array($member_id, $assigned_ids)) continue;
+
                 $match = false;
                 $level = (int)$member['level'];
+                $state = $member['state'] ?? 'Active';
 
-                // Logic: Speakers for those who need it or are Level 1 (Ice Breakers)
-                if (strpos($role, 'speaker') !== false && ($member['state'] === 'Needs speech slot' || $level === 1)) {
+                if (strpos($role, 'speaker') !== false || strpos($role, 'ice breaker') !== false) {
+                    // Speakers: Prioritize members needing a speech slot or at Level 1
                     $match = true;
-                } 
-                // Logic: Evaluators for Level 2+ members
-                elseif (strpos($role, 'evaluator') !== false && $level >= 2) {
+                    $priority = ($state === 'Needs speech slot' || $level === 1) ? "Priority" : "General";
+                    $trace[] = "Matched Speaker: " . $member['full_name'] . " ($priority match)";
+                } elseif (strpos($role, 'evaluator') !== false) {
+                    if ($level >= 2) {
+                        $match = true;
+                        $trace[] = "Matched Evaluator: " . $member['full_name'] . " (Level $level >= 2)";
+                    }
+                } elseif (strpos($role, 'toastmaster') !== false || strpos($role, 'topics') !== false || strpos($role, 'general') !== false) {
+                    if ($level >= 3) {
+                        $match = true;
+                        $trace[] = "Matched Leadership ($role): " . $member['full_name'] . " (Level $level >= 3)";
+                    }
+                } else {
                     $match = true;
+                    $trace[] = "Matched " . $slot['role_name'] . ": " . $member['full_name'];
                 }
 
                 if ($match) {
                     $suggestions[] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name']]);
-                    break; // Assign first best match and move to next slot
+                    $assigned_ids[] = $member_id;
+                    $found_match = true;
+                    break; 
                 }
             }
+
+            if (!$found_match) {
+                $trace[] = "Could not find a suitable unassigned member for: " . $slot['role_name'];
+            }
         }
-        return $suggestions;
+        return ['suggestions' => $suggestions, 'trace' => $trace];
     }
 
     public static function save_meeting($data) {
@@ -237,23 +323,23 @@ class TMP_Repository {
         $table = self::assignment_table();
         $now = current_time('mysql');
 
-        $record = array(
-            'meeting_id' => absint($data['meeting_id'] ?? 0),
-            'member_id' => !empty($data['member_id']) ? absint($data['member_id']) : null,
-            'role_name' => sanitize_text_field($data['role_name'] ?? ''),
-            'speech_title' => sanitize_text_field($data['speech_title'] ?? ''),
-            'status' => sanitize_text_field($data['status'] ?? 'Planned'),
-            'sort_order' => absint($data['sort_order'] ?? 0),
-            'updated_at' => $now,
-        );
-
-        if (empty($record['meeting_id']) || empty($record['role_name'])) {
-            return new WP_Error('tmp_invalid_assignment', 'Meeting and role are required.', array('status' => 400));
-        }
+        $record = array();
+        if (isset($data['meeting_id'])) $record['meeting_id'] = absint($data['meeting_id']);
+        if (isset($data['member_id'])) $record['member_id'] = !empty($data['member_id']) ? absint($data['member_id']) : null;
+        if (isset($data['role_name'])) $record['role_name'] = sanitize_text_field($data['role_name']);
+        if (isset($data['speech_title'])) $record['speech_title'] = sanitize_text_field($data['speech_title']);
+        if (isset($data['status'])) $record['status'] = sanitize_text_field($data['status']);
+        if (isset($data['sort_order'])) $record['sort_order'] = absint($data['sort_order']);
+        
+        $record['updated_at'] = $now;
 
         if (!empty($data['id'])) {
             $wpdb->update($table, $record, array('id' => absint($data['id'])));
             return array('id' => absint($data['id'])) + $record;
+        }
+
+        if (empty($record['meeting_id']) || empty($record['role_name'])) {
+            return new WP_Error('tmp_invalid_assignment', 'Meeting and role are required for new assignments.', array('status' => 400));
         }
 
         $record['created_at'] = $now;

@@ -194,6 +194,7 @@ class TMP_Shortcodes {
             <form class="tmp-panel tmp-form" data-tmp-assignment-form>
                 <input type="hidden" name="id" />
                 <label>Meeting <select name="meeting_id" required data-tmp-meeting-select></select></label>
+                <div class="tmp-wide"><small>Create unassigned role slots here. Members can then request these roles, and you can approve them with one click.</small></div>
                 <label>Role <input name="role_name" required placeholder="Toastmaster, Speaker, Evaluator" /></label>
                 <label>Member <select name="member_id" data-tmp-member-select></select></label>
                 <label>Speech title <input name="speech_title" placeholder="Optional speech title" /></label>

@@ -252,10 +252,12 @@
                   <strong>${esc(assignment.role_name)}</strong> 
                   ${assignment.status === 'Requested' ? '<span class="tmp-tag" style="background:#ffd700; padding:2px 4px; border-radius:3px; font-size:10px;">PRIORITY REQUEST</span>' : ''}
                   ${assignment.member_name ? ` - ${esc(assignment.member_name)}` : ""}
+                  ${assignment.suitability ? `<span class="tmp-tag" style="background:${assignment.suitability.suitable ? '#e1f5fe' : '#ffebee'}; color:${assignment.suitability.suitable ? '#01579b' : '#b71c1c'}; padding:2px 4px; border-radius:3px; font-size:10px; margin-left:5px;">${esc(assignment.suitability.reason)}</span>` : ""}
                   ${assignment.speech_title ? `<br>${esc(assignment.speech_title)}` : ""}
                 </span>
                 <span>
                   ${esc(assignment.status)}
+                  ${assignment.status === 'Requested' ? `<button class="tmp-small-button" style="background:#2e7d32; color:white;" type="button" data-approve-assignment="${esc(assignment.id)}">Approve</button>` : ""}
                   <button class="tmp-small-button tmp-danger" type="button" data-delete-assignment="${esc(assignment.id)}">Delete</button>
                 </span>
               </li>
@@ -291,17 +293,43 @@
 
     meetingList.addEventListener("click", async (e) => {
       const del = e.target.closest("[data-delete-assignment]");
+      const approve = e.target.closest("[data-approve-assignment]");
       const suggest = e.target.closest("[data-suggest-roles]");
 
       if (del) {
         await api(`/assignments/${del.dataset.deleteAssignment}`, { method: "DELETE" });
         await renderMeetings();
+      } else if (approve) {
+        await api("/assignments", {
+          method: "POST",
+          body: JSON.stringify({ id: approve.dataset.approveAssignment, status: "Confirmed" })
+        });
+        await renderMeetings();
       } else if (suggest) {
-        const suggestions = await api(`/meetings/${suggest.dataset.suggestRoles}/suggestions`);
-        if (!suggestions.length) return alert("No suggestions found for current open slots.");
+        const data = await api(`/meetings/${suggest.dataset.suggestRoles}/suggestions`);
+        const suggestions = data.suggestions || [];
+        const trace = data.trace || [];
+
+        const logOutput = trace.length ? "\n\nTRAVERSAL LOG:\n" + trace.join("\n") : "";
         
-        const summary = suggestions.map(s => `• ${s.role_name}: ${s.suggested_member_name}`).join("\n");
-        alert("Intelligent Recommendations:\n\n" + summary);
+        if (!suggestions.length) {
+          return alert("No suggestions found." + logOutput);
+        }
+
+        const summary = suggestions.map(s => `• ${s.role_name} → ${s.suggested_member_name}`).join("\n");
+        if (confirm("RECOMMENDED ASSIGNMENTS:\n\n" + summary + "\n\nWould you like to apply these suggestions to the agenda?")) {
+          for (const s of suggestions) {
+            await api("/assignments", {
+              method: "POST",
+              body: JSON.stringify({ 
+                id: s.id, 
+                member_id: s.suggested_member_id, 
+                status: "Confirmed" 
+              })
+            });
+          }
+          await renderMeetings();
+        }
       }
     });
 
