@@ -165,7 +165,6 @@ class TMP_Shortcodes {
                     <span class="tmp-inline-status" data-tmp-import-status></span>
                 </div>
             </form>
-            <?php echo self::member_form(); ?>
             <section class="tmp-panel">
                 <div class="tmp-card-head">
                     <h3>Members</h3>
@@ -203,6 +202,7 @@ class TMP_Shortcodes {
                                 <th>Pathway</th>
                                 <th>Level</th>
                                 <th>State</th>
+                                <th>Recent</th>
                                 <th>Exempt?</th>
                                 <th>Actions</th>
                             </tr>
@@ -243,6 +243,26 @@ class TMP_Shortcodes {
                 <div class="tmp-card-head">
                     <h3>Member Overview (Paid)</h3>
                     <span data-tmp-vpe-member-count>0 members</span>
+                </div>
+                <div class="tmp-admin-filters" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; background: #f9f9f9; padding: 12px; border-radius: 4px; border: 1px solid #eee;">
+                    <input type="text" data-tmp-vpe-search placeholder="Search by name or email..." style="flex: 1; min-width: 200px;">
+                    <select data-tmp-vpe-pathway>
+                        <option value="all">All Pathways</option>
+                        <option>Presentation Mastery</option>
+                        <option>Dynamic Leadership</option>
+                        <option>Engaging Humor</option>
+                        <option>Motivational Strategies</option>
+                        <option>Persuasive Influence</option>
+                        <option>Visionary Communication</option>
+                    </select>
+                    <select data-tmp-vpe-level>
+                        <option value="all">All Levels</option>
+                        <option value="1">Level 1</option>
+                        <option value="2">Level 2</option>
+                        <option value="3">Level 3</option>
+                        <option value="4">Level 4</option>
+                        <option value="5">Level 5</option>
+                    </select>
                 </div>
                 <div data-tmp-vpe-member-list>Loading members...</div>
             </section>
@@ -304,58 +324,6 @@ class TMP_Shortcodes {
                 <div data-tmp-meeting-list></div>
             </section>
         </div>
-        <?php
-        return ob_get_clean();
-    }
-
-    private static function member_form() {
-        ob_start();
-        ?>
-        <form class="tmp-panel tmp-form" data-tmp-member-form>
-            <input type="hidden" name="id" />
-            <label>Full name <input name="full_name" required placeholder="Member name" /></label>
-            <label>Customer ID <input name="customer_id" placeholder="PN-12345678" /></label>
-            <label>Email <input type="email" name="email" required placeholder="member@example.com" /></label>
-            <label>Phone <input name="phone" placeholder="+91 98765 43210" /></label>
-            <label>Linked WordPress user ID <input type="number" name="user_id" min="0" placeholder="Optional" /></label>
-            <label>Pathway
-                <select name="pathway">
-                    <option>Presentation Mastery</option>
-                    <option>Dynamic Leadership</option>
-                    <option>Engaging Humor</option>
-                    <option>Motivational Strategies</option>
-                    <option>Persuasive Influence</option>
-                    <option>Visionary Communication</option>
-                </select>
-            </label>
-            <label>Current level
-                <select name="level">
-                    <option value="1">Level 1</option>
-                    <option value="2">Level 2</option>
-                    <option value="3">Level 3</option>
-                    <option value="4">Level 4</option>
-                    <option value="5">Level 5</option>
-                </select>
-            </label>
-            <label><input type="checkbox" name="is_exempt_from_unpaid_block" value="1" /> Exempt from unpaid block</label>
-            <label>State
-                <select name="state">
-                    <option>Active</option>
-                    <option>Needs speech slot</option>
-                    <option>Awaiting level approval</option>
-                    <option>On hold</option>
-                    <option>New member</option>
-                </select>
-            </label>
-            <label>Current project <input name="current_project" placeholder="Project or speech title" /></label>
-            <label>Mentor <input name="mentor" placeholder="Mentor name" /></label>
-            <label>Next action <input name="next_action" placeholder="One next action" /></label>
-            <label class="tmp-wide">Officer notes <textarea name="officer_notes" rows="4"></textarea></label>
-            <div class="tmp-form-actions tmp-wide">
-                <button class="tmp-button tmp-primary" type="submit">Save Member</button>
-                <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-member>Clear</button>
-            </div>
-        </form>
         <?php
         return ob_get_clean();
     }

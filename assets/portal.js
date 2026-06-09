@@ -447,7 +447,6 @@
       return;
     }
 
-    const form = qs("[data-tmp-member-form]", root);
     const importForm = qs("[data-tmp-import-form]", root);
     const importStatus = qs("[data-tmp-import-status]", root);
     const table = qs("[data-tmp-member-table]", root);
@@ -468,13 +467,17 @@
         (!searchTerm || 
           m.full_name.toLowerCase().includes(searchTerm) || 
           m.email.toLowerCase().includes(searchTerm)) &&
-        (statusFilter === "all" || m.state === statusFilter) &&
+        (statusFilter === "all" || (statusFilter === "Paid" && m.is_eligible) || (statusFilter === "Unpaid" && !m.is_eligible)) &&
         (levelFilter === "all" || String(m.level) === levelFilter)
       );
 
       count.textContent = `${filtered.length} ${filtered.length === 1 ? "record" : "records"}`;
 
-      const memberToRow = (member) => `
+      const memberToRow = (member) => {
+        const isInactive = member.recent_participation_count === 0 && member.total_recent_meetings_checked > 0;
+        const partStyle = isInactive ? 'color: #ef6c00; font-weight: bold;' : '';
+
+        return `
         <tr>
           <td><strong>${esc(member.full_name)}</strong></td>
           <td>${esc(member.customer_id || "")}</td>
@@ -482,14 +485,15 @@
           <td>${esc(member.pathway)}</td>
           <td>Level ${esc(member.level)}</td>
           <td>${esc(member.state)}</td>
+          <td style="${partStyle}">${member.recent_participation_count} / ${member.total_recent_meetings_checked}</td>
           <td>${member.is_exempt_from_unpaid_block ? 'Yes' : 'No'}</td>
           <td>
             <div class="tmp-row-actions">
-              <button class="tmp-small-button" type="button" data-edit-member="${esc(member.id)}">Edit</button>
               <button class="tmp-small-button tmp-danger" type="button" data-delete-member="${esc(member.id)}">Delete</button>
             </div>
           </td>
         </tr>`;
+      };
 
       if (groupKey === "none") {
         table.innerHTML = filtered.map(memberToRow).join("");
@@ -507,16 +511,6 @@
         `).join("");
       }
     }
-
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      await api("/members", {
-        method: "POST",
-        body: JSON.stringify(formData(form)),
-      });
-      clearForm(form);
-      await render(true);
-    });
 
     importForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -541,24 +535,13 @@
       await render(true);
     });
 
-    qs("[data-tmp-clear-member]", root)?.addEventListener("click", () => clearForm(form));
-
     qs("[data-tmp-admin-search]", root)?.addEventListener("input", () => render());
     qs("[data-tmp-admin-group-by]", root)?.addEventListener("change", () => render());
     qs("[data-tmp-admin-status]", root)?.addEventListener("change", () => render());
     qs("[data-tmp-admin-level]", root)?.addEventListener("change", () => render());
 
     table.addEventListener("click", async (event) => {
-      const edit = event.target.closest("[data-edit-member]");
       const del = event.target.closest("[data-delete-member]");
-
-      if (edit) {
-        const member = root._members.find((item) => String(item.id) === edit.dataset.editMember);
-        if (member) {
-          fillForm(form, member);
-          form.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-      }
 
       if (del) {
         if (confirm("Are you sure you want to delete this member?")) {
@@ -587,23 +570,34 @@
     const meetingList = qs("[data-tmp-meeting-list]", root);
     const meetingCount = qs("[data-tmp-meeting-count]", root);
 
-    async function renderMembers() {
-      const members = await api("/members");
-      const eligibleMembers = (members || []).filter(m => m.is_eligible);
+    async function renderMembers(force = false) {
+      if (force === true || !root._allMembers) {
+        root._allMembers = await api("/members");
+      }
+      const allMembers = root._allMembers;
 
-      memberSelect.innerHTML = `<option value="">Unassigned</option>` + eligibleMembers.map((member) =>
+      const searchTerm = qs("[data-tmp-vpe-search]", root)?.value.toLowerCase() || "";
+      const pathwayFilter = qs("[data-tmp-vpe-pathway]", root)?.value || "all";
+      const levelFilter = qs("[data-tmp-vpe-level]", root)?.value || "all";
+
+      const filteredEligibleMembers = (allMembers || []).filter(m => m.is_eligible &&
+        (!searchTerm || m.full_name.toLowerCase().includes(searchTerm) || m.email.toLowerCase().includes(searchTerm)) &&
+        (pathwayFilter === "all" || m.pathway === pathwayFilter) &&
+        (levelFilter === "all" || String(m.level) === levelFilter));
+
+      memberSelect.innerHTML = `<option value="">Unassigned</option>` + filteredEligibleMembers.map((member) =>
         `<option value="${esc(member.id)}">${esc(member.formatted_name)}</option>`
       ).join("");
 
       const overviewList = qs("[data-tmp-vpe-member-list]", root);
       const overviewCount = qs("[data-tmp-vpe-member-count]", root);
       if (overviewList) {
-        overviewCount.textContent = `${eligibleMembers.length} members`;
-        overviewList.innerHTML = eligibleMembers.length ? `
+        overviewCount.textContent = `${filteredEligibleMembers.length} members`;
+        overviewList.innerHTML = filteredEligibleMembers.length ? `
           <div class="tmp-table-wrap">
             <table class="tmp-table">
               <thead><tr><th>Name</th><th>Pathway</th><th>Level</th><th>Current Project</th><th>Recent Participation</th></tr></thead>
-              <tbody>${eligibleMembers.map(m => {
+              <tbody>${filteredEligibleMembers.map(m => {
                 const isInactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
                 const rowStyle = isInactive ? 'style="background-color: #fff8e1;"' : '';
                 return `
@@ -916,9 +910,13 @@
       }
     });
 
+    qs("[data-tmp-vpe-search]", root)?.addEventListener("input", () => renderMembers());
+    qs("[data-tmp-vpe-pathway]", root)?.addEventListener("change", () => renderMembers());
+    qs("[data-tmp-vpe-level]", root)?.addEventListener("change", () => renderMembers());
+
     try {
       // Run these independently so one failure doesn't block the other
-      renderMembers().catch(err => console.error("Members load failed:", err));
+      renderMembers(true).catch(err => console.error("Members load failed:", err));
       await renderMeetings();
     } catch (err) {
       console.error("VPE Dashboard Initialization Error:", err);
