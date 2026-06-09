@@ -427,6 +427,7 @@ class TMP_Repository {
                     $match = false;
                     $level = (int)$member['level'];
                     $state = $member['state'] ?? 'Active';
+                    // Ensure completed_roles_at_level is correctly fetched for the member's current level
                     $completed_roles = $member_participation_counts[$member_id] ?? [];
 
                     if (strpos($role_lower, 'speaker') !== false || strpos($role_lower, 'ice breaker') !== false) {
@@ -438,59 +439,514 @@ class TMP_Repository {
                         if ($level >= 2) {
                             $match = true;
                             $trace[] = "Matched Evaluator: " . $member['full_name'] . " (Level $level >= 2)";
-                    $progression_match = false;
-                    $progression_reason = '';
-
-                    // Level 1: Ice Breaker
-                    if ($level === 1 && (strpos($role_lower, 'speaker') !== false || strpos($role_lower, 'ice breaker') !== false)) {
-                        if (!isset($completed_roles['Ice Breaker'])) {
-                            $progression_match = true;
-                            $progression_reason = "Needs Ice Breaker (L1)";
                         }
                     } elseif (strpos($role_lower, 'toastmaster') !== false || strpos($role_lower, 'topics') !== false || strpos($role_lower, 'general') !== false || strpos($role_lower, 'presiding') !== false) {
                         if ($level >= 3) {
                             $match = true;
                             $trace[] = "Matched Leadership ($role_label): " . $member['full_name'] . " (Level $level >= 3)";
-                    }
-                    // Level 2: Evaluator
-                    elseif ($level === 2 && strpos($role_lower, 'evaluator') !== false) {
-                        if (!isset($completed_roles['Evaluator'])) {
-                            $progression_match = true;
-                            $progression_reason = "Needs Evaluator (L2)";
                         }
                     } else {
                         $match = true;
                         $trace[] = "Matched " . $slot['role_name'] . ": " . $member['full_name'];
                     }
-                    // Level 3: TMOD
-                    elseif ($level === 3 && strpos($role_lower, 'toastmaster of the day') !== false) {
-                        if (!isset($completed_roles['Toastmaster of the Day'])) {
-                            $progression_match = true;
-                            $progression_reason = "Needs TMOD (L3)";
-                        }
-                    }
-                    // Level 4: General Evaluator
-                    elseif ($level === 4 && strpos($role_lower, 'general evaluator') !== false) {
-                        if (!isset($completed_roles['General Evaluator'])) {
-                            $progression_match = true;
-                            $progression_reason = "Needs GE (L4)";
-                        }
-                    }
-                    // Level 5: Presiding Officer
-                    elseif ($level === 5 && strpos($role_lower, 'presiding officer') !== false) {
-                        if (!isset($completed_roles['Presiding Officer'])) {
-                            $progression_match = true;
-                            $progression_reason = "Needs Presiding Officer (L5)";
-                        }
-                    }
 
-                    if ($match) {
+                    if ($match) { // This 'if ($match)' was problematic as 'match' might be true from an earlier, incorrect block
                         $suggestions[$slot['id']] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name']]);
                         $assigned_ids[] = $member_id;
                         $found_match = true;
                         
                         if (self::is_singular_role($base_role)) {
                             $singular_role_map[$base_role] = $member_id;
+                        }
+                        break; 
+                    }
+                }
+
+                if (!$found_match) {
+                    $trace[] = "Could not find a suitable unassigned member for: " . $slot['role_name'];
+                }
+            }
+        }
+        return ['suggestions' => array_values($suggestions), 'trace' => $trace];
+    }
+
+    public static function save_meeting($data) {
+        global $wpdb;
+        $table = self::meeting_table();
+        $now = current_time('mysql');
+
+        $record = array(
+            'meeting_date' => sanitize_text_field($data['meeting_date'] ?? ''),
+            'start_time' => sanitize_text_field($data['start_time'] ?? '18:30'),
+            'total_duration' => absint($data['total_duration'] ?? 120),
+            'requests_close_at' => !empty($data['requests_close_at']) ? str_replace('T', ' ', sanitize_text_field($data['requests_close_at'])) : null,
+            'theme' => sanitize_text_field($data['theme'] ?? ''),
+            'venue' => sanitize_text_field($data['venue'] ?? ''),
+            'agenda_notes' => sanitize_textarea_field($data['agenda_notes'] ?? ''),
+            'updated_at' => $now,
+        );
+
+        if (empty($record['meeting_date']) || empty($record['theme'])) {
+            return new WP_Error('tmp_invalid_meeting', 'Meeting date and theme are required.', array('status' => 400));
+        }
+
+        if (!empty($data['id'])) {
+            $wpdb->update($table, $record, array('id' => absint($data['id'])));
+            $id = absint($data['id']);
+        } else {
+            $record['created_at'] = $now;
+            $wpdb->insert($table, $record);
+            $id = (int) $wpdb->insert_id;
+
+            // Auto-generate assignments for new meetings
+            $selected_roles = $data['roles'] ?? [];
+            $agenda = [];
+            
+            // 1. SAA
+            if (in_array('Sergeant at Arms', $selected_roles)) {
+                $agenda[] = ['role' => 'Sergeant at Arms', 'note' => 'Starts meeting', 'dur' => 2];
+            }
+            // 2. Presiding Officer Intro
+            if (in_array('Presiding Officer', $selected_roles)) {
+                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Address and guests', 'dur' => 5];
+            }
+            // 3. TMOD Theme Intro
+            if (in_array('Toastmaster of the Day', $selected_roles)) {
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Intro of theme', 'dur' => 5];
+            }
+            // 4. Role Intros
+            $intro_roles = ['Grammarian', 'Timer', 'Ah Counter', 'General Evaluator'];
+            foreach ($intro_roles as $r) {
+                if (in_array($r, $selected_roles)) $agenda[] = ['role' => $r, 'note' => 'Intro', 'dur' => 2];
+            }
+            // 5. TMOD Segments
+            if (in_array('Toastmaster of the Day', $selected_roles)) {
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Intro segments', 'dur' => 3];
+            }
+            // 6. Speaker/Evaluator Sequence
+            $slots = absint($data['speech_slots'] ?? 0);
+            for ($i = 1; $i <= $slots; $i++) {
+                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Intro speaker', 'dur' => 1];
+                $agenda[] = ['role' => "Speaker $i", 'note' => 'Speech', 'dur' => 7];
+            }
+            // 7. Break
+            $agenda[] = ['role' => 'Break', 'note' => 'Networking', 'dur' => 5];
+            // 8. TMOD Discuss theme
+            if (in_array('Toastmaster of the Day', $selected_roles)) {
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Discuss theme', 'dur' => 3];
+            }
+            // 9. Evaluations
+            for ($i = 1; $i <= $slots; $i++) {
+                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 2];
+            }
+            // 10. Reports
+            if (in_array('Timer', $selected_roles)) $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 2];
+            if (in_array('Grammarian', $selected_roles)) $agenda[] = ['role' => 'Grammarian', 'note' => 'Report', 'dur' => 3];
+            if (in_array('Ah Counter', $selected_roles)) $agenda[] = ['role' => 'Ah Counter', 'note' => 'Report', 'dur' => 3];
+            if (in_array('General Evaluator', $selected_roles)) $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 5];
+            // 11. Closing
+            if (in_array('Presiding Officer', $selected_roles)) {
+                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Closing address', 'dur' => 4];
+            }
+
+            $order = 10;
+            foreach ($agenda as $item) {
+                self::save_assignment([
+                    'meeting_id' => $id,
+                    'role_name' => sanitize_text_field($item['role'] . ($item['note'] ? " (" . $item['note'] . ")" : "")),
+                    'duration' => $item['dur'],
+                    'status' => 'Planned',
+                    'sort_order' => $order
+                ]);
+                $order += 10;
+            }
+        }
+
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id), ARRAY_A);
+    }
+
+    public static function save_assignment($data) {
+        global $wpdb;
+        $table = self::assignment_table();
+        $now = current_time('mysql');
+
+        $record = array();
+        if (isset($data['meeting_id'])) $record['meeting_id'] = absint($data['meeting_id']);
+        if (isset($data['member_id'])) $record['member_id'] = !empty($data['member_id']) ? absint($data['member_id']) : null;
+        if (isset($data['role_name'])) $record['role_name'] = sanitize_text_field($data['role_name']);
+        if (isset($data['speech_title'])) $record['speech_title'] = sanitize_text_field($data['speech_title']);
+        if (isset($data['duration'])) $record['duration'] = absint($data['duration']);
+        if (isset($data['status'])) $record['status'] = sanitize_text_field($data['status']);
+        if (isset($data['sort_order'])) $record['sort_order'] = absint($data['sort_order']);
+        
+        $record['updated_at'] = $now;
+
+        if (!empty($data['id'])) {
+            $old_record = $wpdb->get_row($wpdb->prepare("SELECT status, member_id FROM {$table} WHERE id = %d", $data['id']), ARRAY_A);
+            if ($old_record && ($old_record['status'] !== 'Confirmed') && (isset($data['status']) && $data['status'] === 'Confirmed') && !empty($data['member_id'])) {
+                self::notify_assignment_status(absint($data['id']), absint($data['member_id']));
+                // Record participation history
+                $assignment_details = $wpdb->get_row($wpdb->prepare("SELECT meeting_id, role_name FROM {$table} WHERE id = %d", absint($data['id'])), ARRAY_A);
+                $meeting_date = $wpdb->get_var($wpdb->prepare("SELECT meeting_date FROM " . self::meeting_table() . " WHERE id = %d", $assignment_details['meeting_id']));
+                
+                $wpdb->insert(self::participation_history_table(), [
+                    'member_id' => absint($data['member_id']),
+                    'meeting_id' => absint($assignment_details['meeting_id']),
+                    'assignment_id' => absint($data['id']),
+                    'role_name' => self::get_base_role_name($assignment_details['role_name']),
+                    'meeting_date' => $meeting_date,
+                    'level_at_completion' => (int) self::get_member(absint($data['member_id']))['level'],
+                    'created_at' => $now
+                ]);
+            }
+
+            $wpdb->update($table, $record, array('id' => absint($data['id'])));
+            $saved = array('id' => absint($data['id'])) + $record;
+
+            // Sync logic: Propagate assignment to all segments of a singular role (TMOD, Evaluator 1, etc)
+            if (!empty($record['meeting_id'])) {
+                $full_role = $wpdb->get_var($wpdb->prepare("SELECT role_name FROM {$table} WHERE id = %d", $data['id']));
+                $base = self::get_base_role_name($full_role);
+                
+                if (self::is_singular_role($base)) {
+                    $new_member_id = !empty($record['member_id']) ? absint($record['member_id']) : 0;
+                    $new_status = sanitize_text_field($record['status'] ?? 'Confirmed');
+
+                    $wpdb->query($wpdb->prepare(
+                        "UPDATE {$table} SET member_id = IF(%d = 0, NULL, %d), status = %s WHERE meeting_id = %d AND (role_name = %s OR role_name LIKE %s)",
+                        $new_member_id,
+                        $new_member_id,
+                        $new_status,
+                        $record['meeting_id'],
+                        $base,
+                        $wpdb->esc_like($base) . ' (%'
+                    ));
+                }
+            }
+            return $saved;
+        }
+
+        if (empty($record['meeting_id']) || empty($record['role_name'])) {
+            return new WP_Error('tmp_invalid_assignment', 'Meeting and role are required for new assignments.', array('status' => 400));
+        }
+
+        $record['created_at'] = $now;
+        $wpdb->insert($table, $record);
+        return array('id' => (int) $wpdb->insert_id) + $record;
+    }
+
+    public static function delete_assignment($id) {
+        global $wpdb;
+        return (bool) $wpdb->delete(self::assignment_table(), array('id' => absint($id)));
+    }
+
+    /**
+     * Retrieves counts of specific roles completed by each member, grouped by level.
+     * Returns an array: [member_id => [level_at_completion => [role_name => true]]]
+     */
+    public static function get_member_participation_counts() {
+        global $wpdb;
+        $history_table = self::participation_history_table();
+
+        $results = $wpdb->get_results(
+            "SELECT member_id, role_name, level_at_completion
+             FROM {$history_table}
+             ORDER BY member_id, level_at_completion, role_name",
+            ARRAY_A
+        );
+
+        $counts = [];
+        foreach ($results as $row) {
+            $member_id = (int)$row['member_id'];
+            $level = (int)$row['level_at_completion'];
+            if (!isset($counts[$member_id])) {
+                $counts[$member_id] = [];
+            }
+            if (!isset($counts[$member_id][$level])) {
+                $counts[$member_id][$level] = [];
+            }
+            $counts[$member_id][$level][$row['role_name']] = true; // Mark as completed for this level
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Retrieves counts of specific roles completed by a single member, grouped by level.
+     * Returns an array: [level_at_completion => [role_name => true]]
+     */
+    public static function get_member_participation_counts_for_member($member_id) {
+        global $wpdb;
+        $history_table = self::participation_history_table();
+
+        $results = $wpdb->get_results($wpdb->prepare(
+            "SELECT role_name, level_at_completion
+             FROM {$history_table}
+             WHERE member_id = %d
+             ORDER BY level_at_completion, role_name",
+            $member_id
+        ), ARRAY_A);
+
+        $counts = [];
+        foreach ($results as $row) {
+            $level = (int)$row['level_at_completion'];
+            if (!isset($counts[$level])) {
+                $counts[$level] = [];
+            }
+            $counts[$level][$row['role_name']] = true; // Mark as completed for this level
+        }
+
+        return $counts;
+    }
+
+    public static function save_requests($data) {
+        global $wpdb;
+        $table = self::request_table();
+        $meeting_id = absint($data['meeting_id'] ?? 0);
+        $member_id = absint($data['member_id'] ?? 0);
+        $priorities = $data['priorities'] ?? [];
+
+        if (!$meeting_id || !$member_id) {
+            return new WP_Error('tmp_missing_data', 'Missing Meeting or Member ID.', ['status' => 400]);
+        }
+
+        // Get IDs of assignments currently involved in requests for this member/meeting
+        $old_asgn_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT assignment_id FROM $table WHERE meeting_id = %d AND member_id = %d",
+            $meeting_id,
+            $member_id
+        ));
+
+        // Clear previous requests for this meeting by this member
+        $wpdb->delete($table, ['meeting_id' => $meeting_id, 'member_id' => $member_id]);
+
+        foreach ($priorities as $index => $assignment_id) {
+            if (empty($assignment_id)) continue;
+            $wpdb->insert($table, [
+                'meeting_id' => $meeting_id, 'member_id' => $member_id, 'assignment_id' => absint($assignment_id), 'priority' => $index + 1, 'created_at' => current_time('mysql')
+            ]);
+            
+            // Mark assignment as Requested
+            $wpdb->update(self::assignment_table(), ['status' => 'Requested'], ['id' => absint($assignment_id), 'member_id' => null]);
+        }
+
+        // Re-check old assignments: if they no longer have any requests, set back to Planned
+        $check_ids = array_unique(array_merge($old_asgn_ids, $priorities));
+        foreach ($check_ids as $asgn_id) {
+            if (!$asgn_id) continue;
+            $count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE assignment_id = %d", $asgn_id));
+            if ($count == 0) {
+                $wpdb->update(self::assignment_table(), ['status' => 'Planned'], ['id' => absint($asgn_id), 'member_id' => null]);
+            }
+        }
+
+        self::notify_vpe_of_request($meeting_id, $member_id, $priorities);
+
+        return true;
+    }
+
+    /**
+     * Notifies the VP Education when a member submits prioritized role requests.
+     */
+    private static function notify_vpe_of_request($meeting_id, $member_id, $priorities) {
+        // Get users with the VPE role
+        $vpes = get_users(['role' => 'tm_vp_education']);
+        $emails = !empty($vpes) ? wp_list_pluck($vpes, 'user_email') : [get_option('admin_email')];
+
+        $member = self::get_member($member_id);
+        global $wpdb;
+        $meeting = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::meeting_table() . " WHERE id = %d", $meeting_id), ARRAY_A);
+
+        if (!$member || !$meeting) {
+            return;
+        }
+
+        $role_details = [];
+        $assignments_table = self::assignment_table();
+
+        foreach ($priorities as $index => $asgn_id) {
+            if (empty($asgn_id)) {
+                continue;
+            }
+            $role_name = $wpdb->get_var($wpdb->prepare(
+                "SELECT role_name FROM {$assignments_table} WHERE id = %d",
+                $asgn_id
+            ));
+            if ($role_name) {
+                $role_details[] = sprintf("Priority %d: %s", $index + 1, self::get_base_role_name($role_name));
+            }
+        }
+
+        if (empty($role_details)) {
+            return;
+        }
+
+        $subject = "[New Request] Role Request from " . $member['full_name'];
+        $message = sprintf(
+            "Hi VP Education,\n\n%s has submitted new prioritized role requests for the meeting on %s (%s):\n\n%s\n\nPlease log in to the dashboard to review and approve these requests.\n\nRegards,\nClub Portal",
+            $member['full_name'],
+            $meeting['meeting_date'],
+            $meeting['theme'],
+            implode("\n", $role_details)
+        );
+
+        wp_mail($emails, $subject, $message);
+    }
+
+    public static function delete_request($id, $member_id) {
+        global $wpdb;
+        $table = self::request_table();
+        
+        // Find assignment ID before deleting
+        $asgn_id = $wpdb->get_var($wpdb->prepare("SELECT assignment_id FROM $table WHERE id = %d", $id));
+        
+        $deleted = (bool) $wpdb->delete($table, array(
+            'id' => absint($id),
+            'member_id' => absint($member_id)
+        ));
+
+        if ($deleted && $asgn_id) {
+            $count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE assignment_id = %d", $asgn_id));
+            if ($count == 0) {
+                $wpdb->update(self::assignment_table(), ['status' => 'Planned'], ['id' => absint($asgn_id), 'member_id' => null]);
+            }
+        }
+        return $deleted;
+    }
+
+    /**
+     * Retrieves active role requests for a specific member.
+     */
+    public static function get_member_requests($member_id) {
+        global $wpdb;
+        $requests = self::request_table();
+        $meetings = self::meeting_table();
+        $assignments = self::assignment_table();
+        $today = current_time('Y-m-d');
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT r.id, r.priority, m.meeting_date, m.theme, a.role_name, a.member_id as assigned_id, a.status as assignment_status
+             FROM {$requests} r
+             JOIN {$meetings} m ON r.meeting_id = m.id
+             JOIN {$assignments} a ON r.assignment_id = a.id
+             WHERE r.member_id = %d AND m.meeting_date >= %s
+             ORDER BY m.meeting_date ASC, r.priority ASC",
+            $member_id,
+            $today
+        ), ARRAY_A);
+    }
+
+    /**
+     * Retrieves all pending role requests for upcoming meetings.
+     */
+    public static function get_all_pending_requests() {
+        global $wpdb;
+        $requests = self::request_table();
+        $meetings = self::meeting_table();
+        $assignments = self::assignment_table();
+        $members = self::member_table();
+        $today = current_time('Y-m-d');
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT r.*, m.meeting_date, m.theme, a.role_name, mem.full_name as member_name
+             FROM {$requests} r
+             JOIN {$meetings} m ON r.meeting_id = m.id
+             JOIN {$assignments} a ON r.assignment_id = a.id
+             JOIN {$members} mem ON r.member_id = mem.id
+             WHERE m.meeting_date >= %s
+             ORDER BY m.meeting_date ASC, r.priority ASC",
+            $today
+        ), ARRAY_A);
+    }
+
+    /**
+     * Retrieves historical role requests for a specific member.
+     */
+    public static function get_member_request_history($member_id) {
+        global $wpdb;
+        $requests = self::request_table();
+        $meetings = self::meeting_table();
+        $assignments = self::assignment_table();
+        $today = current_time('Y-m-d');
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT r.id, r.priority, m.meeting_date, m.theme, a.role_name, a.member_id as assigned_id, a.status as assignment_status
+             FROM {$requests} r
+             JOIN {$meetings} m ON r.meeting_id = m.id
+             JOIN {$assignments} a ON r.assignment_id = a.id
+             WHERE r.member_id = %d AND m.meeting_date < %s
+             ORDER BY m.meeting_date DESC, r.priority ASC",
+            $member_id,
+            $today
+        ), ARRAY_A);
+    }
+
+    /**
+     * Retrieves all member requests for a specific assignment (role slot).
+     */
+    public static function get_conflicting_requests($assignment_id) {
+        global $wpdb;
+        $requests_table = self::request_table();
+        $members_table = self::member_table();
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT r.priority, r.member_id, m.full_name AS member_name, m.email
+             FROM {$requests_table} r
+             JOIN {$members_table} m ON r.member_id = m.id
+             WHERE r.assignment_id = %d
+             ORDER BY r.priority ASC, m.full_name ASC",
+            $assignment_id
+        ), ARRAY_A);
+    }
+
+    /**
+     * Sends email notifications when a role request is approved or filled by someone else.
+     */
+    private static function notify_assignment_status($assignment_id, $member_id) {
+        global $wpdb;
+        $member = self::get_member($member_id);
+        $assignment = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::assignment_table() . " WHERE id = %d", $assignment_id), ARRAY_A);
+        
+        if (!$member || !$assignment) return;
+
+        $meeting = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::meeting_table() . " WHERE id = %d", $assignment['meeting_id']), ARRAY_A);
+        if (!$meeting) return;
+
+        $base_role = self::get_base_role_name($assignment['role_name']);
+
+        // 1. Notify Approved Member
+        $subject = "[Approved] Your Role: {$base_role} for " . $meeting['meeting_date'];
+        $message = sprintf(
+            "Hi %s,\n\nYour request for the role of '%s' for the meeting on %s (%s) has been approved!\n\nYou can view the updated agenda and your level progress on your dashboard.\n\nRegards,\nVP Education",
+            $member['full_name'],
+            $base_role,
+            $meeting['meeting_date'],
+            $meeting['theme']
+        );
+        wp_mail($member['email'], $subject, $message);
+
+        // 2. Notify Denied Members (those who requested this specific assignment but didn't get it)
+        $requests = $wpdb->get_results($wpdb->prepare(
+            "SELECT r.member_id, m.full_name, m.email 
+             FROM " . self::request_table() . " r 
+             JOIN " . self::member_table() . " m ON r.member_id = m.id 
+             WHERE r.assignment_id = %d AND r.member_id != %d",
+            $assignment_id,
+            $member_id
+        ), ARRAY_A);
+
+        foreach ($requests as $req) {
+            $subject = "[Update] Role Request for " . $meeting['meeting_date'];
+            $message = sprintf(
+                "Hi %s,\n\nThank you for requesting the '%s' role for the meeting on %s. This slot has now been filled by another member.\n\nPlease check the Available Meeting Slots on your dashboard to request a different role!\n\nRegards,\nVP Education",
+                $req['full_name'],
+                $base_role,
+                $meeting['meeting_date']
+            );
+            wp_mail($req['email'], $subject, $message);
+        }
+    }
+}
                     if ($progression_match) {
                         $best_progression_match = array_merge($slot, [
                             'suggested_member_id' => $member['id'], 
