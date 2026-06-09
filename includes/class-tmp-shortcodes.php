@@ -184,7 +184,20 @@ class TMP_Shortcodes {
                 <label>Meeting date <input type="date" name="meeting_date" required /></label>
                 <label>Theme <input name="theme" required placeholder="Meeting theme" /></label>
                 <label>Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
-                <label class="tmp-wide">Agenda notes <textarea name="agenda_notes" rows="4"></textarea></label>
+                <div class="tmp-wide tmp-roles-setup" style="margin: 10px 0; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+                    <p class="tmp-eyebrow">Meeting Template (New meetings only)</p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 10px;">
+                        <label><input type="checkbox" name="roles[]" value="Toastmaster of the Day" checked> TMOD</label>
+                        <label><input type="checkbox" name="roles[]" value="Grammarian" checked> Grammarian</label>
+                        <label><input type="checkbox" name="roles[]" value="Ah Counter" checked> Ah Counter</label>
+                        <label><input type="checkbox" name="roles[]" value="Timer" checked> Timer</label>
+                        <label><input type="checkbox" name="roles[]" value="General Evaluator" checked> General Evaluator</label>
+                        <label><input type="checkbox" name="roles[]" value="Table Topics Master" checked> Topics Master</label>
+                    </div>
+                    <label>Number of Speech Slots <input type="number" name="speech_slots" value="3" min="0" max="10" /></label>
+                    <p style="font-size: 11px; color: #666; margin-top: 5px;">* This will automatically create matching Evaluator slots.</p>
+                </div>
+                <label class="tmp-wide">Agenda notes <textarea name="agenda_notes" rows="2"></textarea></label>
                 <div class="tmp-form-actions tmp-wide">
                     <button class="tmp-button tmp-primary" type="submit">Save Meeting</button>
                     <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-meeting>Clear</button>

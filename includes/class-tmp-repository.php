@@ -210,7 +210,7 @@ class TMP_Repository {
         $trace[] = "Total roles defined for this meeting: $total_assignments";
 
         $slots = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, role_name FROM {$assignments_table} WHERE meeting_id = %d AND (member_id IS NULL OR member_id = 0)",
+            "SELECT id, role_name FROM {$assignments_table} WHERE meeting_id = %d AND (member_id IS NULL OR member_id = 0 OR member_id = '')",
             $meeting_id
         ), ARRAY_A);
 
@@ -313,6 +313,37 @@ class TMP_Repository {
             $record['created_at'] = $now;
             $wpdb->insert($table, $record);
             $id = (int) $wpdb->insert_id;
+
+            // Auto-generate assignments for new meetings
+            $roles = $data['roles'] ?? [];
+            $order = 10;
+            foreach ($roles as $role) {
+                self::save_assignment([
+                    'meeting_id' => $id,
+                    'role_name' => sanitize_text_field($role),
+                    'status' => 'Planned',
+                    'sort_order' => $order
+                ]);
+                $order += 10;
+            }
+
+            $slots = absint($data['speech_slots'] ?? 0);
+            for ($i = 1; $i <= $slots; $i++) {
+                self::save_assignment([
+                    'meeting_id' => $id,
+                    'role_name' => "Speaker $i",
+                    'status' => 'Planned',
+                    'sort_order' => 100 + $i
+                ]);
+            }
+            for ($i = 1; $i <= $slots; $i++) {
+                self::save_assignment([
+                    'meeting_id' => $id,
+                    'role_name' => "Evaluator $i",
+                    'status' => 'Planned',
+                    'sort_order' => 200 + $i
+                ]);
+            }
         }
 
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id), ARRAY_A);

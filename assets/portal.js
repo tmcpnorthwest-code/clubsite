@@ -39,7 +39,18 @@
   }
 
   function formData(form) {
-    return Object.fromEntries(new FormData(form).entries());
+    const fd = new FormData(form);
+    const data = {};
+    for (let [key, value] of fd.entries()) {
+      if (key.endsWith('[]')) {
+        const cleanKey = key.slice(0, -2);
+        if (!data[cleanKey]) data[cleanKey] = [];
+        data[cleanKey].push(value);
+      } else {
+        data[key] = value;
+      }
+    }
+    return data;
   }
 
   function fillForm(form, record) {
@@ -270,22 +281,42 @@
 
     meetingForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      await api("/meetings", {
-        method: "POST",
-        body: JSON.stringify(formData(meetingForm)),
-      });
-      clearForm(meetingForm);
-      await renderMeetings();
+      const btn = event.target.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+
+      try {
+        await api("/meetings", {
+          method: "POST",
+          body: JSON.stringify(formData(meetingForm)),
+        });
+        alert("Meeting created successfully with role templates!");
+        clearForm(meetingForm);
+        await renderMeetings();
+      } catch (err) {
+        alert("Failed to save meeting: " + err.message);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     });
 
     assignmentForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      await api("/assignments", {
-        method: "POST",
-        body: JSON.stringify(formData(assignmentForm)),
-      });
-      clearForm(assignmentForm);
-      await renderMeetings();
+      const btn = event.target.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+
+      try {
+        await api("/assignments", {
+          method: "POST",
+          body: JSON.stringify(formData(assignmentForm)),
+        });
+        alert("Assignment saved.");
+        clearForm(assignmentForm);
+        await renderMeetings();
+      } catch (err) {
+        alert("Failed to save assignment: " + err.message);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     });
 
     qs("[data-tmp-clear-meeting]", root)?.addEventListener("click", () => clearForm(meetingForm));
@@ -309,6 +340,10 @@
         const data = await api(`/meetings/${suggest.dataset.suggestRoles}/suggestions`);
         const suggestions = data.suggestions || [];
         const trace = data.trace || [];
+
+        // Debugging aid: view raw data in Browser Console (F12)
+        console.log("Suggestions Trace:", trace);
+        console.table(suggestions);
 
         const logOutput = trace.length ? "\n\nTRAVERSAL LOG:\n" + trace.join("\n") : "";
         
