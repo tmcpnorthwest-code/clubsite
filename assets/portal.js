@@ -436,34 +436,40 @@
     meetingSelect.addEventListener("change", updateRoles);
 
     roleSelect.addEventListener("change", () => {
-      const val = roleSelect.value;
-      const meetingId = meetingSelect.value;
+      const val = roleSelect.value; // Store the UI value (id:XX or name:XX)
+      const currentMeetingId = meetingSelect.value;
+
       if (!val) {
         clearForm(assignmentForm);
-        assignmentForm.elements.meeting_id.value = meetingId;
+        assignmentForm.elements.meeting_id.value = currentMeetingId;
+        delete assignmentForm._tmp_role_name;
         toggleSpeechTitle('');
         return;
       }
 
-      const meeting = (root._meetings || []).find(m => String(m.id) === meetingId);
+      const meeting = (root._meetings || []).find(m => String(m.id) === currentMeetingId);
       let selectedRoleName = '';
 
       if (val.startsWith('id:')) {
         const id = val.split(':')[1];
         const assignment = meeting?.assignments.find(a => String(a.id) === id);
         if (assignment) {
-          // Destructure to prevent fillForm from overwriting our dropdown's current selection
+          // 1. Prepare form without touching the select element
           const { role_name, ...data } = assignment;
+          clearForm(assignmentForm);
+          assignmentForm.elements.meeting_id.value = currentMeetingId;
           fillForm(assignmentForm, data);
+          
+          // 2. Explicitly restore the dropdown selection
+          roleSelect.value = val;
           delete assignmentForm._tmp_role_name;
           selectedRoleName = assignment.role_name;
         }
       } else if (val.startsWith('name:')) {
-        const name = val.split(':')[1];
+        selectedRoleName = val.split(':')[1];
         clearForm(assignmentForm);
-        assignmentForm.elements.meeting_id.value = meetingId;
-        roleSelect.value = val; // Restore template selection ID so it doesn't null out
-        selectedRoleName = name;
+        assignmentForm.elements.meeting_id.value = currentMeetingId;
+        roleSelect.value = val; 
         assignmentForm._tmp_role_name = selectedRoleName;
       }
       toggleSpeechTitle(selectedRoleName);

@@ -471,15 +471,19 @@ class TMP_Repository {
             $wpdb->update($table, $record, array('id' => absint($data['id'])));
             $saved = array('id' => absint($data['id'])) + $record;
 
-            // Sync logic: If this is a singular role and a member is assigned, update all other segments of the same role
-            if (!empty($record['member_id']) && !empty($record['meeting_id'])) {
+            // Sync logic: Propagate assignment to all segments of a singular role (TMOD, Evaluator 1, etc)
+            if (!empty($record['meeting_id'])) {
                 $full_role = $wpdb->get_var($wpdb->prepare("SELECT role_name FROM {$table} WHERE id = %d", $data['id']));
                 $base = self::get_base_role_name($full_role);
+                
                 if (self::is_singular_role($base)) {
+                    $new_member_id = !empty($record['member_id']) ? absint($record['member_id']) : null;
+                    $new_status = sanitize_text_field($record['status'] ?? 'Confirmed');
+
                     $wpdb->query($wpdb->prepare(
-                        "UPDATE {$table} SET member_id = %d, status = %s WHERE meeting_id = %d AND (role_name = %s OR role_name LIKE %s)",
-                        $record['member_id'],
-                        $record['status'] ?? 'Confirmed',
+                        "UPDATE {$table} SET member_id = %s, status = %s WHERE meeting_id = %d AND (role_name = %s OR role_name LIKE %s)",
+                        $new_member_id,
+                        $new_status,
                         $record['meeting_id'],
                         $base,
                         $wpdb->esc_like($base) . ' (%'
