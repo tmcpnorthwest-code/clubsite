@@ -72,7 +72,18 @@ class TMP_Repository {
     public static function members() {
         global $wpdb;
         $table = self::member_table();
-        return $wpdb->get_results("SELECT * FROM {$table} ORDER BY full_name ASC", ARRAY_A);
+        $rows = $wpdb->get_results("SELECT * FROM {$table} ORDER BY full_name ASC", ARRAY_A);
+
+        $now = time();
+        foreach ($rows as &$row) {
+            $is_unpaid = !empty($row['paid_until']) && strtotime($row['paid_until']) < $now;
+            $is_exempt = !empty($row['is_exempt_from_unpaid_block']);
+
+            $row['is_eligible'] = (!$is_unpaid || $is_exempt);
+            $row['formatted_name'] = sprintf("%s (%s Level %d)", $row['full_name'], $row['pathway'], $row['level']);
+        }
+
+        return $rows;
     }
 
     public static function get_member($id) {
@@ -236,6 +247,14 @@ class TMP_Repository {
         $member = self::get_member($member_id);
         if (!$member) return ['suitable' => false, 'reason' => 'No member'];
 
+        // Rule: Exclude unpaid members without exemption
+        $now = time();
+        $is_unpaid = !empty($member['paid_until']) && strtotime($member['paid_until']) < $now;
+        $is_exempt = !empty($member['is_exempt_from_unpaid_block']);
+        if ($is_unpaid && !$is_exempt) {
+            return ['suitable' => false, 'reason' => 'Unpaid Member'];
+        }
+
         $role = strtolower($role_name);
         $level = (int)$member['level'];
 
@@ -372,7 +391,11 @@ class TMP_Repository {
             return ['suggestions' => [], 'trace' => $trace];
         }
 
-        $members = self::members();
+        $all_members = self::members();
+        $members = array_filter($all_members, function($m) {
+            return !empty($m['is_eligible']);
+        });
+
         $trace[] = "Found " . count($members) . " total members in database.";
         if (empty($members)) $trace[] = "Warning: No members found in database. Add members first.";
 
@@ -566,19 +589,23 @@ class TMP_Repository {
             $speech_slots = absint($data['speech_slots'] ?? 0);
             for ($i = 1; $i <= $speech_slots; $i++) {
                 $agenda[] = ['role' => "Evaluator $i", 'note' => 'Intro speaker', 'dur' => 1];
-                $agenda[] = ['role' => "Speaker $i", 'note' => 'Speech', 'dur' => 7];
+                $agenda[] = ['role' => "Speaker $i", 'note' => 'Speech', 'dur' => 8];
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Rate the speaker', 'dur' => 1];
+
             }
             $agenda[] = ['role' => 'Break', 'note' => 'Networking', 'dur' => 5];
             if (in_array('Toastmaster of the Day', $selected_roles)) {
                 $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Discuss theme', 'dur' => 3];
             }
             for ($i = 1; $i <= $speech_slots; $i++) {
-                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 2];
+                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
             }
             if (in_array('Timer', $selected_roles)) $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 2];
             if (in_array('Grammarian', $selected_roles)) $agenda[] = ['role' => 'Grammarian', 'note' => 'Report', 'dur' => 3];
             if (in_array('Ah Counter', $selected_roles)) $agenda[] = ['role' => 'Ah Counter', 'note' => 'Report', 'dur' => 3];
             if (in_array('General Evaluator', $selected_roles)) $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 5];
+            if (in_array('Toastmaster of the Day', $selected_roles)) $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Role Player voting', 'dur' => 1];
+
             if (in_array('Presiding Officer', $selected_roles)) {
                 $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Closing address', 'dur' => 4];
             }
@@ -820,6 +847,7 @@ class TMP_Repository {
     public static function delete_request($id, $member_id) {
         global $wpdb;
         $table = self::request_table();
+        $assignments_table = self::assignment_table();
 
         $asgn_id = $wpdb->get_var($wpdb->prepare("SELECT assignment_id FROM $table WHERE id = %d", $id));
 
@@ -829,9 +857,17 @@ class TMP_Repository {
         ));
 
         if ($deleted && $asgn_id) {
-            $count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE assignment_id = %d", $asgn_id));
-            if ($count == 0) {
-                $wpdb->update(self::assignment_table(), ['status' => 'Planned'], ['id' => absint($asgn_id), 'member_id' => null]);
+            $asgn_id = absint($asgn_id);
+            $current_asgn = $wpdb->get_row($wpdb->prepare("SELECT member_id FROM {$assignments_table} WHERE id = %d", $asgn_id), ARRAY_A);
+            $is_assigned = $current_asgn && (int)$current_asgn['member_id'] === (int)$member_id;
+
+            $count = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE assignment_id = %d", $asgn_id));
+            
+            if ($is_assigned) {
+                $status = ($count > 0) ? 'Requested' : 'Planned';
+                $wpdb->update($assignments_table, ['status' => $status, 'member_id' => null], ['id' => $asgn_id]);
+            } elseif ($count === 0 && empty($current_asgn['member_id'])) {
+                $wpdb->update($assignments_table, ['status' => 'Planned'], ['id' => $asgn_id]);
             }
         }
         return $deleted;

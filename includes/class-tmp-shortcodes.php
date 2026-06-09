@@ -259,7 +259,6 @@ class TMP_Shortcodes {
                         <option>Completed</option>
                     </select>
                 </label>
-                <label>Order <input type="number" name="sort_order" value="10" min="0" /></label>
                 <div class="tmp-form-actions tmp-wide">
                     <button class="tmp-button tmp-primary" type="submit">Save Assignment</button>
                     <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-assignment>Clear</button>

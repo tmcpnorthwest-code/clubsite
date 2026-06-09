@@ -11,6 +11,9 @@
     "Level 5 - Demonstrate expertise",
   ];
 
+  // Shared VPE refresher
+  let refreshVPE = () => {};
+
   const qs = (selector, root = document) => root.querySelector(selector);
   const qsa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const esc = (value) => String(value || "").replace(/[&<>"']/g, (char) => ({
@@ -357,6 +360,7 @@
         try {
           await api(`/requests/${cancelBtn.dataset.cancelRequest}`, { method: "DELETE" });
           await updateMemberDashboard();
+          refreshVPE();
         } catch (err) {
           alert(err.message);
           cancelBtn.disabled = false;
@@ -428,10 +432,7 @@
         });
         alert("Your prioritized requests have been submitted!");
         await updateMemberDashboard();
-        // Force refresh of VPE components if they exist on the page
-        if (document.querySelector("[data-tmp-vpe]")) {
-            await renderMeetings();
-        }
+        refreshVPE();
       } catch (err) {
         alert(err.message);
       } finally {
@@ -551,10 +552,15 @@
 
     async function renderMembers() {
       const members = await api("/members");
-      memberSelect.innerHTML = `<option value="">Unassigned</option>` + members.map((member) =>
-        `<option value="${esc(member.id)}">${esc(member.full_name)}</option>`
+      memberSelect.innerHTML = `<option value="">Unassigned</option>` + members
+        .filter(m => m.is_eligible)
+        .map((member) =>
+        `<option value="${esc(member.id)}">${esc(member.formatted_name)}</option>`
       ).join("");
     }
+
+    // Hook up shared refresher
+    refreshVPE = () => renderMeetings().catch(console.error);
 
     async function renderMeetings(selectedId = null) {
       const meetings = await api("/meetings") || [];
