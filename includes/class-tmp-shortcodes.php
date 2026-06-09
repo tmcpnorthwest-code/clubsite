@@ -97,6 +97,14 @@ class TMP_Shortcodes {
                     <p data-tmp-notes></p>
                 </article>
                 <article class="tmp-panel tmp-wide">
+                    <h3>My Active Requests</h3>
+                    <div data-tmp-active-requests>Loading requests...</div>
+                </article>
+                <article class="tmp-panel tmp-wide">
+                    <h3>Request History</h3>
+                    <div data-tmp-request-history>Loading history...</div>
+                </article>
+                <article class="tmp-panel tmp-wide">
                     <h3>Smart Recommendations</h3>
                     <div class="tmp-rec-grid" data-tmp-recommendations>Loading suggestions...</div>
                 </article>
@@ -104,13 +112,17 @@ class TMP_Shortcodes {
                     <h3>Available Meeting Slots</h3>
                     <form class="tmp-panel tmp-form" data-tmp-member-request-form style="margin-top:10px; border:1px dashed #ccc;">
                         <p class="tmp-eyebrow">Request a role</p>
-                        <div class="tmp-grid" style="grid-template-columns: 1fr 1fr auto; align-items: end; gap: 10px;">
-                            <label>Meeting 
-                                <select name="meeting_id" required data-tmp-req-meeting-select>
-                                    <option value="">Select a meeting...</option>
-                                </select>
+                        <div class="tmp-grid" style="grid-template-columns: 1fr; gap: 10px;">
+                            <label>1. Select Meeting 
+                                <select name="meeting_id" required data-tmp-req-meeting-select></select>
                             </label>
-                            <label>Role <select name="assignment_id" required data-tmp-req-role-select></select></label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                                <label>Priority 1 <select name="priorities[]" required data-tmp-req-role-select></select></label>
+                                <label>Priority 2 <select name="priorities[]" data-tmp-req-role-select></select></label>
+                                <label>Priority 3 <select name="priorities[]" data-tmp-req-role-select></select></label>
+                            </div>
+                        </div>
+                        <div style="margin-top:10px; text-align:right;">
                             <button class="tmp-button tmp-primary" type="submit">Submit Request</button>
                         </div>
                     </form>

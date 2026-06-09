@@ -20,6 +20,11 @@ class TMP_Repository {
         return $wpdb->prefix . 'tmp_role_assignments';
     }
 
+    public static function request_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_member_requests';
+    }
+
     public static function get_standard_roles() {
         return [
             'Sergeant at Arms'       => 'SAA',
@@ -171,6 +176,7 @@ class TMP_Repository {
         $meetings = self::meeting_table();
         $assignments = self::assignment_table();
         $members = self::member_table();
+        $requests = self::request_table();
 
         $rows = $wpdb->get_results("SELECT * FROM {$meetings} ORDER BY meeting_date DESC, id DESC LIMIT 25", ARRAY_A);
         if (!is_array($rows)) {
@@ -179,7 +185,8 @@ class TMP_Repository {
 
         foreach ($rows as &$meeting) {
             $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
-                "SELECT a.*, m.full_name AS member_name
+                "SELECT a.*, m.full_name AS member_name,
+                        (SELECT COUNT(*) FROM {$requests} r WHERE r.assignment_id = a.id) as request_count
                  FROM {$assignments} a
                  LEFT JOIN {$members} m ON m.id = a.member_id
                  WHERE a.meeting_id = %d
@@ -236,7 +243,7 @@ class TMP_Repository {
         $assignments = self::assignment_table();
         $today = gmdate('Y-m-d');
 
-        return $wpdb->get_results($wpdb->prepare("SELECT m.meeting_date, m.theme, a.id as assignment_id, a.role_name FROM {$meetings} m JOIN {$assignments} a ON m.id = a.meeting_id WHERE m.meeting_date >= %s AND a.member_id IS NULL ORDER BY m.meeting_date ASC LIMIT 10", $today), ARRAY_A);
+        return $wpdb->get_results($wpdb->prepare("SELECT m.id as meeting_id, m.meeting_date, m.theme, a.id as assignment_id, a.role_name FROM {$meetings} m JOIN {$assignments} a ON m.id = a.meeting_id WHERE m.meeting_date >= %s AND a.member_id IS NULL ORDER BY m.meeting_date ASC LIMIT 50", $today), ARRAY_A);
     }
 
     public static function get_suggestions($meeting_id) {
@@ -255,9 +262,14 @@ class TMP_Repository {
         $total_assignments = count($all_assignments);
         $trace[] = "Total roles defined for this meeting: $total_assignments";
 
-        // Map singular roles to members who are already manually assigned
         $singular_role_map = []; // base_role => member_id
         $assigned_ids = [];
+        
+        // Fetch prioritized member requests for this meeting
+        $requests = $wpdb->get_results($wpdb->prepare(
+            "SELECT member_id, assignment_id, priority FROM " . self::request_table() . " WHERE meeting_id = %d ORDER BY priority ASC",
+            $meeting_id
+        ), ARRAY_A);
 
         foreach ($all_assignments as $asgn) {
             $m_id = (int)$asgn['member_id'];
@@ -295,20 +307,54 @@ class TMP_Repository {
 
         $suggestions = [];
 
+        // Phase 1: Try to satisfy member requests by priority (1 through 3)
+        for ($p = 1; $p <= 3; $p++) {
+            foreach ($slots as $slot_index => $slot) {
+                // Skip if already suggested
+                if (isset($suggestions[$slot['id']])) continue;
+
+                $slot_id = (int)$slot['id'];
+                $possible_requests = array_filter($requests, fn($r) => (int)$r['assignment_id'] === $slot_id && (int)$r['priority'] === $p);
+
+                foreach ($possible_requests as $req) {
+                    $m_id = (int)$req['member_id'];
+                    if (in_array($m_id, $assigned_ids)) continue;
+
+                    $m_data = array_values(array_filter($members, fn($m) => (int)$m['id'] === $m_id))[0] ?? null;
+                    if ($m_data) {
+                        $suggestions[$slot_id] = [
+                            'id' => $slot_id,
+                            'role_name' => $slot['role_name'],
+                            'suggested_member_id' => $m_id, 
+                            'suggested_member_name' => $m_data['full_name']
+                        ];
+                        $assigned_ids[] = $m_id;
+                        $trace[] = "Satisfied Priority $p Request: {$m_data['full_name']} for {$slot['role_name']}";
+                        
+                        $base = self::get_base_role_name($slot['role_name']);
+                        if (self::is_singular_role($base)) $singular_role_map[$base] = $m_id;
+                        break; 
+                    }
+                }
+            }
+        }
+
+        // Phase 2: Use intelligent suitability for remaining empty slots
         foreach ($slots as $slot) {
+            if (isset($suggestions[$slot['id']])) continue;
+
             $role_label = $slot['role_name'];
             $base_role = self::get_base_role_name($role_label);
             $role_lower = strtolower($base_role);
             $found_match = false;
 
-            // Rule: If this is a singular role and we already suggested/assigned someone, reuse them.
             if (self::is_singular_role($base_role) && isset($singular_role_map[$base_role])) {
                 $m_id = $singular_role_map[$base_role];
                 $m_data = array_values(array_filter($members, function($m) use ($m_id) {
                     return (int)$m['id'] === $m_id;
                 }))[0] ?? null;
                 if ($m_data) {
-                    $suggestions[] = array_merge($slot, [
+                    $suggestions[$slot['id']] = array_merge($slot, [
                         'suggested_member_id' => $m_id, 
                         'suggested_member_name' => $m_data['full_name']
                     ]);
@@ -346,7 +392,7 @@ class TMP_Repository {
                 }
 
                 if ($match) {
-                    $suggestions[] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name']]);
+                    $suggestions[$slot['id']] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name']]);
                     $assigned_ids[] = $member_id;
                     $found_match = true;
                     
@@ -361,7 +407,7 @@ class TMP_Repository {
                 $trace[] = "Could not find a suitable unassigned member for: " . $slot['role_name'];
             }
         }
-        return ['suggestions' => $suggestions, 'trace' => $trace];
+        return ['suggestions' => array_values($suggestions), 'trace' => $trace];
     }
 
     public static function save_meeting($data) {
@@ -475,6 +521,11 @@ class TMP_Repository {
         $record['updated_at'] = $now;
 
         if (!empty($data['id'])) {
+            $old_record = $wpdb->get_row($wpdb->prepare("SELECT status, member_id FROM {$table} WHERE id = %d", $data['id']), ARRAY_A);
+            if ($old_record && ($old_record['status'] !== 'Confirmed') && (isset($data['status']) && $data['status'] === 'Confirmed') && !empty($data['member_id'])) {
+                self::notify_assignment_status(absint($data['id']), absint($data['member_id']));
+            }
+
             $wpdb->update($table, $record, array('id' => absint($data['id'])));
             $saved = array('id' => absint($data['id'])) + $record;
 
@@ -513,5 +564,195 @@ class TMP_Repository {
     public static function delete_assignment($id) {
         global $wpdb;
         return (bool) $wpdb->delete(self::assignment_table(), array('id' => absint($id)));
+    }
+
+    public static function save_requests($data) {
+        global $wpdb;
+        $table = self::request_table();
+        $meeting_id = absint($data['meeting_id'] ?? 0);
+        $member_id = absint($data['member_id'] ?? 0);
+        $priorities = $data['priorities'] ?? [];
+
+        if (!$meeting_id || !$member_id) return false;
+
+        // Clear previous requests for this meeting by this member
+        $wpdb->delete($table, ['meeting_id' => $meeting_id, 'member_id' => $member_id]);
+
+        foreach ($priorities as $index => $assignment_id) {
+            if (empty($assignment_id)) continue;
+            $wpdb->insert($table, [
+                'meeting_id' => $meeting_id, 'member_id' => $member_id, 'assignment_id' => absint($assignment_id), 'priority' => $index + 1, 'created_at' => current_time('mysql')
+            ]);
+        }
+
+        self::notify_vpe_of_request($meeting_id, $member_id, $priorities);
+
+        return true;
+    }
+
+    /**
+     * Notifies the VP Education when a member submits prioritized role requests.
+     */
+    private static function notify_vpe_of_request($meeting_id, $member_id, $priorities) {
+        // Get users with the VPE role
+        $vpes = get_users(['role' => 'tm_vp_education']);
+        $emails = !empty($vpes) ? wp_list_pluck($vpes, 'user_email') : [get_option('admin_email')];
+
+        $member = self::get_member($member_id);
+        global $wpdb;
+        $meeting = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::meeting_table() . " WHERE id = %d", $meeting_id), ARRAY_A);
+
+        if (!$member || !$meeting) {
+            return;
+        }
+
+        $role_details = [];
+        $assignments_table = self::assignment_table();
+
+        foreach ($priorities as $index => $asgn_id) {
+            if (empty($asgn_id)) {
+                continue;
+            }
+            $role_name = $wpdb->get_var($wpdb->prepare(
+                "SELECT role_name FROM {$assignments_table} WHERE id = %d",
+                $asgn_id
+            ));
+            if ($role_name) {
+                $role_details[] = sprintf("Priority %d: %s", $index + 1, self::get_base_role_name($role_name));
+            }
+        }
+
+        if (empty($role_details)) {
+            return;
+        }
+
+        $subject = "[New Request] Role Request from " . $member['full_name'];
+        $message = sprintf(
+            "Hi VP Education,\n\n%s has submitted new prioritized role requests for the meeting on %s (%s):\n\n%s\n\nPlease log in to the dashboard to review and approve these requests.\n\nRegards,\nClub Portal",
+            $member['full_name'],
+            $meeting['meeting_date'],
+            $meeting['theme'],
+            implode("\n", $role_details)
+        );
+
+        wp_mail($emails, $subject, $message);
+    }
+
+    public static function delete_request($id, $member_id) {
+        global $wpdb;
+        return (bool) $wpdb->delete(self::request_table(), array(
+            'id' => absint($id),
+            'member_id' => absint($member_id)
+        ));
+    }
+
+    /**
+     * Retrieves active role requests for a specific member.
+     */
+    public static function get_member_requests($member_id) {
+        global $wpdb;
+        $requests = self::request_table();
+        $meetings = self::meeting_table();
+        $assignments = self::assignment_table();
+        $today = gmdate('Y-m-d');
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT r.id, r.priority, m.meeting_date, m.theme, a.role_name, a.member_id as assigned_id, a.status as assignment_status
+             FROM {$requests} r
+             JOIN {$meetings} m ON r.meeting_id = m.id
+             JOIN {$assignments} a ON r.assignment_id = a.id
+             WHERE r.member_id = %d AND m.meeting_date >= %s
+             ORDER BY m.meeting_date ASC, r.priority ASC",
+            $member_id,
+            $today
+        ), ARRAY_A);
+    }
+
+    /**
+     * Retrieves historical role requests for a specific member.
+     */
+    public static function get_member_request_history($member_id) {
+        global $wpdb;
+        $requests = self::request_table();
+        $meetings = self::meeting_table();
+        $assignments = self::assignment_table();
+        $today = gmdate('Y-m-d');
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT r.id, r.priority, m.meeting_date, m.theme, a.role_name, a.member_id as assigned_id, a.status as assignment_status
+             FROM {$requests} r
+             JOIN {$meetings} m ON r.meeting_id = m.id
+             JOIN {$assignments} a ON r.assignment_id = a.id
+             WHERE r.member_id = %d AND m.meeting_date < %s
+             ORDER BY m.meeting_date DESC, r.priority ASC",
+            $member_id,
+            $today
+        ), ARRAY_A);
+    }
+
+    /**
+     * Retrieves all member requests for a specific assignment (role slot).
+     */
+    public static function get_conflicting_requests($assignment_id) {
+        global $wpdb;
+        $requests_table = self::request_table();
+        $members_table = self::member_table();
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT r.priority, r.member_id, m.full_name AS member_name, m.email
+             FROM {$requests_table} r
+             JOIN {$members_table} m ON r.member_id = m.id
+             WHERE r.assignment_id = %d
+             ORDER BY r.priority ASC, m.full_name ASC",
+            $assignment_id
+        ), ARRAY_A);
+    }
+
+    /**
+     * Sends email notifications when a role request is approved or filled by someone else.
+     */
+    private static function notify_assignment_status($assignment_id, $member_id) {
+        global $wpdb;
+        $member = self::get_member($member_id);
+        $assignment = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::assignment_table() . " WHERE id = %d", $assignment_id), ARRAY_A);
+        
+        if (!$member || !$assignment) return;
+
+        $meeting = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::meeting_table() . " WHERE id = %d", $assignment['meeting_id']), ARRAY_A);
+        if (!$meeting) return;
+
+        $base_role = self::get_base_role_name($assignment['role_name']);
+
+        // 1. Notify Approved Member
+        $subject = "[Approved] Your Role: {$base_role} for " . $meeting['meeting_date'];
+        $message = sprintf(
+            "Hi %s,\n\nYour request for the role of '%s' for the meeting on %s (%s) has been approved!\n\nYou can view the updated agenda and your level progress on your dashboard.\n\nRegards,\nVP Education",
+            $member['full_name'],
+            $base_role,
+            $meeting['meeting_date'],
+            $meeting['theme']
+        );
+        wp_mail($member['email'], $subject, $message);
+
+        // 2. Notify Denied Members (those who requested this specific assignment but didn't get it)
+        $requests = $wpdb->get_results($wpdb->prepare(
+            "SELECT r.member_id, m.full_name, m.email 
+             FROM " . self::request_table() . " r 
+             JOIN " . self::member_table() . " m ON r.member_id = m.id 
+             WHERE r.assignment_id = %d AND r.member_id != %d",
+            $assignment_id,
+            $member_id
+        ), ARRAY_A);
+
+        foreach ($requests as $req) {
+            $subject = "[Update] Role Request for " . $meeting['meeting_date'];
+            $message = sprintf(
+                "Hi %s,\n\nThank you for requesting the '%s' role for the meeting on %s. This slot has now been filled by another member.\n\nPlease check the Available Meeting Slots on your dashboard to request a different role!\n\nRegards,\nVP Education",
+                $req['full_name'],
+                $base_role,
+                $meeting['meeting_date']
+            );
+            wp_mail($req['email'], $subject, $message);
+        }
     }
 }

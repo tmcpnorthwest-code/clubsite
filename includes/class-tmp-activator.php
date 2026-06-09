@@ -69,6 +69,7 @@ class TMP_Activator {
         $members = $wpdb->prefix . 'tmp_members';
         $meetings = $wpdb->prefix . 'tmp_meetings';
         $assignments = $wpdb->prefix . 'tmp_role_assignments';
+        $requests = $wpdb->prefix . 'tmp_member_requests';
 
         dbDelta("CREATE TABLE {$members} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -121,6 +122,18 @@ class TMP_Activator {
             sort_order INT UNSIGNED NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY meeting_id (meeting_id),
+            KEY member_id (member_id)
+        ) {$charset};");
+
+        dbDelta("CREATE TABLE {$requests} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            meeting_id BIGINT UNSIGNED NOT NULL,
+            member_id BIGINT UNSIGNED NOT NULL,
+            assignment_id BIGINT UNSIGNED NOT NULL,
+            priority TINYINT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             KEY meeting_id (meeting_id),
             KEY member_id (member_id)

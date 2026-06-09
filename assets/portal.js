@@ -79,16 +79,12 @@
             <tbody>${agendaRows}</tbody>
           </table>
           <div class="notes"><strong>Agenda Notes:</strong><br>${esc(meeting.agenda_notes || 'No additional notes.')}</div>
-          <div class="no-print" style="margin-top: 20px; text-align: center;">
-            <button onclick="window.print()" style="padding: 10px 20px; background: #004165; color: white; border: none; border-radius: 4px; cursor: pointer;">Print Now</button>
-          </div>
           <script>
-            window.onload = () => {
-              setTimeout(() => {
-                window.print();
-                window.onafterprint = () => window.close();
-              }, 300);
-            };
+            setTimeout(() => {
+              window.focus();
+              window.print();
+              window.onafterprint = () => window.close();
+            }, 500);
           </script>
         </body>
       </html>
@@ -97,7 +93,11 @@
   }
 
   async function api(path, options = {}) {
-    const response = await fetch(`${TMPortal.restUrl}${path}`, {
+    let url = `${TMPortal.restUrl}${path}`;
+    if (!options.method || options.method === 'GET') {
+      url += (url.includes('?') ? '&' : '?') + '_=' + Date.now();
+    }
+    const response = await fetch(url, {
       ...options,
       headers: {
         "Content-Type": "application/json",
@@ -171,6 +171,71 @@
         return `<li class="${className}">${esc(label)}</li>`;
       }).join("");
 
+      const requests = await api("/me/requests").catch(() => []);
+      qs("[data-tmp-active-requests]", root).innerHTML = requests.length ? `
+        <div class="tmp-table-wrap">
+          <table class="tmp-table">
+            <thead><tr><th>Meeting</th><th>Role</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>${requests.map(r => {
+              const isApproved = String(r.assigned_id) === String(member.id) && r.assignment_status === 'Confirmed';
+              const isDenied = r.assigned_id && r.assigned_id != 0 && String(r.assigned_id) !== String(member.id) && r.assignment_status === 'Confirmed';
+              
+              let statusLabel = 'Pending';
+              let statusStyle = 'background:#eee; color:#333;';
+              
+              if (isApproved) {
+                statusLabel = 'Approved';
+                statusStyle = 'background:#2e7d32; color:white;';
+              } else if (isDenied) {
+                statusLabel = 'Denied';
+                statusStyle = 'background:#c62828; color:white;';
+              }
+              
+              return `
+              <tr>
+                <td>${esc(r.meeting_date)} - ${esc(r.theme)}</td>
+                <td>${esc(r.role_name)}</td>
+                <td><span class="tmp-tag" style="background:#f5f5f5">Priority ${esc(r.priority)}</span></td>
+                <td><span class="tmp-tag" style="${statusStyle}">${statusLabel}</span></td>
+                <td><button class="tmp-small-button tmp-danger" data-cancel-request="${esc(r.id)}">Cancel</button></td>
+              </tr>
+            `}).join("")}</tbody>
+          </table>
+        </div>
+      ` : "<p>You have no active role requests.</p>";
+
+      const history = await api("/me/requests/history").catch(() => []);
+      qs("[data-tmp-request-history]", root).innerHTML = history.length ? `
+        <div class="tmp-table-wrap">
+          <table class="tmp-table">
+            <thead><tr><th>Meeting</th><th>Role</th><th>Priority</th><th>Status</th></tr></thead>
+            <tbody>${history.map(r => {
+              const isApproved = String(r.assigned_id) === String(member.id) && r.assignment_status === 'Confirmed';
+              const isDenied = r.assigned_id && r.assigned_id != 0 && String(r.assigned_id) !== String(member.id) && r.assignment_status === 'Confirmed';
+              
+              let statusLabel = 'Unprocessed';
+              let statusStyle = 'background:#eee; color:#333;';
+              
+              if (isApproved) {
+                statusLabel = 'Approved';
+                statusStyle = 'background:#2e7d32; color:white;';
+              } else if (isDenied) {
+                statusLabel = 'Denied';
+                statusStyle = 'background:#c62828; color:white;';
+              }
+              
+              return `
+              <tr>
+                <td>${esc(r.meeting_date)} - ${esc(r.theme)}</td>
+                <td>${esc(r.role_name)}</td>
+                <td><span class="tmp-tag" style="background:#f5f5f5">Priority ${esc(r.priority)}</span></td>
+                <td><span class="tmp-tag" style="${statusStyle}">${statusLabel}</span></td>
+              </tr>
+            `}).join("")}</tbody>
+          </table>
+        </div>
+      ` : "<p>No request history found.</p>";
+
       const slots = await api("/meetings/open-slots");
       const reqForm = qs("[data-tmp-member-request-form]", root);
       const mSelect = qs("[data-tmp-req-meeting-select]", reqForm);
@@ -212,10 +277,32 @@
 
     await updateMemberDashboard();
 
+    const activeRequestsList = qs("[data-tmp-active-requests]", root);
+    activeRequestsList.addEventListener("click", async (e) => {
+      const cancelBtn = e.target.closest("[data-cancel-request]");
+      if (!cancelBtn) return;
+
+      if (confirm("Cancel this role request?")) {
+        cancelBtn.disabled = true;
+        try {
+          await api(`/requests/${cancelBtn.dataset.cancelRequest}`, { method: "DELETE" });
+          await updateMemberDashboard();
+        } catch (err) {
+          alert(err.message);
+          cancelBtn.disabled = false;
+        }
+      }
+    });
+
     mSelect.addEventListener("change", () => {
       const group = Object.values(root._groupedSlots || {}).find(g => String(g.id) === mSelect.value);
-      rSelect.innerHTML = '<option value="">Select an available role...</option>' + 
+      const roleOptions = '<option value="">(None)</option>' + 
         (group ? group.roles.map(r => `<option value="${esc(r.assignment_id)}">${esc(r.role_name)}</option>`).join("") : "");
+      
+      const allRoleSelects = qsa("[data-tmp-req-role-select]", reqForm);
+      allRoleSelects.forEach(sel => {
+        sel.innerHTML = roleOptions;
+      });
     });
 
     reqForm.addEventListener("submit", async (e) => {
@@ -224,11 +311,16 @@
       const btn = reqForm.querySelector('button');
       btn.disabled = true;
       try {
-        await api("/assignments", {
+        const data = formData(reqForm);
+        await api("/requests", {
           method: "POST",
-          body: JSON.stringify({ id: rSelect.value, member_id: root._member.id, status: "Requested" })
+          body: JSON.stringify({ 
+            meeting_id: data.meeting_id,
+            member_id: root._member.id,
+            priorities: data.priorities
+          })
         });
-        alert("Role requested successfully!");
+        alert("Your prioritized requests have been submitted!");
         await updateMemberDashboard();
       } catch (err) {
         alert(err.message);
@@ -320,8 +412,12 @@
       }
 
       if (del) {
-        await api(`/members/${del.dataset.deleteMember}`, { method: "DELETE" });
-        await render();
+        if (confirm("Are you sure you want to delete this member?")) {
+          const row = event.target.closest("tr");
+          if (row) row.style.display = "none";
+          await api(`/members/${del.dataset.deleteMember}`, { method: "DELETE" });
+          await render();
+        }
       }
     });
 
@@ -381,11 +477,14 @@
                 <span>
                   <strong>${esc(assignment.role_name)}</strong> / ${assignment.member_name ? esc(assignment.member_name) : "Unassigned"} / ${esc(assignment.status)} / <small class="tmp-time-tag">${start} / ${duration}m / ${end}</small>
                   ${assignment.status === 'Requested' ? ' <span class="tmp-tag" style="background:#ffd700; padding:2px 4px; border-radius:3px; font-size:10px;">PRIORITY</span>' : ''}
+                  ${assignment.request_count > 1 ? ` <span class="tmp-tag" style="background:#ff5722; color:white; padding:2px 4px; border-radius:3px; font-size:10px;">CONFLICT (${assignment.request_count})</span>` : ''}
+                  ${assignment.request_count == 1 && assignment.status !== 'Confirmed' ? ` <span class="tmp-tag" style="background:#2196f3; color:white; padding:2px 4px; border-radius:3px; font-size:10px;">REQUESTED</span>` : ''}
                   ${assignment.suitability ? `<span class="tmp-tag" style="background:${assignment.suitability.suitable ? '#e1f5fe' : '#ffebee'}; color:${assignment.suitability.suitable ? '#01579b' : '#b71c1c'}; padding:2px 4px; border-radius:3px; font-size:10px; margin-left:5px;">${esc(assignment.suitability.reason)}</span>` : ""}
                   ${assignment.speech_title ? `<br><small>Title: ${esc(assignment.speech_title)}</small>` : ""}
                 </span>
                 <span>
                   ${assignment.status === 'Requested' ? `<button class="tmp-small-button" style="background:#2e7d32; color:white;" type="button" data-approve-assignment="${esc(assignment.id)}">Approve</button>` : ""}
+                  <button class="tmp-small-button tmp-secondary" type="button" data-view-conflicts="${esc(assignment.id)}">Conflicts</button>
                   <button class="tmp-small-button tmp-danger" type="button" data-delete-assignment="${esc(assignment.id)}">Delete</button>
                 </span>
               </li>
@@ -539,11 +638,17 @@
       const approve = e.target.closest("[data-approve-assignment]");
       const suggest = e.target.closest("[data-suggest-roles]");
       const print = e.target.closest("[data-print-agenda]");
+      const viewConflicts = e.target.closest("[data-view-conflicts]");
       const delMeeting = e.target.closest("[data-delete-meeting]");
 
       if (del) {
-        await api(`/assignments/${del.dataset.deleteAssignment}`, { method: "DELETE" });
-        await renderMeetings();
+        if (confirm("Remove this role from the agenda? Subsequent role timings will adjust automatically.")) {
+          const li = e.target.closest("li");
+          if (li) li.style.display = "none";
+          await api(`/assignments/${del.dataset.deleteAssignment}`, { method: "DELETE" });
+          await renderMeetings();
+          updateMemberDashboard().catch(() => {});
+        }
       } else if (approve) {
         await api("/assignments", {
           method: "POST",
@@ -552,8 +657,37 @@
         await renderMeetings();
       } else if (delMeeting) {
         if (confirm("Are you sure you want to delete this meeting? This will permanently remove the agenda and all assignments.")) {
+          const card = e.target.closest("article");
+          if (card) card.style.display = "none";
           await api(`/meetings/${delMeeting.dataset.deleteMeeting}`, { method: "DELETE" });
+          // Reset UI state before re-rendering
+          meetingSelect.value = "";
+          updateRoles();
           await renderMeetings();
+          updateMemberDashboard().catch(() => {});
+        }
+      } else if (viewConflicts) {
+        const assignmentId = viewConflicts.dataset.viewConflicts;
+        const conflicts = await api(`/assignments/${assignmentId}/conflicts`);
+        if (conflicts.length === 0) {
+          alert("No other members have requested this role.");
+        } else {
+          const options = conflicts.map((c, i) => {
+            const isP1 = String(c.priority) === '1';
+            const label = isP1 ? `⭐ ${c.member_name} (PRIORITY 1)` : `${c.member_name} (Priority ${c.priority})`;
+            return `${i + 1}. ${label}`;
+          }).join("\n");
+          const choice = prompt(`Conflicting Requests for this slot:\n\n${options}\n\nEnter the number of the member to assign, or Cancel:`);
+          
+          const index = parseInt(choice, 10) - 1;
+          if (!isNaN(index) && conflicts[index]) {
+            const selected = conflicts[index];
+            await api("/assignments", {
+              method: "POST",
+              body: JSON.stringify({ id: assignmentId, member_id: selected.member_id, status: "Confirmed" })
+            });
+            await renderMeetings();
+          }
         }
       } else if (print) {
         const meeting = root._meetings.find(m => String(m.id) === print.dataset.printAgenda);

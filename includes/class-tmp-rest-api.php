@@ -14,6 +14,38 @@ class TMP_REST_API {
             'methods' => WP_REST_Server::READABLE,
             'callback' => array(__CLASS__, 'me'),
             'permission_callback' => function () {
+                return true;
+            },
+        ));
+
+        register_rest_route('toastmasters/v1', '/requests', array(
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => array(__CLASS__, 'save_requests'),
+            'permission_callback' => function () {
+                return is_user_logged_in();
+            },
+        ));
+
+        register_rest_route('toastmasters/v1', '/requests/(?P<id>\d+)', array(
+            'methods' => WP_REST_Server::DELETABLE,
+            'callback' => array(__CLASS__, 'delete_request'),
+            'permission_callback' => function () {
+                return is_user_logged_in();
+            },
+        ));
+
+        register_rest_route('toastmasters/v1', '/me/requests', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => array(__CLASS__, 'get_my_requests'),
+            'permission_callback' => function () {
+                return is_user_logged_in();
+            },
+        ));
+
+        register_rest_route('toastmasters/v1', '/me/requests/history', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => array(__CLASS__, 'get_my_request_history'),
+            'permission_callback' => function () {
                 return is_user_logged_in();
             },
         ));
@@ -96,6 +128,12 @@ class TMP_REST_API {
             'permission_callback' => array(__CLASS__, 'can_manage_meetings'),
         ));
 
+        register_rest_route('toastmasters/v1', '/assignments/(?P<id>\d+)/conflicts', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => array(__CLASS__, 'get_assignment_conflicts'),
+            'permission_callback' => array(__CLASS__, 'can_manage_meetings'),
+        ));
+
         register_rest_route('toastmasters/v1', '/enrol', array(
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => array(__CLASS__, 'enrol'),
@@ -119,6 +157,36 @@ class TMP_REST_API {
 
     public static function get_meeting_suggestions(WP_REST_Request $request) {
         return rest_ensure_response(TMP_Repository::get_suggestions((int) $request['id']));
+    }
+
+    public static function get_assignment_conflicts(WP_REST_Request $request) {
+        return rest_ensure_response(TMP_Repository::get_conflicting_requests((int) $request['id']));
+    }
+
+    public static function save_requests(WP_REST_Request $request) {
+        $result = TMP_Repository::save_requests($request->get_json_params());
+        return rest_ensure_response(['success' => $result]);
+    }
+
+    public static function delete_request(WP_REST_Request $request) {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_unauthorized', 'You must be a linked member to cancel requests.', array('status' => 401));
+        }
+        $result = TMP_Repository::delete_request((int) $request['id'], $member['id']);
+        return rest_ensure_response(array('deleted' => $result));
+    }
+
+    public static function get_my_requests() {
+        $member = TMP_Repository::current_member();
+        if (!$member) return array();
+        return rest_ensure_response(TMP_Repository::get_member_requests($member['id']));
+    }
+
+    public static function get_my_request_history() {
+        $member = TMP_Repository::current_member();
+        if (!$member) return array();
+        return rest_ensure_response(TMP_Repository::get_member_request_history($member['id']));
     }
 
     public static function can_manage_members() {
