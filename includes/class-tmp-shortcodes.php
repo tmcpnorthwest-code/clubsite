@@ -105,6 +105,10 @@ class TMP_Shortcodes {
                     <p data-tmp-notes></p>
                 </article>
                 <article class="tmp-panel tmp-wide">
+                    <h3>My Role History</h3>
+                    <div data-tmp-role-history>Loading history...</div>
+                </article>
+                <article class="tmp-panel tmp-wide">
                     <h3>Smart Recommendations</h3>
                     <div class="tmp-rec-grid" data-tmp-recommendations>Loading suggestions...</div>
                 </article>
@@ -302,6 +306,7 @@ class TMP_Shortcodes {
                     <option value="5">Level 5</option>
                 </select>
             </label>
+            <label><input type="checkbox" name="is_exempt_from_unpaid_block" value="1" /> Exempt from unpaid block</label>
             <label>State
                 <select name="state">
                     <option>Active</option>

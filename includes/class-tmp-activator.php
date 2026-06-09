@@ -80,6 +80,7 @@ class TMP_Activator {
         $meetings = $wpdb->prefix . 'tmp_meetings';
         $assignments = $wpdb->prefix . 'tmp_role_assignments';
         $requests = $wpdb->prefix . 'tmp_member_requests';
+        $participation = $wpdb->prefix . 'tmp_participation_history';
 
         dbDelta("CREATE TABLE {$members} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -92,6 +93,7 @@ class TMP_Activator {
             level TINYINT UNSIGNED NOT NULL DEFAULT 1,
             state VARCHAR(80) NOT NULL DEFAULT 'Active',
             paid_until DATE NULL,
+            is_exempt_from_unpaid_block TINYINT(1) NOT NULL DEFAULT 0,
             pathways_enrolled VARCHAR(20) NULL,
             current_project VARCHAR(190) NULL,
             mentor VARCHAR(190) NULL,
@@ -148,6 +150,20 @@ class TMP_Activator {
             PRIMARY KEY  (id),
             KEY meeting_id (meeting_id),
             KEY member_id (member_id)
+        ) $charset;");
+
+        dbDelta("CREATE TABLE {$participation} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id BIGINT UNSIGNED NOT NULL,
+            meeting_id BIGINT UNSIGNED NOT NULL,
+            assignment_id BIGINT UNSIGNED NOT NULL,
+            role_name VARCHAR(120) NOT NULL,
+            meeting_date DATE NOT NULL,
+            level_at_completion TINYINT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY  (id),
+            KEY member_id (member_id),
+            KEY role_name (role_name)
         ) $charset;");
 
         self::seed_data();

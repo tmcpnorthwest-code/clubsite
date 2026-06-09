@@ -50,6 +50,14 @@ class TMP_REST_API {
             },
         ));
 
+        register_rest_route('toastmasters/v1', '/me/participation-history', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => array(__CLASS__, 'get_my_participation_history'),
+            'permission_callback' => function () {
+                return is_user_logged_in();
+            },
+        ));
+
         register_rest_route('toastmasters/v1', '/me/recommendations', array(
             'methods' => WP_REST_Server::READABLE,
             'callback' => array(__CLASS__, 'get_my_recommendations'),
@@ -202,6 +210,12 @@ class TMP_REST_API {
         return rest_ensure_response(TMP_Repository::get_member_request_history($member['id']));
     }
 
+    public static function get_my_participation_history() {
+        $member = TMP_Repository::current_member();
+        if (!$member) return array();
+        return rest_ensure_response(TMP_Repository::get_member_participation_history($member['id']));
+    }
+
     public static function can_manage_members() {
         return current_user_can('tmp_manage_members');
     }
@@ -220,6 +234,14 @@ class TMP_REST_API {
             return new WP_Error('tmp_member_not_found', 'No Toastmasters member record is linked to this WordPress account email.', array('status' => 404));
         }
 
+        // Check for unpaid status and exemption
+        if (!empty($member['paid_until']) && strtotime($member['paid_until']) < time() && !$member['is_exempt_from_unpaid_block']) {
+            return new WP_Error(
+                'tmp_unpaid_member',
+                'Your membership payment is overdue. Please contact the Club Admin to renew your membership or for an exemption.',
+                array('status' => 403)
+            );
+        }
         return rest_ensure_response($member);
     }
 

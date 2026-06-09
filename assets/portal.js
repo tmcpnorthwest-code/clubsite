@@ -135,7 +135,11 @@
         if (form.elements[key].type === 'datetime-local' && val) {
           val = val.replace(' ', 'T').substring(0, 16);
         }
-        form.elements[key].value = val;
+        if (form.elements[key].type === 'checkbox') {
+          form.elements[key].checked = !!val;
+        } else {
+          form.elements[key].value = val;
+        }
       }
     });
   }
@@ -239,6 +243,31 @@
           </table>
         </div>
       ` : "<p>No request history found.</p>";
+
+      const roleHistory = await api("/me/participation-history").catch(() => []);
+      let roleHistoryHtml = '';
+      if (Object.keys(roleHistory).length > 0) {
+        for (const level in roleHistory) {
+          roleHistoryHtml += `
+            <h4>Level ${esc(level)}</h4>
+            <div class="tmp-table-wrap">
+              <table class="tmp-table">
+                <thead><tr><th>Role</th><th>Count</th><th>Last Completed</th></tr></thead>
+                <tbody>${roleHistory[level].map(r => `
+                  <tr>
+                    <td>${esc(r.role_name)}</td>
+                    <td>${esc(r.count)}</td>
+                    <td>${esc(r.last_completed_date)}</td>
+                  </tr>
+                `).join("")}</tbody>
+              </table>
+            </div>
+          `;
+        }
+      } else {
+        roleHistoryHtml = "<p>No role history found.</p>";
+      }
+      qs("[data-tmp-role-history]", root).innerHTML = roleHistoryHtml;
 
       const slots = await api("/meetings/open-slots");
       const reqForm = qs("[data-tmp-member-request-form]", root);
@@ -365,6 +394,7 @@
           <td>${esc(member.pathway)}</td>
           <td>Level ${esc(member.level)}</td>
           <td>${esc(member.state)}</td>
+          <td>${member.is_exempt_from_unpaid_block ? 'Yes' : 'No'}</td>
           <td>
             <div class="tmp-row-actions">
               <button class="tmp-small-button" type="button" data-edit-member="${esc(member.id)}">Edit</button>
