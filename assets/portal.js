@@ -404,11 +404,13 @@
     }
 
     const updateRoles = () => {
+      const currentMeetingId = meetingSelect.value;
       clearForm(assignmentForm);
-      assignmentForm.elements.meeting_id.value = meetingSelect.value;
+      assignmentForm.elements.meeting_id.value = currentMeetingId;
+      delete assignmentForm._tmp_role_name;
       toggleSpeechTitle('');
 
-      const meeting = (root._meetings || []).find(m => String(m.id) === meetingSelect.value);
+      const meeting = (root._meetings || []).find(m => String(m.id) === currentMeetingId);
       let html = '<option value="">-- Existing Slots (Select to Edit) --</option>';
       html += (meeting?.assignments || []).map(a => 
         `<option value="id:${esc(a.id)}">${esc(a.role_name)} ${a.member_name ? '('+esc(a.member_name)+')' : '(Unassigned)'}</option>`
@@ -450,8 +452,10 @@
         const id = val.split(':')[1];
         const assignment = meeting?.assignments.find(a => String(a.id) === id);
         if (assignment) {
-          fillForm(assignmentForm, assignment);
-          roleSelect.value = val; // Restore VPE selection ID so it doesn't null out
+          // Destructure to prevent fillForm from overwriting our dropdown's current selection
+          const { role_name, ...data } = assignment;
+          fillForm(assignmentForm, data);
+          delete assignmentForm._tmp_role_name;
           selectedRoleName = assignment.role_name;
         }
       } else if (val.startsWith('name:')) {
@@ -527,6 +531,7 @@
       const del = e.target.closest("[data-delete-assignment]");
       const approve = e.target.closest("[data-approve-assignment]");
       const suggest = e.target.closest("[data-suggest-roles]");
+      const print = e.target.closest("[data-print-agenda]");
 
       if (del) {
         await api(`/assignments/${del.dataset.deleteAssignment}`, { method: "DELETE" });
@@ -537,6 +542,11 @@
           body: JSON.stringify({ id: approve.dataset.approveAssignment, status: "Confirmed" })
         });
         await renderMeetings();
+      } else if (print) {
+        const meeting = root._meetings.find(m => String(m.id) === print.dataset.printAgenda);
+        if (meeting) {
+          generatePrintView(meeting);
+        }
       } else if (suggest) {
         const data = await api(`/meetings/${suggest.dataset.suggestRoles}/suggestions`);
         const suggestions = data.suggestions || [];
