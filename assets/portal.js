@@ -589,11 +589,36 @@
 
     async function renderMembers() {
       const members = await api("/members");
-      memberSelect.innerHTML = `<option value="">Unassigned</option>` + members
-        .filter(m => m.is_eligible)
-        .map((member) =>
+      const eligibleMembers = (members || []).filter(m => m.is_eligible);
+
+      memberSelect.innerHTML = `<option value="">Unassigned</option>` + eligibleMembers.map((member) =>
         `<option value="${esc(member.id)}">${esc(member.formatted_name)}</option>`
       ).join("");
+
+      const overviewList = qs("[data-tmp-vpe-member-list]", root);
+      const overviewCount = qs("[data-tmp-vpe-member-count]", root);
+      if (overviewList) {
+        overviewCount.textContent = `${eligibleMembers.length} members`;
+        overviewList.innerHTML = eligibleMembers.length ? `
+          <div class="tmp-table-wrap">
+            <table class="tmp-table">
+              <thead><tr><th>Name</th><th>Pathway</th><th>Level</th><th>Current Project</th><th>Recent Participation</th></tr></thead>
+              <tbody>${eligibleMembers.map(m => {
+                const isInactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
+                const rowStyle = isInactive ? 'style="background-color: #fff8e1;"' : '';
+                return `
+                <tr ${rowStyle}>
+                  <td><strong>${esc(m.full_name)}</strong>${isInactive ? '<br><small style="color: #ef6c00; font-weight: bold;">No roles in last ' + m.total_recent_meetings_checked + ' meetings</small>' : ''}</td>
+                  <td>${esc(m.pathway)}</td>
+                  <td>Level ${esc(m.level)}</td>
+                  <td>${esc(m.current_project || "None")}</td>
+                  <td>${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
+                </tr>
+              `}).join("")}</tbody>
+            </table>
+          </div>
+        ` : "<p>No paid members found.</p>";
+      }
     }
 
     // Hook up shared refresher

@@ -239,6 +239,14 @@ class TMP_Shortcodes {
                 <div data-tmp-vpe-requests>Loading requests...</div>
             </section>
 
+            <section class="tmp-panel">
+                <div class="tmp-card-head">
+                    <h3>Member Overview (Paid)</h3>
+                    <span data-tmp-vpe-member-count>0 members</span>
+                </div>
+                <div data-tmp-vpe-member-list>Loading members...</div>
+            </section>
+
             <form class="tmp-panel tmp-form" data-tmp-meeting-form>
                 <input type="hidden" name="id" />
                 <label>Meeting date <input type="date" name="meeting_date" required /></label>

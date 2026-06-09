@@ -72,6 +72,28 @@ class TMP_Repository {
     public static function members() {
         global $wpdb;
         $table = self::member_table();
+        $history_table = self::participation_history_table();
+        $meetings_table = self::meeting_table();
+
+        // 1. Get IDs of up to 3 most recent past meetings
+        $last_3_meeting_ids = $wpdb->get_col("SELECT id FROM {$meetings_table} WHERE meeting_date <= CURRENT_DATE ORDER BY meeting_date DESC LIMIT 3");
+        
+        // 2. Map participation counts for these specific meetings
+        $participation_map = [];
+        if (!empty($last_3_meeting_ids)) {
+            $ids_csv = implode(',', array_map('intval', $last_3_meeting_ids));
+            $results = $wpdb->get_results(
+                "SELECT member_id, COUNT(DISTINCT meeting_id) as count 
+                 FROM {$history_table} 
+                 WHERE meeting_id IN ($ids_csv) 
+                 GROUP BY member_id", 
+                ARRAY_A
+            );
+            foreach ($results as $r) {
+                $participation_map[$r['member_id']] = (int)$r['count'];
+            }
+        }
+
         $rows = $wpdb->get_results("SELECT * FROM {$table} ORDER BY full_name ASC", ARRAY_A);
 
         $now = time();
@@ -81,6 +103,8 @@ class TMP_Repository {
 
             $row['is_eligible'] = (!$is_unpaid || $is_exempt);
             $row['formatted_name'] = sprintf("%s (%s Level %d)", $row['full_name'], $row['pathway'], $row['level']);
+            $row['recent_participation_count'] = $participation_map[$row['id']] ?? 0;
+            $row['total_recent_meetings_checked'] = count($last_3_meeting_ids);
         }
 
         return $rows;
@@ -644,7 +668,10 @@ class TMP_Repository {
 
         if (!empty($data['id'])) {
             $old_record = $wpdb->get_row($wpdb->prepare("SELECT status, member_id FROM {$table} WHERE id = %d", $data['id']), ARRAY_A);
-            if ($old_record && ($old_record['status'] !== 'Confirmed') && (isset($data['status']) && $data['status'] === 'Confirmed') && !empty($data['member_id'])) {
+
+            $new_status = $data['status'] ?? ($old_record['status'] ?? '');
+            $is_final_status = in_array($new_status, ['Confirmed', 'Completed']);
+            if ($old_record && !in_array($old_record['status'], ['Confirmed', 'Completed']) && $is_final_status && !empty($data['member_id'])) {
                 self::notify_assignment_status(absint($data['id']), absint($data['member_id']));
                 $assignment_details = $wpdb->get_row($wpdb->prepare("SELECT meeting_id, role_name FROM {$table} WHERE id = %d", absint($data['id'])), ARRAY_A);
                 $meeting_date = $wpdb->get_var($wpdb->prepare("SELECT meeting_date FROM " . self::meeting_table() . " WHERE id = %d", $assignment_details['meeting_id']));
@@ -728,6 +755,38 @@ class TMP_Repository {
         }
 
         return $counts;
+    }
+
+    /**
+     * Retrieves detailed history for a specific member, grouped by level.
+     */
+    public static function get_member_participation_history($member_id) {
+        global $wpdb;
+        $history_table = self::participation_history_table();
+
+        $results = $wpdb->get_results($wpdb->prepare(
+            "SELECT role_name, COUNT(*) as count, MAX(meeting_date) as last_completed_date, level_at_completion
+             FROM {$history_table}
+             WHERE member_id = %d
+             GROUP BY level_at_completion, role_name
+             ORDER BY level_at_completion DESC, last_completed_date DESC",
+            $member_id
+        ), ARRAY_A);
+
+        $history = [];
+        foreach ($results as $row) {
+            $level = $row['level_at_completion'];
+            if (!isset($history[$level])) {
+                $history[$level] = [];
+            }
+            $history[$level][] = [
+                'role_name' => $row['role_name'],
+                'count' => (int)$row['count'],
+                'last_completed_date' => $row['last_completed_date']
+            ];
+        }
+
+        return $history;
     }
 
     /**
