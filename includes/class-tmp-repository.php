@@ -159,6 +159,13 @@ class TMP_Repository {
         return (bool) $wpdb->delete(self::member_table(), array('id' => absint($id)));
     }
 
+    public static function delete_meeting($id) {
+        global $wpdb;
+        $id = absint($id);
+        $wpdb->delete(self::assignment_table(), array('meeting_id' => $id));
+        return (bool) $wpdb->delete(self::meeting_table(), array('id' => $id));
+    }
+
     public static function meetings() {
         global $wpdb;
         $meetings = self::meeting_table();
@@ -477,11 +484,12 @@ class TMP_Repository {
                 $base = self::get_base_role_name($full_role);
                 
                 if (self::is_singular_role($base)) {
-                    $new_member_id = !empty($record['member_id']) ? absint($record['member_id']) : null;
+                    $new_member_id = !empty($record['member_id']) ? absint($record['member_id']) : 0;
                     $new_status = sanitize_text_field($record['status'] ?? 'Confirmed');
 
                     $wpdb->query($wpdb->prepare(
-                        "UPDATE {$table} SET member_id = %s, status = %s WHERE meeting_id = %d AND (role_name = %s OR role_name LIKE %s)",
+                        "UPDATE {$table} SET member_id = IF(%d = 0, NULL, %d), status = %s WHERE meeting_id = %d AND (role_name = %s OR role_name LIKE %s)",
+                        $new_member_id,
                         $new_member_id,
                         $new_status,
                         $record['meeting_id'],

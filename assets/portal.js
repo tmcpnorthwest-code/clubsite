@@ -29,6 +29,10 @@
 
   function generatePrintView(meeting) {
     const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Please allow pop-ups for this site to print the agenda.");
+      return;
+    }
     const [h, m] = (meeting.start_time || "18:30:00").split(':').map(Number);
     let runningTime = h * 60 + m;
 
@@ -75,7 +79,14 @@
             <tbody>${agendaRows}</tbody>
           </table>
           <div class="notes"><strong>Agenda Notes:</strong><br>${esc(meeting.agenda_notes || 'No additional notes.')}</div>
-          <script>window.onload = () => { window.print(); window.close(); };</script>
+          <script>
+            // Use a slight delay to ensure content is rendered before printing
+            setTimeout(() => {
+              window.print();
+              // Close window after print dialog is closed
+              window.onafterprint = () => window.close();
+            }, 500);
+          </script>
         </body>
       </html>
     `);
@@ -398,6 +409,7 @@
           <div style="display:flex; gap:10px; margin-top:15px;">
             <button class="tmp-button tmp-secondary tmp-small" data-suggest-roles="${meeting.id}">Get Intelligent Suggestions</button>
             <button class="tmp-button tmp-secondary tmp-small" data-print-agenda="${meeting.id}">Print Agenda</button>
+            <button class="tmp-button tmp-danger tmp-small" data-delete-meeting="${meeting.id}">Delete Meeting</button>
           </div>
         </article>
       `}).join("")}</div>`;
@@ -406,6 +418,7 @@
     const updateRoles = () => {
       const currentMeetingId = meetingSelect.value;
       clearForm(assignmentForm);
+      assignmentForm.elements.role_name.value = "";
       assignmentForm.elements.meeting_id.value = currentMeetingId;
       delete assignmentForm._tmp_role_name;
       toggleSpeechTitle('');
@@ -436,13 +449,13 @@
     meetingSelect.addEventListener("change", updateRoles);
 
     roleSelect.addEventListener("change", () => {
-      const val = roleSelect.value; // Store the UI value (id:XX or name:XX)
+      const val = roleSelect.value;
       const currentMeetingId = meetingSelect.value;
 
       if (!val) {
         clearForm(assignmentForm);
         assignmentForm.elements.meeting_id.value = currentMeetingId;
-        delete assignmentForm._tmp_role_name;
+        assignmentForm.elements.role_name.value = "";
         toggleSpeechTitle('');
         return;
       }
@@ -454,23 +467,18 @@
         const id = val.split(':')[1];
         const assignment = meeting?.assignments.find(a => String(a.id) === id);
         if (assignment) {
-          // 1. Prepare form without touching the select element
-          const { role_name, ...data } = assignment;
-          clearForm(assignmentForm);
+          fillForm(assignmentForm, assignment);
           assignmentForm.elements.meeting_id.value = currentMeetingId;
-          fillForm(assignmentForm, data);
-          
-          // 2. Explicitly restore the dropdown selection
-          roleSelect.value = val;
-          delete assignmentForm._tmp_role_name;
+          roleSelect.value = val; // Selection is safe because roleSelect doesn't have name="role_name"
           selectedRoleName = assignment.role_name;
         }
       } else if (val.startsWith('name:')) {
-        selectedRoleName = val.split(':')[1];
+        const templateName = val.split(':')[1];
         clearForm(assignmentForm);
         assignmentForm.elements.meeting_id.value = currentMeetingId;
-        roleSelect.value = val; 
-        assignmentForm._tmp_role_name = selectedRoleName;
+        roleSelect.value = val;
+        assignmentForm.elements.role_name.value = templateName;
+        selectedRoleName = templateName;
       }
       toggleSpeechTitle(selectedRoleName);
     });
@@ -502,24 +510,12 @@
 
       try {
         const data = formData(assignmentForm);
-        
-        // Logic check: If we are using a template role, ensure the role_name is correctly set
-        if (assignmentForm._tmp_role_name && !data.id) {
-            data.role_name = assignmentForm._tmp_role_name;
-        } else if (roleSelect.value.startsWith('id:')) {
-            // If editing an existing slot, ensure we don't accidentally pass "id:XX" as the role name
-            const id = roleSelect.value.split(':')[1];
-            const meeting = root._meetings.find(m => String(m.id) === data.meeting_id);
-            const assignment = meeting?.assignments.find(a => String(a.id) === id);
-            if (assignment) data.role_name = assignment.role_name;
-        }
-
         await api("/assignments", {
           method: "POST",
           body: JSON.stringify(data),
         });
+
         alert("Assignment saved.");
-        delete assignmentForm._tmp_role_name;
         clearForm(assignmentForm);
         toggleSpeechTitle('');
         await renderMeetings();
@@ -538,6 +534,7 @@
       const approve = e.target.closest("[data-approve-assignment]");
       const suggest = e.target.closest("[data-suggest-roles]");
       const print = e.target.closest("[data-print-agenda]");
+      const delMeeting = e.target.closest("[data-delete-meeting]");
 
       if (del) {
         await api(`/assignments/${del.dataset.deleteAssignment}`, { method: "DELETE" });
@@ -548,6 +545,11 @@
           body: JSON.stringify({ id: approve.dataset.approveAssignment, status: "Confirmed" })
         });
         await renderMeetings();
+      } else if (delMeeting) {
+        if (confirm("Are you sure you want to delete this meeting? This will permanently remove the agenda and all assignments.")) {
+          await api(`/meetings/${delMeeting.dataset.deleteMeeting}`, { method: "DELETE" });
+          await renderMeetings();
+        }
       } else if (print) {
         const meeting = root._meetings.find(m => String(m.id) === print.dataset.printAgenda);
         if (meeting) {
