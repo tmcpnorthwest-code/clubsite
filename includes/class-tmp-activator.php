@@ -6,11 +6,13 @@ if (!defined('ABSPATH')) {
 
 class TMP_Activator {
     public static function activate() {
+        self::log('Activation hook triggered');
         self::create_roles();
         self::create_tables();
         self::create_pages();
         update_option('tmp_plugin_version', TMP_VERSION);
         flush_rewrite_rules();
+        self::log('Activation hook completed');
     }
 
     public static function deactivate() {
@@ -22,10 +24,18 @@ class TMP_Activator {
             return;
         }
 
+        self::log('Upgrade required. Current version: ' . get_option('tmp_plugin_version') . ' Target: ' . TMP_VERSION);
         self::create_roles();
         self::create_tables();
         self::create_pages();
         update_option('tmp_plugin_version', TMP_VERSION);
+        self::log('Upgrade completed');
+    }
+
+    private static function log($message) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('TMP Activator: ' . $message);
+        }
     }
 
     private static function create_roles() {
@@ -89,27 +99,28 @@ class TMP_Activator {
             officer_notes TEXT NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id),
+            PRIMARY KEY  (id),
             UNIQUE KEY email (email),
             UNIQUE KEY customer_id (customer_id),
             KEY user_id (user_id),
             KEY pathway (pathway),
             KEY state (state)
-        ) {$charset};");
+        ) $charset;");
 
         dbDelta("CREATE TABLE {$meetings} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             meeting_date DATE NOT NULL,
             start_time TIME NULL,
             total_duration INT UNSIGNED NOT NULL DEFAULT 120,
+            requests_close_at DATETIME NULL,
             theme VARCHAR(190) NOT NULL,
             venue VARCHAR(190) NULL,
             agenda_notes TEXT NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id),
+            PRIMARY KEY  (id),
             KEY meeting_date (meeting_date)
-        ) {$charset};");
+        ) $charset;");
 
         dbDelta("CREATE TABLE {$assignments} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -122,10 +133,10 @@ class TMP_Activator {
             sort_order INT UNSIGNED NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id),
+            PRIMARY KEY  (id),
             KEY meeting_id (meeting_id),
             KEY member_id (member_id)
-        ) {$charset};");
+        ) $charset;");
 
         dbDelta("CREATE TABLE {$requests} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -134,10 +145,10 @@ class TMP_Activator {
             assignment_id BIGINT UNSIGNED NOT NULL,
             priority TINYINT UNSIGNED NOT NULL,
             created_at DATETIME NOT NULL,
-            PRIMARY KEY (id),
+            PRIMARY KEY  (id),
             KEY meeting_id (meeting_id),
             KEY member_id (member_id)
-        ) {$charset};");
+        ) $charset;");
 
         self::seed_data();
     }

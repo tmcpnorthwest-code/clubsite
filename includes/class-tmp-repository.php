@@ -185,7 +185,8 @@ class TMP_Repository {
 
         foreach ($rows as &$meeting) {
             $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
-                "SELECT a.*, m.full_name AS member_name,
+                "SELECT a.*, m.full_name AS member_name, 
+                        (SELECT m2.full_name FROM {$requests} r JOIN {$members} m2 ON r.member_id = m2.id WHERE r.assignment_id = a.id ORDER BY r.priority ASC LIMIT 1) as first_requester,
                         (SELECT COUNT(*) FROM {$requests} r WHERE r.assignment_id = a.id) as request_count
                  FROM {$assignments} a
                  LEFT JOIN {$members} m ON m.id = a.member_id
@@ -241,9 +242,20 @@ class TMP_Repository {
         global $wpdb;
         $meetings = self::meeting_table();
         $assignments = self::assignment_table();
-        $today = gmdate('Y-m-d');
+        $today = current_time('Y-m-d');
+        $now = current_time('mysql');
 
-        return $wpdb->get_results($wpdb->prepare("SELECT m.id as meeting_id, m.meeting_date, m.theme, a.id as assignment_id, a.role_name FROM {$meetings} m JOIN {$assignments} a ON m.id = a.meeting_id WHERE m.meeting_date >= %s AND a.member_id IS NULL ORDER BY m.meeting_date ASC LIMIT 50", $today), ARRAY_A);
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT m.id as meeting_id, m.meeting_date, m.theme, a.id as assignment_id, a.role_name 
+             FROM {$meetings} m 
+             JOIN {$assignments} a ON m.id = a.meeting_id 
+             WHERE m.meeting_date >= %s 
+             AND (m.requests_close_at IS NULL OR m.requests_close_at >= %s)
+             AND (a.member_id IS NULL OR a.member_id = 0 OR a.member_id = '') 
+             ORDER BY m.meeting_date ASC LIMIT 50", 
+            $today,
+            $now
+        ), ARRAY_A);
     }
 
     public static function get_suggestions($meeting_id) {
@@ -314,13 +326,17 @@ class TMP_Repository {
                 if (isset($suggestions[$slot['id']])) continue;
 
                 $slot_id = (int)$slot['id'];
-                $possible_requests = array_filter($requests, fn($r) => (int)$r['assignment_id'] === $slot_id && (int)$r['priority'] === $p);
+                $possible_requests = array_filter($requests, function($r) use ($slot_id, $p) {
+                    return (int)$r['assignment_id'] === $slot_id && (int)$r['priority'] === $p;
+                });
 
                 foreach ($possible_requests as $req) {
                     $m_id = (int)$req['member_id'];
                     if (in_array($m_id, $assigned_ids)) continue;
 
-                    $m_data = array_values(array_filter($members, fn($m) => (int)$m['id'] === $m_id))[0] ?? null;
+                    $m_data = array_values(array_filter($members, function($m) use ($m_id) {
+                        return (int)$m['id'] === $m_id;
+                    }))[0] ?? null;
                     if ($m_data) {
                         $suggestions[$slot_id] = [
                             'id' => $slot_id,
@@ -419,6 +435,7 @@ class TMP_Repository {
             'meeting_date' => sanitize_text_field($data['meeting_date'] ?? ''),
             'start_time' => sanitize_text_field($data['start_time'] ?? '18:30'),
             'total_duration' => absint($data['total_duration'] ?? 120),
+            'requests_close_at' => !empty($data['requests_close_at']) ? str_replace('T', ' ', sanitize_text_field($data['requests_close_at'])) : null,
             'theme' => sanitize_text_field($data['theme'] ?? ''),
             'venue' => sanitize_text_field($data['venue'] ?? ''),
             'agenda_notes' => sanitize_textarea_field($data['agenda_notes'] ?? ''),
@@ -573,7 +590,16 @@ class TMP_Repository {
         $member_id = absint($data['member_id'] ?? 0);
         $priorities = $data['priorities'] ?? [];
 
-        if (!$meeting_id || !$member_id) return false;
+        if (!$meeting_id || !$member_id) {
+            return new WP_Error('tmp_missing_data', 'Missing Meeting or Member ID.', ['status' => 400]);
+        }
+
+        // Get IDs of assignments currently involved in requests for this member/meeting
+        $old_asgn_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT assignment_id FROM $table WHERE meeting_id = %d AND member_id = %d",
+            $meeting_id,
+            $member_id
+        ));
 
         // Clear previous requests for this meeting by this member
         $wpdb->delete($table, ['meeting_id' => $meeting_id, 'member_id' => $member_id]);
@@ -583,6 +609,19 @@ class TMP_Repository {
             $wpdb->insert($table, [
                 'meeting_id' => $meeting_id, 'member_id' => $member_id, 'assignment_id' => absint($assignment_id), 'priority' => $index + 1, 'created_at' => current_time('mysql')
             ]);
+            
+            // Mark assignment as Requested
+            $wpdb->update(self::assignment_table(), ['status' => 'Requested'], ['id' => absint($assignment_id), 'member_id' => null]);
+        }
+
+        // Re-check old assignments: if they no longer have any requests, set back to Planned
+        $check_ids = array_unique(array_merge($old_asgn_ids, $priorities));
+        foreach ($check_ids as $asgn_id) {
+            if (!$asgn_id) continue;
+            $count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE assignment_id = %d", $asgn_id));
+            if ($count == 0) {
+                $wpdb->update(self::assignment_table(), ['status' => 'Planned'], ['id' => absint($asgn_id), 'member_id' => null]);
+            }
         }
 
         self::notify_vpe_of_request($meeting_id, $member_id, $priorities);
@@ -640,10 +679,23 @@ class TMP_Repository {
 
     public static function delete_request($id, $member_id) {
         global $wpdb;
-        return (bool) $wpdb->delete(self::request_table(), array(
+        $table = self::request_table();
+        
+        // Find assignment ID before deleting
+        $asgn_id = $wpdb->get_var($wpdb->prepare("SELECT assignment_id FROM $table WHERE id = %d", $id));
+        
+        $deleted = (bool) $wpdb->delete($table, array(
             'id' => absint($id),
             'member_id' => absint($member_id)
         ));
+
+        if ($deleted && $asgn_id) {
+            $count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE assignment_id = %d", $asgn_id));
+            if ($count == 0) {
+                $wpdb->update(self::assignment_table(), ['status' => 'Planned'], ['id' => absint($asgn_id), 'member_id' => null]);
+            }
+        }
+        return $deleted;
     }
 
     /**
@@ -654,7 +706,7 @@ class TMP_Repository {
         $requests = self::request_table();
         $meetings = self::meeting_table();
         $assignments = self::assignment_table();
-        $today = gmdate('Y-m-d');
+        $today = current_time('Y-m-d');
 
         return $wpdb->get_results($wpdb->prepare(
             "SELECT r.id, r.priority, m.meeting_date, m.theme, a.role_name, a.member_id as assigned_id, a.status as assignment_status
@@ -669,6 +721,29 @@ class TMP_Repository {
     }
 
     /**
+     * Retrieves all pending role requests for upcoming meetings.
+     */
+    public static function get_all_pending_requests() {
+        global $wpdb;
+        $requests = self::request_table();
+        $meetings = self::meeting_table();
+        $assignments = self::assignment_table();
+        $members = self::member_table();
+        $today = current_time('Y-m-d');
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT r.*, m.meeting_date, m.theme, a.role_name, mem.full_name as member_name
+             FROM {$requests} r
+             JOIN {$meetings} m ON r.meeting_id = m.id
+             JOIN {$assignments} a ON r.assignment_id = a.id
+             JOIN {$members} mem ON r.member_id = mem.id
+             WHERE m.meeting_date >= %s
+             ORDER BY m.meeting_date ASC, r.priority ASC",
+            $today
+        ), ARRAY_A);
+    }
+
+    /**
      * Retrieves historical role requests for a specific member.
      */
     public static function get_member_request_history($member_id) {
@@ -676,7 +751,7 @@ class TMP_Repository {
         $requests = self::request_table();
         $meetings = self::meeting_table();
         $assignments = self::assignment_table();
-        $today = gmdate('Y-m-d');
+        $today = current_time('Y-m-d');
 
         return $wpdb->get_results($wpdb->prepare(
             "SELECT r.id, r.priority, m.meeting_date, m.theme, a.role_name, a.member_id as assigned_id, a.status as assignment_status

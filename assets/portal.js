@@ -131,7 +131,11 @@
   function fillForm(form, record) {
     Object.entries(record).forEach(([key, value]) => {
       if (form.elements[key]) {
-        form.elements[key].value = value || "";
+        let val = value || "";
+        if (form.elements[key].type === 'datetime-local' && val) {
+          val = val.replace(' ', 'T').substring(0, 16);
+        }
+        form.elements[key].value = val;
       }
     });
   }
@@ -241,6 +245,10 @@
       const mSelect = qs("[data-tmp-req-meeting-select]", reqForm);
       const rSelect = qs("[data-tmp-req-role-select]", reqForm);
 
+      if (reqForm && reqForm.closest('article')) {
+        reqForm.closest('article').style.display = slots.length ? 'block' : 'none';
+      }
+
       root._groupedSlots = slots.reduce((acc, s) => {
         const key = `${s.meeting_date} - ${s.theme}`;
         if (!acc[key]) acc[key] = { id: s.meeting_id, text: key, roles: [] };
@@ -322,6 +330,10 @@
         });
         alert("Your prioritized requests have been submitted!");
         await updateMemberDashboard();
+        // Force refresh of VPE components if they exist on the page
+        if (document.querySelector("[data-tmp-vpe]")) {
+            await renderMeetings();
+        }
       } catch (err) {
         alert(err.message);
       } finally {
@@ -455,6 +467,8 @@
         `<option value="${esc(meeting.id)}">${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</option>`
       ).join("");
 
+      renderPendingRequests(root).catch(() => {});
+
       if (selectedId) {
         meetingSelect.value = selectedId;
       }
@@ -475,16 +489,15 @@
           return `
               <li>
                 <span>
-                  <strong>${esc(assignment.role_name)}</strong> / ${assignment.member_name ? esc(assignment.member_name) : "Unassigned"} / ${esc(assignment.status)} / <small class="tmp-time-tag">${start} / ${duration}m / ${end}</small>
+                  <strong>${esc(assignment.role_name)}</strong> / ${assignment.member_name ? esc(assignment.member_name) : (assignment.first_requester ? `<em>Req by ${esc(assignment.first_requester)}</em>` : "Unassigned")} / ${esc(assignment.status)} / <small class="tmp-time-tag">${start} / ${duration}m / ${end}</small>
                   ${assignment.status === 'Requested' ? ' <span class="tmp-tag" style="background:#ffd700; padding:2px 4px; border-radius:3px; font-size:10px;">PRIORITY</span>' : ''}
                   ${assignment.request_count > 1 ? ` <span class="tmp-tag" style="background:#ff5722; color:white; padding:2px 4px; border-radius:3px; font-size:10px;">CONFLICT (${assignment.request_count})</span>` : ''}
-                  ${assignment.request_count == 1 && assignment.status !== 'Confirmed' ? ` <span class="tmp-tag" style="background:#2196f3; color:white; padding:2px 4px; border-radius:3px; font-size:10px;">REQUESTED</span>` : ''}
+                  ${assignment.request_count > 0 && assignment.status !== 'Confirmed' && !assignment.member_id ? ` <span class="tmp-tag" style="background:#2196f3; color:white; padding:2px 4px; border-radius:3px; font-size:10px;">PENDING REQ</span>` : ''}
                   ${assignment.suitability ? `<span class="tmp-tag" style="background:${assignment.suitability.suitable ? '#e1f5fe' : '#ffebee'}; color:${assignment.suitability.suitable ? '#01579b' : '#b71c1c'}; padding:2px 4px; border-radius:3px; font-size:10px; margin-left:5px;">${esc(assignment.suitability.reason)}</span>` : ""}
                   ${assignment.speech_title ? `<br><small>Title: ${esc(assignment.speech_title)}</small>` : ""}
                 </span>
                 <span>
-                  ${assignment.status === 'Requested' ? `<button class="tmp-small-button" style="background:#2e7d32; color:white;" type="button" data-approve-assignment="${esc(assignment.id)}">Approve</button>` : ""}
-                  <button class="tmp-small-button tmp-secondary" type="button" data-view-conflicts="${esc(assignment.id)}">Conflicts</button>
+                  ${assignment.request_count > 0 ? `<button class="tmp-small-button" style="background:#01579b; color:white; font-weight:bold;" type="button" data-view-conflicts="${esc(assignment.id)}">Review Requests (${assignment.request_count})</button>` : ""}
                   <button class="tmp-small-button tmp-danger" type="button" data-delete-assignment="${esc(assignment.id)}">Delete</button>
                 </span>
               </li>
@@ -502,7 +515,10 @@
         <article class="tmp-agenda-card">
           <div class="tmp-card-head">
             <h4>${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</h4>
-            <span class="tmp-tag">${esc(meeting.start_time ? meeting.start_time.substring(0,5) : "18:30")}</span>
+            <div>
+              <span class="tmp-tag">${esc(meeting.start_time ? meeting.start_time.substring(0,5) : "18:30")}</span>
+              ${meeting.requests_close_at ? `<span class="tmp-tag" style="background:#607d8b">Closes: ${esc(meeting.requests_close_at.substring(0, 16))}</span>` : ''}
+            </div>
           </div>
           <p>${esc(meeting.venue || "Venue not set")}</p>
           <p>${esc(meeting.agenda_notes || "")}</p>
@@ -640,6 +656,7 @@
       const print = e.target.closest("[data-print-agenda]");
       const viewConflicts = e.target.closest("[data-view-conflicts]");
       const delMeeting = e.target.closest("[data-delete-meeting]");
+      const approveReq = e.target.closest("[data-vpe-approve-req]");
 
       if (del) {
         if (confirm("Remove this role from the agenda? Subsequent role timings will adjust automatically.")) {
@@ -666,6 +683,12 @@
           await renderMeetings();
           updateMemberDashboard().catch(() => {});
         }
+      } else if (approveReq) {
+        await api("/assignments", {
+          method: "POST",
+          body: JSON.stringify({ id: approveReq.dataset.vpeApproveReq, member_id: approveReq.dataset.vpeMemberId, status: "Confirmed" })
+        });
+        await renderMeetings();
       } else if (viewConflicts) {
         const assignmentId = viewConflicts.dataset.viewConflicts;
         const conflicts = await api(`/assignments/${assignmentId}/conflicts`);
@@ -734,6 +757,32 @@
       console.error("VPE Dashboard Initialization Error:", err);
       meetingList.innerHTML = `<div class="tmp-panel tmp-danger"><h3>Error loading agendas</h3><p>${esc(err.message)}</p></div>`;
     }
+  }
+
+  async function renderPendingRequests(root) {
+    const reqs = await api("/meetings/requests").catch(() => []);
+    const count = qs("[data-tmp-request-count]", root);
+    const list = qs("[data-tmp-vpe-requests]", root);
+    
+    if (!count || !list) return;
+
+    count.textContent = `${reqs.length} pending`;
+    list.innerHTML = reqs.length ? `
+      <div class="tmp-table-wrap">
+        <table class="tmp-table">
+          <thead><tr><th>Meeting</th><th>Role</th><th>Member</th><th>Priority</th><th>Action</th></tr></thead>
+          <tbody>${reqs.map(r => `
+            <tr>
+              <td>${esc(r.meeting_date)}</td>
+              <td>${esc(r.role_name)}</td>
+              <td><strong>${esc(r.member_name)}</strong></td>
+              <td><span class="tmp-tag" style="background:#eee">Priority ${esc(r.priority)}</span></td>
+              <td><button class="tmp-small-button" style="background:#2e7d32; color:white;" data-vpe-approve-req="${esc(r.assignment_id)}" data-vpe-member-id="${esc(r.member_id)}">Approve</button></td>
+            </tr>
+          `).join("")}</tbody>
+        </table>
+      </div>
+    ` : "<p>No pending requests across upcoming meetings.</p>";
   }
 
   async function initEnrolment() {

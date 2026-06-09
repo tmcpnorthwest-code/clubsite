@@ -104,6 +104,12 @@ class TMP_REST_API {
             ),
         ));
 
+        register_rest_route('toastmasters/v1', '/meetings/requests', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => array(__CLASS__, 'get_all_requests'),
+            'permission_callback' => array(__CLASS__, 'can_manage_meetings'),
+        ));
+
         register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)', array(
             'methods' => WP_REST_Server::DELETABLE,
             'callback' => array(__CLASS__, 'delete_meeting'),
@@ -159,12 +165,19 @@ class TMP_REST_API {
         return rest_ensure_response(TMP_Repository::get_suggestions((int) $request['id']));
     }
 
+    public static function get_all_requests() {
+        return rest_ensure_response(TMP_Repository::get_all_pending_requests());
+    }
+
     public static function get_assignment_conflicts(WP_REST_Request $request) {
         return rest_ensure_response(TMP_Repository::get_conflicting_requests((int) $request['id']));
     }
 
     public static function save_requests(WP_REST_Request $request) {
         $result = TMP_Repository::save_requests($request->get_json_params());
+        if (is_wp_error($result)) {
+            return $result;
+        }
         return rest_ensure_response(['success' => $result]);
     }
 

@@ -72,6 +72,14 @@ class TMP_Shortcodes {
                 <p data-tmp-member-summary></p>
             </div>
             <div class="tmp-grid">
+                <article class="tmp-panel tmp-wide">
+                    <h3>My Active Requests</h3>
+                    <div data-tmp-active-requests>Loading requests...</div>
+                </article>
+                <article class="tmp-panel tmp-wide">
+                    <h3>Request History</h3>
+                    <div data-tmp-request-history>Loading history...</div>
+                </article>
                 <article class="tmp-panel tmp-progress-card">
                     <div class="tmp-card-head">
                         <h3>Pathways Progress</h3>
@@ -95,14 +103,6 @@ class TMP_Shortcodes {
                 <article class="tmp-panel">
                     <h3>Officer Notes</h3>
                     <p data-tmp-notes></p>
-                </article>
-                <article class="tmp-panel tmp-wide">
-                    <h3>My Active Requests</h3>
-                    <div data-tmp-active-requests>Loading requests...</div>
-                </article>
-                <article class="tmp-panel tmp-wide">
-                    <h3>Request History</h3>
-                    <div data-tmp-request-history>Loading history...</div>
                 </article>
                 <article class="tmp-panel tmp-wide">
                     <h3>Smart Recommendations</h3>
@@ -203,11 +203,20 @@ class TMP_Shortcodes {
                 <p>Create meetings, assign roles, add speech titles, and publish a usable agenda view.</p>
             </div>
 
+            <section class="tmp-panel">
+                <div class="tmp-card-head">
+                    <h3>Pending Role Requests</h3>
+                    <span data-tmp-request-count>0 pending</span>
+                </div>
+                <div data-tmp-vpe-requests>Loading requests...</div>
+            </section>
+
             <form class="tmp-panel tmp-form" data-tmp-meeting-form>
                 <input type="hidden" name="id" />
                 <label>Meeting date <input type="date" name="meeting_date" required /></label>
                 <label>Start time <input type="time" name="start_time" value="18:30" /></label>
                 <label>Total Duration (mins) <input type="number" name="total_duration" value="120" min="0" /></label>
+                <label>Requests deadline <input type="datetime-local" name="requests_close_at" /></label>
                 <label>Theme <input name="theme" required placeholder="Meeting theme" /></label>
                 <label>Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
                 <div class="tmp-wide tmp-roles-setup" style="margin: 10px 0; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
