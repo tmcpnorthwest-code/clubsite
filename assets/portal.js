@@ -79,13 +79,16 @@
             <tbody>${agendaRows}</tbody>
           </table>
           <div class="notes"><strong>Agenda Notes:</strong><br>${esc(meeting.agenda_notes || 'No additional notes.')}</div>
+          <div class="no-print" style="margin-top: 20px; text-align: center;">
+            <button onclick="window.print()" style="padding: 10px 20px; background: #004165; color: white; border: none; border-radius: 4px; cursor: pointer;">Print Now</button>
+          </div>
           <script>
-            // Use a slight delay to ensure content is rendered before printing
-            setTimeout(() => {
-              window.print();
-              // Close window after print dialog is closed
-              window.onafterprint = () => window.close();
-            }, 500);
+            window.onload = () => {
+              setTimeout(() => {
+                window.print();
+                window.onafterprint = () => window.close();
+              }, 300);
+            };
           </script>
         </body>
       </html>
@@ -376,7 +379,9 @@
           return `
               <li>
                 <span>
-                  <strong>${esc(assignment.role_name)}</strong> / ${assignment.member_name ? esc(assignment.member_name) : "Unassigned"} / <small class="tmp-time-tag">${start} / ${duration}m / ${end}</small>
+                  <strong>${esc(assignment.role_name)}</strong> / ${assignment.member_name ? esc(assignment.member_name) : "Unassigned"} / ${esc(assignment.status)} / <small class="tmp-time-tag">${start} / ${duration}m / ${end}</small>
+                  ${assignment.status === 'Requested' ? ' <span class="tmp-tag" style="background:#ffd700; padding:2px 4px; border-radius:3px; font-size:10px;">PRIORITY</span>' : ''}
+                  ${assignment.suitability ? `<span class="tmp-tag" style="background:${assignment.suitability.suitable ? '#e1f5fe' : '#ffebee'}; color:${assignment.suitability.suitable ? '#01579b' : '#b71c1c'}; padding:2px 4px; border-radius:3px; font-size:10px; margin-left:5px;">${esc(assignment.suitability.reason)}</span>` : ""}
                   ${assignment.speech_title ? `<br><small>Title: ${esc(assignment.speech_title)}</small>` : ""}
                 </span>
                 <span>
