@@ -269,12 +269,16 @@
       }
       qs("[data-tmp-role-history]", root).innerHTML = roleHistoryHtml;
 
-      const slots = await api("/meetings/open-slots");
+      // Extract the slots array from the response object to prevent .reduce() errors
+      const response = await api("/meetings/open-slots");
+      const slots = (response && Array.isArray(response.slots)) ? response.slots : [];
+
       const reqForm = qs("[data-tmp-member-request-form]", root);
       const mSelect = qs("[data-tmp-req-meeting-select]", reqForm);
       const rSelect = qs("[data-tmp-req-role-select]", reqForm);
 
       if (reqForm && reqForm.closest('article')) {
+        // Hide the request form section if there are no open slots
         reqForm.closest('article').style.display = slots.length ? 'block' : 'none';
       }
 
