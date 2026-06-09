@@ -71,6 +71,21 @@ class TMP_Repository {
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id), ARRAY_A);
     }
 
+    /**
+     * Extracts the base role name by removing parenthetical notes.
+     * e.g., "Toastmaster of the Day (Intro)" becomes "Toastmaster of the Day"
+     */
+    public static function get_base_role_name($role_name) {
+        return trim(preg_replace('/\s*\(.*?\)\s*/', '', $role_name));
+    }
+
+    /**
+     * Checks if a role is singular (e.g., only one person performs all TMOD segments).
+     */
+    public static function is_singular_role($base_role) {
+        return array_key_exists($base_role, self::get_standard_roles());
+    }
+
     public static function save_member($data) {
         global $wpdb;
         $table = self::member_table();
@@ -220,11 +235,29 @@ class TMP_Repository {
         $trace = [];
         $trace[] = "Starting suggestion engine for meeting ID: $meeting_id";
         
-        $total_assignments = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$assignments_table} WHERE meeting_id = %d",
+        $all_assignments = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, role_name, member_id FROM {$assignments_table} WHERE meeting_id = %d",
             $meeting_id
-        ));
+        ), ARRAY_A);
+
+        $total_assignments = count($all_assignments);
         $trace[] = "Total roles defined for this meeting: $total_assignments";
+
+        // Map singular roles to members who are already manually assigned
+        $singular_role_map = []; // base_role => member_id
+        $assigned_ids = [];
+
+        foreach ($all_assignments as $asgn) {
+            $m_id = (int)$asgn['member_id'];
+            if ($m_id > 0) {
+                $assigned_ids[] = $m_id;
+                $base = self::get_base_role_name($asgn['role_name']);
+                if (self::is_singular_role($base)) {
+                    $singular_role_map[$base] = $m_id;
+                }
+            }
+        }
+        $assigned_ids = array_unique($assigned_ids);
 
         $slots = $wpdb->get_results($wpdb->prepare(
             "SELECT id, role_name FROM {$assignments_table} WHERE meeting_id = %d AND (member_id IS NULL OR member_id = 0 OR member_id = '')",
@@ -249,19 +282,26 @@ class TMP_Repository {
         if (empty($members)) $trace[] = "Warning: No members found in database. Add members first.";
 
         $suggestions = [];
-        
-        // Track already assigned members in this specific meeting to avoid double-booking suggestions
-        $assigned_ids = $wpdb->get_col($wpdb->prepare(
-            "SELECT member_id FROM {$assignments_table} WHERE meeting_id = %d AND member_id > 0",
-            $meeting_id
-        ));
-        $assigned_ids = array_map('intval', $assigned_ids);
-        self::log("TMP Debug: Already assigned member IDs in this meeting: " . implode(', ', $assigned_ids));
-        $trace[] = "Excluding " . count($assigned_ids) . " member(s) already holding roles in this meeting.";
 
         foreach ($slots as $slot) {
-            $role = strtolower($slot['role_name']);
+            $role_label = $slot['role_name'];
+            $base_role = self::get_base_role_name($role_label);
+            $role_lower = strtolower($base_role);
             $found_match = false;
+
+            // Rule: If this is a singular role and we already suggested/assigned someone, reuse them.
+            if (self::is_singular_role($base_role) && isset($singular_role_map[$base_role])) {
+                $m_id = $singular_role_map[$base_role];
+                $m_data = array_values(array_filter($members, fn($m) => (int)$m['id'] === $m_id))[0] ?? null;
+                if ($m_data) {
+                    $suggestions[] = array_merge($slot, [
+                        'suggested_member_id' => $m_id, 
+                        'suggested_member_name' => $m_data['full_name']
+                    ]);
+                    $trace[] = "Re-using {$m_data['full_name']} for singular role: $role_label";
+                    continue;
+                }
+            }
 
             foreach ($members as $member) {
                 $member_id = (int)$member['id'];
@@ -271,17 +311,17 @@ class TMP_Repository {
                 $level = (int)$member['level'];
                 $state = $member['state'] ?? 'Active';
 
-                if (strpos($role, 'speaker') !== false || strpos($role, 'ice breaker') !== false) {
+                if (strpos($role_lower, 'speaker') !== false || strpos($role_lower, 'ice breaker') !== false) {
                     // Speakers: Prioritize members needing a speech slot or at Level 1
                     $match = true;
                     $priority = ($state === 'Needs speech slot' || $level === 1) ? "Priority" : "General";
                     $trace[] = "Matched Speaker: " . $member['full_name'] . " ($priority match)";
-                } elseif (strpos($role, 'evaluator') !== false) {
+                } elseif (strpos($role_lower, 'evaluator') !== false) {
                     if ($level >= 2) {
                         $match = true;
                         $trace[] = "Matched Evaluator: " . $member['full_name'] . " (Level $level >= 2)";
                     }
-                } elseif (strpos($role, 'toastmaster') !== false || strpos($role, 'topics') !== false || strpos($role, 'general') !== false) {
+                } elseif (strpos($role_lower, 'toastmaster') !== false || strpos($role_lower, 'topics') !== false || strpos($role_lower, 'general') !== false || strpos($role_lower, 'presiding') !== false) {
                     if ($level >= 3) {
                         $match = true;
                         $trace[] = "Matched Leadership ($role): " . $member['full_name'] . " (Level $level >= 3)";
@@ -295,6 +335,10 @@ class TMP_Repository {
                     $suggestions[] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name']]);
                     $assigned_ids[] = $member_id;
                     $found_match = true;
+                    
+                    if (self::is_singular_role($base_role)) {
+                        $singular_role_map[$base_role] = $member_id;
+                    }
                     break; 
                 }
             }
@@ -418,7 +462,23 @@ class TMP_Repository {
 
         if (!empty($data['id'])) {
             $wpdb->update($table, $record, array('id' => absint($data['id'])));
-            return array('id' => absint($data['id'])) + $record;
+            $saved = array('id' => absint($data['id'])) + $record;
+
+            // Sync logic: If this is a singular role and a member is assigned, update all other segments of the same role
+            if (!empty($record['member_id']) && !empty($record['meeting_id'])) {
+                $full_role = $wpdb->get_var($wpdb->prepare("SELECT role_name FROM {$table} WHERE id = %d", $data['id']));
+                $base = self::get_base_role_name($full_role);
+                if (self::is_singular_role($base)) {
+                    $wpdb->query($wpdb->prepare(
+                        "UPDATE {$table} SET member_id = %d, status = %s WHERE meeting_id = %d AND role_name LIKE %s",
+                        $record['member_id'],
+                        $record['status'] ?? 'Confirmed',
+                        $record['meeting_id'],
+                        $wpdb->esc_like($base) . '%'
+                    ));
+                }
+            }
+            return $saved;
         }
 
         if (empty($record['meeting_id']) || empty($record['role_name'])) {
