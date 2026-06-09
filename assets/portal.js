@@ -22,7 +22,10 @@
   }[char]));
 
   async function api(path, options = {}) {
-    const response = await fetch(`${TMPortal.restUrl}${path}`, {
+    const url = new URL(`${TMPortal.restUrl}${path}`);
+    if (options.method === 'GET' || !options.method) url.searchParams.set('_', Date.now());
+
+    const response = await fetch(url, {
       ...options,
       headers: {
         "Content-Type": "application/json",
@@ -81,11 +84,14 @@
 
     const agendaRows = (meeting.assignments || []).map((a) => {
       const start = formatTime(runningTime);
-      runningTime += Number(a.duration || 0);
+      const dur = Number(a.duration || 0);
+      runningTime += dur;
       const end = formatTime(runningTime);
       return `
         <tr>
-          <td>${start} - ${end}</td>
+          <td>${start}</td>
+          <td>${dur}m</td>
+          <td>${end}</td>
           <td><strong>${esc(a.role_name)}</strong></td>
           <td>${esc(a.member_name || 'Unassigned')}</td>
           <td>${esc(a.speech_title || '')}</td>
@@ -115,7 +121,7 @@
             <strong>Venue:</strong> ${esc(meeting.venue || 'TBD')}
           </div>
           <table>
-            <thead><tr><th width="15%">Time</th><th width="30%">Role</th><th width="25%">Member</th><th width="30%">Speech Title / Notes</th></tr></thead>
+            <thead><tr><th width="10%">Start</th><th width="10%">Dur</th><th width="10%">End</th><th width="25%">Role</th><th width="20%">Member</th><th width="25%">Speech Title / Notes</th></tr></thead>
             <tbody>${agendaRows}</tbody>
           </table>
           <div class="notes"><strong>Agenda Notes:</strong><br>${esc(meeting.agenda_notes || 'No additional notes.')}</div>
@@ -332,7 +338,7 @@
       ).join("");
     }
 
-    async function renderMeetings() {
+    async function renderMeetings(selectedId = null) {
       const meetings = await api("/meetings") || [];
       root._meetings = Array.isArray(meetings) ? meetings : [];
       
@@ -341,6 +347,11 @@
         meetings.map((meeting) =>
         `<option value="${esc(meeting.id)}">${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</option>`
       ).join("");
+
+      if (selectedId) {
+        meetingSelect.value = selectedId;
+      }
+
       updateRoles();
 
       meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting) => {
@@ -350,15 +361,14 @@
 
         const agendaHtml = (meeting.assignments || []).map((assignment) => {
           const start = formatTime(runningTime);
-          runningTime += Number(assignment.duration || 0);
+          const duration = Number(assignment.duration || 0);
+          runningTime += duration;
           const end = formatTime(runningTime);
           
           return `
               <li>
                 <span>
-                  <small class="tmp-time-tag">${start} - ${end}</small>
-                  <strong>${esc(assignment.role_name)}</strong> - 
-                  ${assignment.member_name ? esc(assignment.member_name) : "<em>Unassigned</em>"}
+                  <strong>${esc(assignment.role_name)}</strong> / ${assignment.member_name ? esc(assignment.member_name) : "Unassigned"} / <small class="tmp-time-tag">${start} / ${duration}m / ${end}</small>
                   ${assignment.speech_title ? `<br><small>Title: ${esc(assignment.speech_title)}</small>` : ""}
                 </span>
                 <span>
@@ -454,13 +464,15 @@
       if (btn) btn.disabled = true;
 
       try {
-        await api("/meetings", {
+        const newMeeting = await api("/meetings", {
           method: "POST",
           body: JSON.stringify(formData(meetingForm)),
         });
         alert("Meeting created successfully with role templates!");
         clearForm(meetingForm);
-        await renderMeetings();
+        await renderMeetings(newMeeting.id);
+        // Also refresh member dashboard slots if present
+        updateMemberDashboard().catch(() => {});
       } catch (err) {
         alert("Failed to save meeting: " + err.message);
       } finally {
@@ -496,6 +508,7 @@
         clearForm(assignmentForm);
         toggleSpeechTitle('');
         await renderMeetings();
+        updateMemberDashboard().catch(() => {});
       } catch (err) {
         alert("Failed to save assignment: " + err.message);
       } finally {
