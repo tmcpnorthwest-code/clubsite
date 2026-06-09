@@ -269,9 +269,38 @@
       }
       qs("[data-tmp-role-history]", root).innerHTML = roleHistoryHtml;
 
-      // Extract the slots array from the response object to prevent .reduce() errors
+      // Fetch open slots and calculate suitability per role instead of filtering them out
       const response = await api("/meetings/open-slots");
-      const slots = (response && Array.isArray(response.slots)) ? response.slots : [];
+      const memberLevel = Number(response.member_level || 1);
+      const participation = response.member_participation || {};
+      const currentLevelHistory = participation[memberLevel] || {};
+
+      const slots = (response && Array.isArray(response.slots)) ? response.slots
+        .filter(s => !s.role_name.toLowerCase().includes('presiding officer'))
+        .map(s => {
+        const role = s.role_name.toLowerCase();
+        let qualified = true;
+        let requirement = "";
+
+        // Rule 1: Tiered Hard Gating
+        if (role.includes('general')) {
+          qualified = memberLevel >= 4;
+          requirement = "Level 4+ (Meeting Management)";
+        } else if (role.includes('toastmaster') || role.includes('topics master')) {
+          qualified = memberLevel >= 3;
+          requirement = "Level 3+ (Meeting Leadership)";
+        } else if (role.includes('grammarian')) {
+          qualified = memberLevel >= 2;
+          requirement = "Level 2+ (Language Skills)";
+        } else if (role.includes('educational presentation')) {
+          qualified = memberLevel >= 3;
+          requirement = "Level 3+ (Teaching Requirement)";
+        }
+
+        // Rule 2: Goal Identification (Required for current level but not yet done)
+        const isDoneInLevel = !!currentLevelHistory[s.role_name];
+        return { ...s, qualified, requirement, isGoal: qualified && !isDoneInLevel };
+      }) : [];
 
       const reqForm = qs("[data-tmp-member-request-form]", root);
       const mSelect = qs("[data-tmp-req-meeting-select]", reqForm);
@@ -337,13 +366,49 @@
 
     mSelect.addEventListener("change", () => {
       const group = Object.values(root._groupedSlots || {}).find(g => String(g.id) === mSelect.value);
+
+      const uniqueRoles = [];
+      const seen = new Set();
+
+      if (group) {
+        group.roles.forEach(r => {
+          // Generic display name: remove trailing digits and parenthetical segments
+          const display = r.role_name.replace(/\s+\d+(\s*\(.*?\))?$/, '').replace(/\s*\(.*?\)\s*/g, '').trim();
+          if (!seen.has(display)) {
+            seen.add(display);
+            uniqueRoles.push({ ...r, display });
+          } else {
+            const existing = uniqueRoles.find(x => x.display === display);
+            if (r.isGoal) existing.isGoal = true;
+          }
+        });
+      }
+
       const roleOptions = '<option value="">(None)</option>' + 
-        (group ? group.roles.map(r => `<option value="${esc(r.assignment_id)}">${esc(r.role_name)}</option>`).join("") : "");
+        uniqueRoles.map(r => {
+          const disabled = !r.qualified ? 'disabled' : '';
+          let label = r.display;
+          if (!r.qualified) label += ` (${r.requirement})`;
+          else if (r.isGoal) label += ` ⭐ Goal`;
+
+          return `<option value="${esc(r.assignment_id)}" ${disabled}>${esc(label)}</option>`;
+        }).join("");
       
       const allRoleSelects = qsa("[data-tmp-req-role-select]", reqForm);
       allRoleSelects.forEach(sel => {
         sel.innerHTML = roleOptions;
       });
+
+      // Update the "Learn More" info box for locked roles
+      const lockedRoles = group ? group.roles.filter(r => !r.qualified) : [];
+      const infoBox = qs("[data-tmp-role-info]", reqForm);
+      if (infoBox) {
+        infoBox.innerHTML = lockedRoles.map(r => `
+          <div style="margin-top:5px; font-size:11px; color:var(--tmp-muted);">
+            <strong>${esc(r.role_name)}</strong> requires ${esc(r.requirement)}. <a href="https://www.toastmasters.org/membership/club-meeting-roles" target="_blank" style="color:var(--tmp-burgundy); text-decoration:underline;">Learn More</a>
+          </div>
+        `).join("");
+      }
     });
 
     reqForm.addEventListener("submit", async (e) => {

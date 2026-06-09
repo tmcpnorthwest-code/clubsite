@@ -40,6 +40,7 @@ class TMP_Repository {
             'Timer'                 => 'Timer',
             'Ah Counter'            => 'Ah Counter',
             'Grammarian'            => 'Grammarian',
+            'Educational Presentation' => 'Educational Presentation',
         ];
     }
 
@@ -183,15 +184,25 @@ class TMP_Repository {
         $requests = self::request_table();
 
         $rows = $wpdb->get_results("SELECT * FROM {$meetings} ORDER BY meeting_date DESC, id DESC LIMIT 25", ARRAY_A);
-        if (!is_array($rows)) {
-            return array();
-        }
+        if (empty($rows)) return [];
+
+        // Fetch all requests for these meetings to calculate generic conflict counts in PHP
+        $meeting_ids = array_column($rows, 'id');
+        $all_requests = $wpdb->get_results(
+            "SELECT r.*, a.role_name, m.full_name as member_name 
+             FROM {$requests} r 
+             JOIN {$assignments} a ON r.assignment_id = a.id 
+             JOIN {$members} m ON r.member_id = m.id
+             WHERE r.meeting_id IN (" . implode(',', array_map('intval', $meeting_ids)) . ")
+             ORDER BY r.priority ASC, r.created_at ASC",
+            ARRAY_A
+        ) ?: [];
 
         foreach ($rows as &$meeting) {
+            $meeting_reqs = array_filter($all_requests, fn($r) => (int)$r['meeting_id'] === (int)$meeting['id']);
+
             $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
-                "SELECT a.*, m.full_name AS member_name,
-                        (SELECT m2.full_name FROM {$requests} r JOIN {$members} m2 ON r.member_id = m2.id WHERE r.assignment_id = a.id ORDER BY r.priority ASC LIMIT 1) as first_requester,
-                        (SELECT COUNT(*) FROM {$requests} r WHERE r.assignment_id = a.id) as request_count
+                "SELECT a.*, m.full_name AS member_name
                  FROM {$assignments} a
                  LEFT JOIN {$members} m ON m.id = a.member_id
                  WHERE a.meeting_id = %d
@@ -200,6 +211,18 @@ class TMP_Repository {
             ), ARRAY_A) ?: array();
 
             foreach ($meeting['assignments'] as &$assignment) {
+                $base_target = self::get_base_role_name($assignment['role_name']);
+                $generic_target = trim(preg_replace('/\s+\d+$/', '', $base_target));
+
+                $matches = array_filter($meeting_reqs, function($r) use ($generic_target) {
+                    $base_req = self::get_base_role_name($r['role_name']);
+                    $generic_req = trim(preg_replace('/\s+\d+$/', '', $base_req));
+                    return $generic_req === $generic_target;
+                });
+
+                $assignment['request_count'] = count($matches);
+                $assignment['first_requester'] = !empty($matches) ? reset($matches)['member_name'] : null;
+
                 if (!empty($assignment['member_id'])) {
                     $assignment['suitability'] = self::check_suitability($assignment['role_name'], $assignment['member_id']);
                 }
@@ -216,11 +239,15 @@ class TMP_Repository {
         $role = strtolower($role_name);
         $level = (int)$member['level'];
 
-        if (strpos($role, 'evaluator') !== false) {
-            return $level >= 2 ? ['suitable' => true, 'reason' => 'L2+'] : ['suitable' => false, 'reason' => 'Needs L2+'];
+        // Rule 1: Backend hard gating for VPE dashboard
+        if (strpos($role, 'general') !== false) {
+            return $level >= 4 ? ['suitable' => true, 'reason' => 'L4+'] : ['suitable' => false, 'reason' => 'Needs L4+'];
         }
-        if (strpos($role, 'toastmaster') !== false || strpos($role, 'topics') !== false || strpos($role, 'general') !== false || strpos($role, 'presiding') !== false) {
+        if (strpos($role, 'toastmaster') !== false || strpos($role, 'topics master') !== false) {
             return $level >= 3 ? ['suitable' => true, 'reason' => 'L3+'] : ['suitable' => false, 'reason' => 'Needs L3+'];
+        }
+        if (strpos($role, 'grammarian') !== false) {
+            return $level >= 2 ? ['suitable' => true, 'reason' => 'L2+'] : ['suitable' => false, 'reason' => 'Needs L2+'];
         }
 
         return ['suitable' => true, 'reason' => 'Suitable'];
@@ -303,7 +330,11 @@ class TMP_Repository {
         $assigned_ids = [];
 
         $requests = $wpdb->get_results($wpdb->prepare(
-            "SELECT member_id, assignment_id, priority FROM " . self::request_table() . " WHERE meeting_id = %d ORDER BY priority ASC",
+            "SELECT r.*, a.role_name 
+             FROM " . self::request_table() . " r 
+             JOIN {$assignments_table} a ON r.assignment_id = a.id
+             WHERE r.meeting_id = %d 
+             ORDER BY r.priority ASC, r.created_at ASC",
             $meeting_id
         ), ARRAY_A);
 
@@ -319,10 +350,14 @@ class TMP_Repository {
         }
         $assigned_ids = array_unique($assigned_ids);
 
-        $slots = $wpdb->get_results($wpdb->prepare(
+        $slots_raw = $wpdb->get_results($wpdb->prepare(
             "SELECT id, role_name FROM {$assignments_table} WHERE meeting_id = %d AND (member_id IS NULL OR member_id = 0 OR member_id = '')",
             $meeting_id
         ), ARRAY_A);
+
+        $slots = array_filter($slots_raw, function($s) {
+            return strpos(strtolower($s['role_name']), 'presiding officer') === false;
+        });
 
         $open_count = count($slots);
         self::log("TMP Debug: Found $open_count open slots for meeting ID: $meeting_id");
@@ -350,9 +385,13 @@ class TMP_Repository {
                 foreach ($slots as $slot) {
                     if (isset($suggestions[$slot['id']])) continue;
 
-                    $slot_id = (int)$slot['id'];
-                    $possible_requests = array_filter($requests, function($r) use ($slot_id, $p) {
-                        return (int)$r['assignment_id'] === $slot_id && (int)$r['priority'] === $p;
+                    $base_target = self::get_base_role_name($slot['role_name']);
+                    $generic_target = trim(preg_replace('/\s+\d+$/', '', $base_target));
+
+                    $possible_requests = array_filter($requests, function($r) use ($p, $generic_target) {
+                        $base_req = self::get_base_role_name($r['role_name']);
+                        $generic_req = trim(preg_replace('/\s+\d+$/', '', $base_req));
+                        return (int)$r['priority'] === $p && $generic_req === $generic_target;
                     });
 
                     foreach ($possible_requests as $req) {
@@ -363,7 +402,8 @@ class TMP_Repository {
                             return (int)$m['id'] === $m_id;
                         }))[0] ?? null;
                         if ($m_data) {
-                            $suggestions[$slot_id] = [
+                            $slot_id = (int)$slot['id'];
+                            $suggestions[$slot['id']] = [
                                 'id' => $slot_id,
                                 'role_name' => $slot['role_name'],
                                 'suggested_member_id' => $m_id,
@@ -414,16 +454,25 @@ class TMP_Repository {
                     $reason = '';
 
                     if ($level === 1) {
-                        if (strpos($role_lower, 'table topics speaker') !== false && !isset($history['Table Topics Speaker'])) { $needs_progression = true; $reason = 'Needs TTS (L1)'; }
-                        elseif (strpos($role_lower, 'evaluator') !== false && !isset($history['Evaluator'])) { $needs_progression = true; $reason = 'Needs Evaluator (L1)'; }
+                        if (strpos($role_lower, 'evaluator') !== false && !isset($history['Evaluator'])) { $needs_progression = true; $reason = 'Needs Evaluator (L1)'; }
                         elseif ((strpos($role_lower, 'timer') !== false || strpos($role_lower, 'ah-counter') !== false) && !isset($history['Timer']) && !isset($history['Ah-Counter'])) { $needs_progression = true; $reason = 'Needs Timer/Ah-Counter (L1)'; }
                     } elseif ($level === 2) {
                         if (strpos($role_lower, 'grammarian') !== false && !isset($history['Grammarian'])) { $needs_progression = true; $reason = 'Needs Grammarian (L2)'; }
                         elseif (strpos($role_lower, 'table topics master') !== false && !isset($history['Table Topics Master'])) { $needs_progression = true; $reason = 'Needs TTM (L2)'; }
                         elseif (strpos($role_lower, 'evaluator') !== false && !isset($history['Evaluator'])) { $needs_progression = true; $reason = 'Needs Evaluator (L2)'; }
-                    } elseif ($level === 3 && strpos($role_lower, 'toastmaster') !== false && !isset($history['Toastmaster of the Day'])) { $needs_progression = true; $reason = 'Needs TMOD (L3)'; }
-                    elseif ($level === 4 && strpos($role_lower, 'general evaluator') !== false && !isset($history['General Evaluator'])) { $needs_progression = true; $reason = 'Needs GE (L4)'; }
-                    elseif ($level === 5 && strpos($role_lower, 'presiding officer') !== false && !isset($history['Presiding Officer'])) { $needs_progression = true; $reason = 'Needs PO (L5)'; }
+                    } elseif ($level === 3) {
+                        if (strpos($role_lower, 'toastmaster') !== false && !isset($history['Toastmaster of the Day'])) { $needs_progression = true; $reason = 'Needs TMOD (L3)'; }
+                        elseif (strpos($role_lower, 'topics master') !== false && !isset($history['Table Topics Master'])) { $needs_progression = true; $reason = 'Needs TTM (L3)'; }
+                        elseif (strpos($role_lower, 'evaluator') !== false && !isset($history['Evaluator'])) { $needs_progression = true; $reason = 'Needs Evaluator (L3)'; }
+                        elseif (strpos($role_lower, 'educational presentation') !== false && !isset($history['Educational Presentation'])) { $needs_progression = true; $reason = 'Needs Education Presentation (L3)'; }
+                    }
+                    elseif ($level === 4) {
+                        if (strpos($role_lower, 'general evaluator') !== false && !isset($history['General Evaluator'])) { $needs_progression = true; $reason = 'Needs GE (L4)'; }
+                        elseif (strpos($role_lower, 'educational presentation') !== false) { $needs_progression = true; $reason = 'Needs Education Presentation (L4)'; }
+                    }
+                    elseif ($level === 5 && strpos($role_lower, 'educational presentation') !== false) {
+                        $needs_progression = true; $reason = 'Needs Leadership Presentation (L5)';
+                    }
 
                     if ($needs_progression) {
                         $suggestions[$slot['id']] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name'], 'progression_note' => $reason]);
@@ -446,8 +495,8 @@ class TMP_Repository {
 
                     if (strpos($role_lower, 'speaker') !== false) $match = true;
                     elseif (strpos($role_lower, 'evaluator') !== false && $level >= 2) $match = true;
-                    elseif ((strpos($role_lower, 'toastmaster') !== false || strpos($role_lower, 'topics') !== false || strpos($role_lower, 'general') !== false || strpos($role_lower, 'presiding') !== false) && $level >= 3) $match = true;
-                    elseif (!in_array($role_lower, ['speaker', 'evaluator', 'toastmaster', 'topics', 'general', 'presiding'])) $match = true;
+                    elseif ((strpos($role_lower, 'toastmaster') !== false || strpos($role_lower, 'topics') !== false || strpos($role_lower, 'general') !== false) && $level >= 3) $match = true;
+                    elseif (!in_array($role_lower, ['speaker', 'evaluator', 'toastmaster', 'topics', 'general'])) $match = true;
 
                     if ($match) {
                         $suggestions[$slot['id']] = array_merge($slot, ['suggested_member_id' => $member['id'], 'suggested_member_name' => $member['full_name']]);

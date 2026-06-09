@@ -126,6 +126,7 @@ class TMP_Shortcodes {
                                 <label>Priority 3 <select name="priorities[]" data-tmp-req-role-select></select></label>
                             </div>
                         </div>
+                        <div data-tmp-role-info class="tmp-wide"></div>
                         <div style="margin-top:10px; text-align:right;">
                             <button class="tmp-button tmp-primary" type="submit">Submit Request</button>
                         </div>
