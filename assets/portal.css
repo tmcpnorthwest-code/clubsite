@@ -334,6 +334,133 @@
   color: var(--tmp-muted);
 }
 
+/* ── Mentor program checklist ────────────────────────────────────────────── */
+
+.tmp-mentor-checklist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.tmp-mc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.tmp-mc-dot {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--tmp-line);
+  background: white;
+}
+
+.tmp-mc-done .tmp-mc-dot {
+  background: var(--tmp-teal);
+  border-color: var(--tmp-teal);
+}
+
+.tmp-mc-done .tmp-mc-dot::after {
+  content: "✓";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 11px;
+  height: 100%;
+}
+
+.tmp-mc-active {
+  color: var(--tmp-burgundy);
+  font-weight: 800;
+}
+
+.tmp-mc-active .tmp-mc-dot {
+  border-color: var(--tmp-burgundy);
+  background: var(--tmp-burgundy);
+  box-shadow: 0 0 0 3px rgba(143, 23, 55, 0.18);
+}
+
+.tmp-mc-active .tmp-mc-dot::after {
+  content: "●";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 8px;
+  height: 100%;
+}
+
+.tmp-mc-pending {
+  color: var(--tmp-muted);
+}
+
+/* ── Collapsible card ────────────────────────────────────────────────────── */
+
+.tmp-collapsible-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--tmp-ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.tmp-collapsible-toggle:hover {
+  color: var(--tmp-burgundy);
+}
+
+.tmp-chevron {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--tmp-muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.tmp-meeting-section {
+  padding-top: 20px;
+  margin-top: 20px;
+  border-top: 1px solid var(--tmp-line);
+}
+
+.tmp-meeting-section h4 {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+  color: var(--tmp-muted);
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.tmp-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--tmp-burgundy);
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 /* ── Admin filters ───────────────────────────────────────────────────────── */
 
 .tmp-admin-filters {

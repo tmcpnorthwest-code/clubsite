@@ -70,18 +70,13 @@ class TMP_Shortcodes {
                 <p class="tmp-eyebrow">Member dashboard</p>
                 <h2 data-tmp-member-name>Loading dashboard</h2>
                 <p data-tmp-member-summary></p>
+                <dl class="tmp-profile-list" style="margin-top:14px;">
+                    <div><dt>Status</dt><dd data-tmp-state></dd></div>
+                    <div><dt>Current Project</dt><dd data-tmp-project></dd></div>
+                    <div><dt>Paid Until</dt><dd data-tmp-paid-until></dd></div>
+                </dl>
             </div>
             <div class="tmp-grid">
-
-                <article class="tmp-panel tmp-wide">
-                    <h3>My Active Requests</h3>
-                    <div data-tmp-active-requests>Loading requests...</div>
-                </article>
-
-                <article class="tmp-panel tmp-wide">
-                    <h3>Request History</h3>
-                    <div data-tmp-request-history>Loading history...</div>
-                </article>
 
                 <article class="tmp-panel tmp-progress-card">
                     <div class="tmp-card-head">
@@ -93,30 +88,6 @@ class TMP_Shortcodes {
                 </article>
 
                 <article class="tmp-panel">
-                    <h3>Current State</h3>
-                    <dl class="tmp-profile-list">
-                        <div><dt>Status</dt><dd data-tmp-state></dd></div>
-                        <div><dt>Project</dt><dd data-tmp-project></dd></div>
-                    </dl>
-                </article>
-
-                <!-- Mentor card — populated by JS -->
-                <article class="tmp-panel" data-tmp-mentor-card>
-                    <h3>My Mentor</h3>
-                    <div data-tmp-mentor-info><p style="color:var(--tmp-muted)">Loading...</p></div>
-                </article>
-
-                <article class="tmp-panel">
-                    <h3>Next Action</h3>
-                    <p data-tmp-next-action></p>
-                </article>
-
-                <article class="tmp-panel">
-                    <h3>Officer Notes</h3>
-                    <p data-tmp-notes></p>
-                </article>
-
-                <article class="tmp-panel tmp-wide">
                     <h3>My Milestones</h3>
                     <div class="tmp-milestone-track" data-tmp-milestones>
                         <div class="tmp-m-item" data-m="joined">Joined</div>
@@ -128,41 +99,74 @@ class TMP_Shortcodes {
                     </div>
                 </article>
 
-                <!-- Level journey: TI-required roles per level, with completion status -->
-                <article class="tmp-panel tmp-wide" data-tmp-level-journey-panel>
-                    <h3>Level Journey — Required Roles</h3>
-                    <div data-tmp-level-journey>Loading...</div>
+                <!-- Mentor card — populated by JS -->
+                <article class="tmp-panel" data-tmp-mentor-card>
+                    <h3>My Mentor</h3>
+                    <div data-tmp-mentor-info><p style="color:var(--tmp-muted)">Loading...</p></div>
+                    <div data-tmp-mentorship-checklist style="margin-top:16px;"></div>
                 </article>
 
-                <article class="tmp-panel tmp-wide">
-                    <h3>My Role History</h3>
-                    <div data-tmp-role-history>Loading history...</div>
+                <article class="tmp-panel">
+                    <h3>Next Action</h3>
+                    <p data-tmp-next-action></p>
                 </article>
 
-                <article class="tmp-panel tmp-wide">
-                    <h3>Smart Recommendations</h3>
-                    <div class="tmp-rec-grid" data-tmp-recommendations>Loading suggestions...</div>
-                </article>
+                <!-- Meeting Activity — expandable card, collapsed by default -->
+                <article class="tmp-panel tmp-wide" data-tmp-meeting-card>
+                    <button class="tmp-collapsible-toggle" data-tmp-meeting-toggle aria-expanded="false">
+                        Meeting Activity
+                        <span data-tmp-meeting-badge class="tmp-badge" style="display:none;"></span>
+                        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+                    </button>
+                    <div data-tmp-meeting-body style="display:none;">
 
-                <article class="tmp-panel tmp-wide">
-                    <h3>Available Meeting Slots</h3>
-                    <form class="tmp-panel tmp-form" data-tmp-member-request-form style="margin-top:10px; border:1px dashed #ccc;">
-                        <p class="tmp-eyebrow">Request a role</p>
-                        <div class="tmp-grid" style="grid-template-columns: 1fr; gap: 10px;">
-                            <label>1. Select Meeting
-                                <select name="meeting_id" required data-tmp-req-meeting-select></select>
-                            </label>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
-                                <label>Priority 1 <select name="priorities[]" required data-tmp-req-role-select></select></label>
-                                <label>Priority 2 <select name="priorities[]" data-tmp-req-role-select></select></label>
-                                <label>Priority 3 <select name="priorities[]" data-tmp-req-role-select></select></label>
-                            </div>
-                        </div>
-                        <div data-tmp-role-info class="tmp-wide"></div>
-                        <div style="margin-top:10px; text-align:right;">
-                            <button class="tmp-button tmp-primary" type="submit">Submit Request</button>
-                        </div>
-                    </form>
+                        <section class="tmp-meeting-section">
+                            <h4>Active Requests</h4>
+                            <div data-tmp-active-requests>Loading requests...</div>
+                        </section>
+
+                        <section class="tmp-meeting-section">
+                            <h4>Request History</h4>
+                            <div data-tmp-request-history>Loading history...</div>
+                        </section>
+
+                        <section class="tmp-meeting-section">
+                            <h4>Role History</h4>
+                            <div data-tmp-role-history>Loading history...</div>
+                        </section>
+
+                        <section class="tmp-meeting-section" data-tmp-level-journey-panel>
+                            <h4>Required Roles — Level Journey</h4>
+                            <div data-tmp-level-journey>Loading...</div>
+                        </section>
+
+                        <section class="tmp-meeting-section">
+                            <h4>Smart Recommendations</h4>
+                            <div class="tmp-rec-grid" data-tmp-recommendations>Loading suggestions...</div>
+                        </section>
+
+                        <section class="tmp-meeting-section" data-tmp-request-section>
+                            <h4>Available Meeting Slots</h4>
+                            <form class="tmp-panel tmp-form" data-tmp-member-request-form style="margin-top:10px; border:1px dashed #ccc;">
+                                <p class="tmp-eyebrow">Request a role</p>
+                                <div class="tmp-grid" style="grid-template-columns: 1fr; gap: 10px;">
+                                    <label>1. Select Meeting
+                                        <select name="meeting_id" required data-tmp-req-meeting-select></select>
+                                    </label>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                                        <label>Priority 1 <select name="priorities[]" required data-tmp-req-role-select></select></label>
+                                        <label>Priority 2 <select name="priorities[]" data-tmp-req-role-select></select></label>
+                                        <label>Priority 3 <select name="priorities[]" data-tmp-req-role-select></select></label>
+                                    </div>
+                                </div>
+                                <div data-tmp-role-info class="tmp-wide"></div>
+                                <div style="margin-top:10px; text-align:right;">
+                                    <button class="tmp-button tmp-primary" type="submit">Submit Request</button>
+                                </div>
+                            </form>
+                        </section>
+
+                    </div><!-- /data-tmp-meeting-body -->
                 </article>
 
             </div><!-- .tmp-grid -->

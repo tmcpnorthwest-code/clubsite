@@ -486,6 +486,9 @@ class TMP_Repository {
             $m['is_at_risk']                    = $m['recent_participation_count'] == 0 && count($last_3_ids) > 0;
             $m['milestones']                    = self::calculate_milestones($m);
             $m['level_gaps']                    = self::get_member_level_gaps($m['id'], (int) $m['level']);
+            $m['mentorship_stage']              = self::compute_mentorship_stage((int) $m['id'], $m);
+            $m['next_action']                   = self::compute_next_action((int) $m['id'], $m);
+            $m['mentor_next_action']            = self::compute_mentor_next_action($m['full_name'], $m['mentorship_stage']);
         }
 
         return $mentees;
@@ -679,6 +682,130 @@ class TMP_Repository {
         }
 
         return $recs;
+    }
+
+    // -------------------------------------------------------------------------
+    // Mentor program lifecycle
+    // Stages: no_mentor → assigned → orientation_complete → icebreaker_delivered
+    //         → level1_complete → closed
+    // -------------------------------------------------------------------------
+
+    public static function compute_mentorship_stage($member_id, $member) {
+        $level = (int) ($member['level'] ?? 1);
+
+        // Closed: member has levelled up past L1 in TI
+        if ($level >= 2) {
+            return 'closed';
+        }
+
+        // No mentor assigned yet
+        if (empty($member['mentor_id'])) {
+            return 'no_mentor';
+        }
+
+        // Ice Breaker check (Speaker role at L1 in participation history)
+        $counts_by_level = self::get_member_participation_counts_for_member($member_id);
+        $l1_counts       = $counts_by_level[1] ?? [];
+        $ib_done         = false;
+        foreach ($l1_counts as $role => $cnt) {
+            if (preg_match('/^speaker(\s+\d+)?$/i', trim($role)) && $cnt > 0) {
+                $ib_done = true;
+                break;
+            }
+        }
+
+        if ($ib_done) {
+            // Check whether all L1 gaps are met (level1_complete vs still working)
+            $gaps  = self::get_member_level_gaps($member_id, 1);
+            $unmet = array_filter($gaps, fn($g) => !$g['met']);
+            return empty($unmet) ? 'level1_complete' : 'icebreaker_delivered';
+        }
+
+        if (!empty($member['orientation_date'])) {
+            return 'orientation_complete';
+        }
+
+        return 'assigned';
+    }
+
+    /**
+     * Returns the action the MENTOR should take for a specific mentee at the given stage.
+     */
+    public static function compute_mentor_next_action($mentee_name, $stage) {
+        $map = [
+            'no_mentor'             => null,
+            'assigned'              => "Schedule orientation with {$mentee_name}.",
+            'orientation_complete'  => "Help {$mentee_name} request their first role.",
+            'icebreaker_delivered'  => "Guide {$mentee_name} through remaining Level 1 requirements.",
+            'level1_complete'       => "Help {$mentee_name} submit Level 1 completion on the TI portal.",
+            'closed'                => "Mentorship with {$mentee_name} is complete.",
+        ];
+        return $map[$stage] ?? "Check in with {$mentee_name}.";
+    }
+
+    // -------------------------------------------------------------------------
+    // Computed next action (mentee / member perspective)
+    // L1 path is driven by mentorship stage; L2+ by level gaps then activity.
+    // -------------------------------------------------------------------------
+
+    public static function compute_next_action($member_id, $member) {
+        $level    = (int) ($member['level']             ?? 1);
+        $pathway  =       ($member['pathway']           ?? '');
+        $enrolled =       ($member['pathways_enrolled'] ?? '');
+
+        // 1. Pathway not registered
+        if ($pathway === 'No pathway registered' || !$enrolled || strtolower($enrolled) === 'no') {
+            return 'Register for a Pathway on the TI portal.';
+        }
+
+        // 2–5. L1 path driven entirely by mentorship stage
+        if ($level === 1) {
+            $stage = self::compute_mentorship_stage($member_id, $member);
+            switch ($stage) {
+                case 'no_mentor':
+                    return 'Ask your VP Education to assign you a mentor.';
+                case 'assigned':
+                    return 'Schedule your orientation meeting with your mentor.';
+                case 'orientation_complete':
+                    return 'Request a Table Topics Speaker role at your next meeting.';
+                case 'icebreaker_delivered':
+                    // Fall through to gap checks — IB done but L1 reqs remain
+                    break;
+                case 'level1_complete':
+                    return 'Submit Level 1 completion on the TI portal.';
+            }
+        }
+
+        // 6 & 7. Level gaps (all levels)
+        $gaps  = self::get_member_level_gaps($member_id, $level);
+        $unmet = array_filter($gaps, fn($g) => !$g['met']);
+        if (!empty($unmet)) {
+            $first = reset($unmet);
+            return "Level {$level}: complete {$first['label']}.";
+        }
+        if (!empty($gaps)) {
+            return "All Level {$level} requirements met — submit completion on the TI portal.";
+        }
+
+        // 8. No recent role
+        global $wpdb;
+        $history       = self::participation_history_table();
+        $cooloff_weeks = (int) get_option('tmp_role_cooloff_weeks', 4);
+        $since         = date('Y-m-d', strtotime("-{$cooloff_weeks} weeks", current_time('timestamp')));
+        $last_role     = $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(meeting_date) FROM {$history} WHERE member_id = %d",
+            $member_id
+        ));
+        if (!$last_role || $last_role < $since) {
+            $weeks_ago = $last_role
+                ? (int) floor((current_time('timestamp') - strtotime($last_role)) / (7 * 86400))
+                : null;
+            $suffix = $weeks_ago !== null ? " — {$weeks_ago} weeks since your last role" : '';
+            return "Request a role for an upcoming meeting{$suffix}.";
+        }
+
+        // 9. Default
+        return "Continue {$pathway} Level {$level}.";
     }
 
     // -------------------------------------------------------------------------

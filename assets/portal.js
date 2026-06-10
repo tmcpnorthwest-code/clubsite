@@ -94,6 +94,18 @@
   // MEMBER DASHBOARD
   // ===========================================================================
 
+  function paidUntilDisplay(member) {
+    if (member.is_exempt_from_unpaid_block) return { text: "Exempt (New Member)", color: "var(--tmp-teal)" };
+    if (!member.paid_until) return { text: "Not on file", color: "var(--tmp-muted)" };
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const due   = new Date(member.paid_until);
+    const days  = Math.round((due - today) / 86400000);
+    const fmt   = due.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+    if (days < 0)   return { text: `Expired ${fmt}`, color: "#c62828" };
+    if (days <= 30) return { text: `Due ${fmt} (${days}d)`, color: "#ef6c00" };
+    return { text: `Paid until ${fmt}`, color: "#2e7d32" };
+  }
+
   async function updateMemberDashboard() {
     const root = qs("[data-tmp-member-dashboard]");
     if (!root) return;
@@ -111,7 +123,9 @@
       setField("[data-tmp-state]",          member.state || "Active");
       setField("[data-tmp-project]",        member.current_project || "Not assigned");
       setField("[data-tmp-next-action]",    member.next_action || "No next action recorded.");
-      setField("[data-tmp-notes]",          member.officer_notes || "No officer notes yet.");
+      const paid = paidUntilDisplay(member);
+      const paidEl = qs("[data-tmp-paid-until]", root);
+      if (paidEl) { paidEl.textContent = paid.text; paidEl.style.color = paid.color; }
 
       const levelsEl = qs("[data-tmp-levels]", root);
       if (levelsEl) levelsEl.innerHTML = levels.map((lbl, i) => {
@@ -141,6 +155,29 @@
         } else {
           mentorInfo.innerHTML = `<p style="color:var(--tmp-muted)">No mentor assigned yet. Speak to your VP Education.</p>`;
         }
+      }
+
+      // ── Mentorship checklist ───────────────────────────────────────────────
+      const checklistEl = qs("[data-tmp-mentorship-checklist]", root);
+      if (checklistEl) {
+        const STAGES = [
+          { key: "assigned",              label: "Mentor Assigned"       },
+          { key: "orientation_complete",  label: "Orientation Complete"  },
+          { key: "icebreaker_delivered",  label: "Ice Breaker Delivered" },
+          { key: "level1_complete",       label: "Level 1 Complete"      },
+          { key: "closed",                label: "Mentorship Closed"     },
+        ];
+        const stageOrder = ["no_mentor", "assigned", "orientation_complete", "icebreaker_delivered", "level1_complete", "closed"];
+        const currentIdx = stageOrder.indexOf(member.mentorship_stage || "no_mentor");
+        checklistEl.innerHTML = `
+          <p style="font-size:0.78rem;font-weight:800;text-transform:uppercase;color:var(--tmp-muted);margin:0 0 10px;">Mentor Program</p>
+          <ol class="tmp-mentor-checklist">${STAGES.map((s, i) => {
+            const stageIdx = stageOrder.indexOf(s.key);
+            const done     = stageIdx < currentIdx || (s.key === "closed" && member.mentorship_stage === "closed");
+            const active   = stageOrder[currentIdx] === s.key;
+            const cls      = done ? "tmp-mc-done" : active ? "tmp-mc-active" : "tmp-mc-pending";
+            return `<li class="tmp-mc-item ${cls}"><span class="tmp-mc-dot"></span>${esc(s.label)}</li>`;
+          }).join("")}</ol>`;
       }
 
       // ── Level journey ─────────────────────────────────────────────────────
@@ -190,6 +227,15 @@
                 <td data-label="Action"><button class="tmp-small-button tmp-danger" data-cancel-request="${esc(r.id)}">Cancel</button></td></tr>`;
             }).join("")}</tbody></table></div>`
         : "<p>You have no active role requests.</p>";
+
+      // Badge: pending (not yet confirmed) request count
+      const pendingCount = requests.filter((r) => {
+        const approved = String(r.assigned_id) === String(member.id) && r.assignment_status === "Confirmed";
+        const denied   = r.assigned_id && String(r.assigned_id) !== String(member.id) && r.assignment_status === "Confirmed";
+        return !approved && !denied;
+      }).length;
+      const badgeEl = qs("[data-tmp-meeting-badge]", root);
+      if (badgeEl) { badgeEl.textContent = pendingCount; badgeEl.style.display = pendingCount > 0 ? "inline-flex" : "none"; }
 
       // ── Request history ────────────────────────────────────────────────────
       const history = await api("/me/requests/history").catch(() => []);
@@ -260,9 +306,8 @@
       const mSelect  = qs("[data-tmp-req-meeting-select]", reqForm);
       const rSelects = qsa("[data-tmp-req-role-select]", reqForm);
 
-      if (reqForm?.closest("article")) {
-        reqForm.closest("article").style.display = slots.length ? "block" : "none";
-      }
+      const reqSection = qs("[data-tmp-request-section]", root);
+      if (reqSection) reqSection.style.display = slots.length ? "" : "none";
 
       root._groupedSlots = slots.reduce((acc, s) => {
         const key = `${s.meeting_date} - ${s.theme}`;
@@ -294,19 +339,37 @@
         const mentorDash = qs("[data-tmp-mentor-dashboard]", root);
         if (mentorDash) mentorDash.style.display = "block";
         const menteeList = qs("[data-tmp-mentee-list]", mentorDash);
+        const STAGE_LABELS = {
+          no_mentor:            { label: "No Mentor",          bg: "#9e9e9e" },
+          assigned:             { label: "Mentor Assigned",    bg: "#1565c0" },
+          orientation_complete: { label: "Orientation Done",   bg: "#6a1b9a" },
+          icebreaker_delivered: { label: "Ice Breaker Done",   bg: "#2e7d32" },
+          level1_complete:      { label: "Level 1 Complete",   bg: "#ef6c00" },
+          closed:               { label: "Mentorship Closed",  bg: "#424242" },
+        };
         if (menteeList) menteeList.innerHTML = `
           <div class="tmp-table-wrap"><table class="tmp-table">
-            <thead><tr><th>Mentee</th><th>Level / Project</th><th>Participation</th><th>At Risk?</th><th>Level Progress</th></tr></thead>
+            <thead><tr><th>Mentee</th><th>Stage</th><th>Participation</th><th>At Risk?</th><th>Level Progress</th><th>Your Next Action</th></tr></thead>
             <tbody>${mentees.map((m) => {
-              const gapsMet   = (m.level_gaps || []).filter((g) => g.met).length;
-              const gapsTotal = (m.level_gaps || []).length;
-              const gapBadge  = gapsTotal > 0 ? `${gapsMet}/${gapsTotal} L${m.level} reqs` : "";
-              return `<tr ${m.is_at_risk ? 'style="background:#fff8e1"' : ""}>
-                <td><strong>${esc(m.full_name)}</strong><br><small>${esc(m.pathway)}</small></td>
-                <td>Level ${esc(m.level)}<br><small>${esc(m.current_project || "—")}</small></td>
-                <td>${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
-                <td>${m.is_at_risk ? '<span style="color:red;font-weight:bold;">YES</span>' : "No"}</td>
-                <td>${gapBadge ? `<span class="tmp-tag" style="background:${gapsMet === gapsTotal ? "#2e7d32" : "#ef6c00"};color:#fff;">${gapBadge}</span>` : "—"}</td>
+              const gapsMet      = (m.level_gaps || []).filter((g) => g.met).length;
+              const gapsTotal    = (m.level_gaps || []).length;
+              const gapBadge     = gapsTotal > 0 ? `${gapsMet}/${gapsTotal} L${m.level} reqs` : "";
+              const noPathway    = (m.next_action || "").startsWith("Register for a Pathway");
+              const stageMeta    = STAGE_LABELS[m.mentorship_stage] || STAGE_LABELS.no_mentor;
+              const rowStyle     = m.is_at_risk ? "background:#fff8e1" : noPathway ? "background:#fce4ec" : "";
+              const pathwayLabel = noPathway
+                ? `<span class="tmp-tag" style="background:#c62828;color:#fff;display:inline-block;margin-top:4px;">Not Enrolled</span>`
+                : `<small>${esc(m.pathway)}</small>`;
+              const mentorActionHtml = noPathway
+                ? `<a href="https://www.toastmasters.org/pathways-overview" target="_blank" rel="noopener" style="color:var(--tmp-burgundy);text-decoration:underline;font-size:0.85rem;">Help register on TI &rarr;</a>`
+                : `<small style="color:var(--tmp-muted)">${esc(m.mentor_next_action || "—")}</small>`;
+              return `<tr style="${rowStyle}">
+                <td data-label="Mentee"><strong>${esc(m.full_name)}</strong><br>${pathwayLabel}</td>
+                <td data-label="Stage"><span class="tmp-tag" style="background:${stageMeta.bg};color:#fff;">${esc(stageMeta.label)}</span><br><small style="color:var(--tmp-muted);font-size:0.8rem;margin-top:3px;display:block">${esc(m.next_action || "")}</small></td>
+                <td data-label="Participation">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
+                <td data-label="At Risk?">${m.is_at_risk ? '<span style="color:red;font-weight:bold;">YES</span>' : "No"}</td>
+                <td data-label="Level Progress">${gapBadge ? `<span class="tmp-tag" style="background:${gapsMet === gapsTotal ? "#2e7d32" : "#ef6c00"};color:#fff;">${gapBadge}</span>` : "—"}</td>
+                <td data-label="Your Next Action">${mentorActionHtml}</td>
               </tr>`;
             }).join("")}</tbody></table></div>`;
       }
@@ -329,6 +392,17 @@
     const mSelect = reqForm ? qs("[data-tmp-req-meeting-select]", reqForm) : null;
 
     await updateMemberDashboard();
+
+    // Meeting Activity expand/collapse toggle
+    const meetingToggle = qs("[data-tmp-meeting-toggle]", root);
+    const meetingBody   = qs("[data-tmp-meeting-body]",   root);
+    meetingToggle?.addEventListener("click", () => {
+      const open = meetingToggle.getAttribute("aria-expanded") === "true";
+      meetingToggle.setAttribute("aria-expanded", String(!open));
+      if (meetingBody) meetingBody.style.display = open ? "none" : "block";
+      const chevron = qs(".tmp-chevron", meetingToggle);
+      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+    });
 
     // Cancel request
     qs("[data-tmp-active-requests]", root)?.addEventListener("click", async (e) => {

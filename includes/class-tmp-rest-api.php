@@ -204,6 +204,9 @@ class TMP_REST_API {
             return new WP_Error('tmp_unpaid_member', 'Your membership payment is overdue. Please contact the Club Admin to renew your membership or for an exemption.', ['status' => 403]);
         }
 
+        $member['mentorship_stage'] = TMP_Repository::compute_mentorship_stage((int) $member['id'], $member);
+        $member['next_action']      = TMP_Repository::compute_next_action((int) $member['id'], $member);
+
         return rest_ensure_response($member);
     }
 
