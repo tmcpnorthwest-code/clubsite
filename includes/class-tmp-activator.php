@@ -11,6 +11,9 @@ class TMP_Activator {
         self::create_tables();
         self::create_pages();
         update_option('tmp_plugin_version', TMP_VERSION);
+        if (!get_option('tmp_role_cooloff_weeks')) {
+            update_option('tmp_role_cooloff_weeks', 4);
+        }
         flush_rewrite_rules();
         self::log('Activation hook completed');
     }
@@ -28,6 +31,11 @@ class TMP_Activator {
         self::create_roles();
         self::create_tables();
         self::create_pages();
+        self::migrate_mentor_text_to_id();
+        self::migrate_ah_counter_normalization();
+        if (!get_option('tmp_role_cooloff_weeks')) {
+            update_option('tmp_role_cooloff_weeks', 4);
+        }
         update_option('tmp_plugin_version', TMP_VERSION);
         self::log('Upgrade completed');
     }
@@ -82,6 +90,7 @@ class TMP_Activator {
         $requests = $wpdb->prefix . 'tmp_member_requests';
         $participation = $wpdb->prefix . 'tmp_participation_history';
 
+        // mentor VARCHAR kept for legacy data; mentor_id is the FK used by all new code
         dbDelta("CREATE TABLE {$members} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             user_id BIGINT UNSIGNED NULL,
@@ -100,6 +109,7 @@ class TMP_Activator {
             orientation_date DATE NULL,
             icebreaker_draft_date DATE NULL,
             mentor VARCHAR(190) NULL,
+            mentor_id BIGINT UNSIGNED NULL,
             next_action VARCHAR(255) NULL,
             officer_notes TEXT NULL,
             created_at DATETIME NOT NULL,
@@ -109,7 +119,8 @@ class TMP_Activator {
             UNIQUE KEY customer_id (customer_id),
             KEY user_id (user_id),
             KEY pathway (pathway),
-            KEY state (state)
+            KEY state (state),
+            KEY mentor_id (mentor_id)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$meetings} (
@@ -136,6 +147,9 @@ class TMP_Activator {
             duration INT UNSIGNED NOT NULL DEFAULT 0,
             status VARCHAR(80) NOT NULL DEFAULT 'Planned',
             sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+            presentation_series VARCHAR(100) NULL,
+            cooloff_override TINYINT(1) NOT NULL DEFAULT 0,
+            override_reason VARCHAR(255) NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY  (id),
@@ -163,6 +177,7 @@ class TMP_Activator {
             role_name VARCHAR(120) NOT NULL,
             meeting_date DATE NOT NULL,
             level_at_completion TINYINT UNSIGNED NOT NULL,
+            presentation_series VARCHAR(100) NULL,
             created_at DATETIME NOT NULL,
             PRIMARY KEY  (id),
             KEY member_id (member_id),
@@ -170,6 +185,42 @@ class TMP_Activator {
         ) $charset;");
 
         self::seed_data();
+    }
+
+    /**
+     * Converts legacy plain-text mentor names to mentor_id FK references.
+     * Runs once on upgrade; safe to run multiple times (only updates NULL mentor_id rows).
+     */
+    private static function migrate_mentor_text_to_id() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmp_members';
+
+        $rows = $wpdb->get_results(
+            "SELECT id, mentor FROM {$table} WHERE mentor != '' AND mentor IS NOT NULL AND (mentor_id IS NULL OR mentor_id = 0)",
+            ARRAY_A
+        );
+
+        foreach ($rows as $row) {
+            $mentor_id = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$table} WHERE full_name = %s LIMIT 1",
+                $row['mentor']
+            ));
+            if ($mentor_id) {
+                $wpdb->update($table, array('mentor_id' => (int) $mentor_id), array('id' => (int) $row['id']));
+            }
+        }
+    }
+
+    /**
+     * Normalises "Ah Counter" (space) → "Ah-Counter" (hyphen) in history and assignments.
+     */
+    private static function migrate_ah_counter_normalization() {
+        global $wpdb;
+        $history    = $wpdb->prefix . 'tmp_participation_history';
+        $assignment = $wpdb->prefix . 'tmp_role_assignments';
+
+        $wpdb->query("UPDATE {$history} SET role_name = 'Ah-Counter' WHERE role_name = 'Ah Counter'");
+        $wpdb->query("UPDATE {$assignment} SET role_name = REPLACE(role_name, 'Ah Counter', 'Ah-Counter') WHERE role_name LIKE '%Ah Counter%'");
     }
 
     private static function seed_data() {
@@ -193,7 +244,7 @@ class TMP_Activator {
             'paid_until' => null,
             'pathways_enrolled' => 'Yes',
             'current_project' => 'Persuasive speaking',
-            'mentor' => 'Neha Rao',
+            'mentor_id' => null,
             'next_action' => 'Request Level 3 completion review',
             'officer_notes' => 'Mentor recommends one more persuasive speech before submitting Level 3.',
             'created_at' => $now,

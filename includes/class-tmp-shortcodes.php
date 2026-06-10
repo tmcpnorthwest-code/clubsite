@@ -6,35 +6,35 @@ if (!defined('ABSPATH')) {
 
 class TMP_Shortcodes {
     public static function init() {
-        add_shortcode('tm_member_login', array(__CLASS__, 'member_login'));
-        add_shortcode('tm_member_dashboard', array(__CLASS__, 'member_dashboard'));
-        add_shortcode('tm_admin_portal', array(__CLASS__, 'admin_portal'));
-        add_shortcode('tm_vp_education', array(__CLASS__, 'vp_education'));
-        add_action('wp_enqueue_scripts', array(__CLASS__, 'register_assets'));
+        add_shortcode('tm_member_login',    [__CLASS__, 'member_login']);
+        add_shortcode('tm_member_dashboard',[__CLASS__, 'member_dashboard']);
+        add_shortcode('tm_admin_portal',    [__CLASS__, 'admin_portal']);
+        add_shortcode('tm_vp_education',    [__CLASS__, 'vp_education']);
+        add_action('wp_enqueue_scripts',    [__CLASS__, 'register_assets']);
     }
 
     public static function register_assets() {
-        wp_register_style('tmp-portal', TMP_PLUGIN_URL . 'assets/portal.css', array(), TMP_VERSION);
-        wp_register_script('tmp-portal', TMP_PLUGIN_URL . 'assets/portal.js', array(), TMP_VERSION, true);
+        wp_register_style( 'tmp-portal', TMP_PLUGIN_URL . 'assets/portal.css', [], TMP_VERSION);
+        wp_register_script('tmp-portal', TMP_PLUGIN_URL . 'assets/portal.js',  [], TMP_VERSION, true);
     }
 
     private static function enqueue() {
         wp_enqueue_style('tmp-portal');
         wp_enqueue_script('tmp-portal');
-        wp_localize_script('tmp-portal', 'TMPortal', array(
-            'restUrl' => esc_url_raw(rest_url('toastmasters/v1')),
-            'nonce' => wp_create_nonce('wp_rest'),
+        wp_localize_script('tmp-portal', 'TMPortal', [
+            'restUrl'       => esc_url_raw(rest_url('toastmasters/v1')),
+            'nonce'         => wp_create_nonce('wp_rest'),
             'standardRoles' => TMP_Repository::get_standard_roles(),
-            'loginUrl' => wp_login_url(get_permalink()),
-            'logoutUrl' => wp_logout_url(home_url('/')),
-            'currentUser' => is_user_logged_in() ? array(
-                'id' => get_current_user_id(),
-                'name' => wp_get_current_user()->display_name,
-                'email' => wp_get_current_user()->user_email,
-                'canManageMembers' => current_user_can('tmp_manage_members'),
-                'canManageMeetings' => current_user_can('tmp_manage_meetings'),
-            ) : null,
-        ));
+            'loginUrl'      => wp_login_url(get_permalink()),
+            'logoutUrl'     => wp_logout_url(home_url('/')),
+            'currentUser'   => is_user_logged_in() ? [
+                'id'              => get_current_user_id(),
+                'name'            => wp_get_current_user()->display_name,
+                'email'           => wp_get_current_user()->user_email,
+                'canManageMembers'=> current_user_can('tmp_manage_members'),
+                'canManageMeetings'=> current_user_can('tmp_manage_meetings'),
+            ] : null,
+        ]);
     }
 
     public static function member_login() {
@@ -72,14 +72,17 @@ class TMP_Shortcodes {
                 <p data-tmp-member-summary></p>
             </div>
             <div class="tmp-grid">
+
                 <article class="tmp-panel tmp-wide">
                     <h3>My Active Requests</h3>
                     <div data-tmp-active-requests>Loading requests...</div>
                 </article>
+
                 <article class="tmp-panel tmp-wide">
                     <h3>Request History</h3>
                     <div data-tmp-request-history>Loading history...</div>
                 </article>
+
                 <article class="tmp-panel tmp-progress-card">
                     <div class="tmp-card-head">
                         <h3>Pathways Progress</h3>
@@ -88,22 +91,31 @@ class TMP_Shortcodes {
                     <div class="tmp-progress"><span data-tmp-progress-bar></span></div>
                     <ol class="tmp-levels" data-tmp-levels></ol>
                 </article>
+
                 <article class="tmp-panel">
                     <h3>Current State</h3>
                     <dl class="tmp-profile-list">
                         <div><dt>Status</dt><dd data-tmp-state></dd></div>
                         <div><dt>Project</dt><dd data-tmp-project></dd></div>
-                        <div><dt>Mentor</dt><dd data-tmp-mentor></dd></div>
                     </dl>
                 </article>
+
+                <!-- Mentor card — populated by JS -->
+                <article class="tmp-panel" data-tmp-mentor-card>
+                    <h3>My Mentor</h3>
+                    <div data-tmp-mentor-info><p style="color:var(--tmp-muted)">Loading...</p></div>
+                </article>
+
                 <article class="tmp-panel">
                     <h3>Next Action</h3>
                     <p data-tmp-next-action></p>
                 </article>
+
                 <article class="tmp-panel">
                     <h3>Officer Notes</h3>
                     <p data-tmp-notes></p>
                 </article>
+
                 <article class="tmp-panel tmp-wide">
                     <h3>My Milestones</h3>
                     <div class="tmp-milestone-track" data-tmp-milestones>
@@ -115,20 +127,29 @@ class TMP_Shortcodes {
                         <div class="tmp-m-item" data-m="level1_completed">Level 1 Completed</div>
                     </div>
                 </article>
+
+                <!-- Level journey: TI-required roles per level, with completion status -->
+                <article class="tmp-panel tmp-wide" data-tmp-level-journey-panel>
+                    <h3>Level Journey — Required Roles</h3>
+                    <div data-tmp-level-journey>Loading...</div>
+                </article>
+
                 <article class="tmp-panel tmp-wide">
                     <h3>My Role History</h3>
                     <div data-tmp-role-history>Loading history...</div>
                 </article>
+
                 <article class="tmp-panel tmp-wide">
                     <h3>Smart Recommendations</h3>
                     <div class="tmp-rec-grid" data-tmp-recommendations>Loading suggestions...</div>
                 </article>
+
                 <article class="tmp-panel tmp-wide">
                     <h3>Available Meeting Slots</h3>
                     <form class="tmp-panel tmp-form" data-tmp-member-request-form style="margin-top:10px; border:1px dashed #ccc;">
                         <p class="tmp-eyebrow">Request a role</p>
                         <div class="tmp-grid" style="grid-template-columns: 1fr; gap: 10px;">
-                            <label>1. Select Meeting 
+                            <label>1. Select Meeting
                                 <select name="meeting_id" required data-tmp-req-meeting-select></select>
                             </label>
                             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
@@ -143,7 +164,10 @@ class TMP_Shortcodes {
                         </div>
                     </form>
                 </article>
-            </div>
+
+            </div><!-- .tmp-grid -->
+
+            <!-- Mentor dashboard (visible only if current user is a mentor) -->
             <div class="tmp-panel" data-tmp-mentor-dashboard style="display:none;">
                 <p class="tmp-eyebrow">Mentor Dashboard</p>
                 <h3>My Mentees</h3>
@@ -186,8 +210,8 @@ class TMP_Shortcodes {
                     <h3>Members</h3>
                     <span data-tmp-member-count>0 records</span>
                 </div>
-                <div class="tmp-admin-filters" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; background: #f9f9f9; padding: 12px; border-radius: 4px; border: 1px solid #eee;">
-                    <input type="text" data-tmp-admin-search placeholder="Search by name or email..." style="flex: 1; min-width: 200px;">
+                <div class="tmp-admin-filters" style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;background:#f9f9f9;padding:12px;border-radius:4px;border:1px solid #eee;">
+                    <input type="text" data-tmp-admin-search placeholder="Search by name or email..." style="flex:1;min-width:200px;">
                     <select data-tmp-admin-status>
                         <option value="all">All (Paid/Unpaid)</option>
                         <option value="Paid">Paid Only</option>
@@ -255,13 +279,24 @@ class TMP_Shortcodes {
                 <div data-tmp-vpe-requests>Loading requests...</div>
             </section>
 
+            <!-- Members due for a role (no role in last cooloff window) -->
+            <section class="tmp-panel" data-tmp-due-roles-section>
+                <div class="tmp-card-head">
+                    <h3>Members Due for a Role</h3>
+                    <span data-tmp-due-roles-count></span>
+                </div>
+                <div data-tmp-due-roles-list>Loading...</div>
+            </section>
+
             <section class="tmp-panel">
                 <div class="tmp-card-head">
                     <h3>Member Overview (Paid)</h3>
                     <span data-tmp-vpe-member-count>0 members</span>
                 </div>
-                <div class="tmp-admin-filters" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; background: #f9f9f9; padding: 12px; border-radius: 4px; border: 1px solid #eee;">
-                    <input type="text" data-tmp-vpe-search placeholder="Search by name or email..." style="flex: 1; min-width: 200px;">
+                <!-- Unmentored alert injected by JS -->
+                <div data-tmp-unmentored-alert></div>
+                <div class="tmp-admin-filters" style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;background:#f9f9f9;padding:12px;border-radius:4px;border:1px solid #eee;">
+                    <input type="text" data-tmp-vpe-search placeholder="Search by name or email..." style="flex:1;min-width:200px;">
                     <select data-tmp-vpe-pathway>
                         <option value="all">All Pathways</option>
                         <option>No pathway registered</option>
@@ -292,15 +327,15 @@ class TMP_Shortcodes {
                 <label>Requests deadline <input type="datetime-local" name="requests_close_at" /></label>
                 <label>Theme <input name="theme" required placeholder="Meeting theme" /></label>
                 <label>Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
-                <div class="tmp-wide tmp-roles-setup" style="margin: 10px 0; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+                <div class="tmp-wide tmp-roles-setup" style="margin:10px 0;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;">
                     <p class="tmp-eyebrow">Meeting Template (New meetings only)</p>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 10px;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px;">
                         <?php foreach (TMP_Repository::get_standard_roles() as $fullName => $shortName) : ?>
                             <label><input type="checkbox" name="roles[]" value="<?php echo esc_attr($fullName); ?>" checked> <?php echo esc_html($shortName); ?></label>
                         <?php endforeach; ?>
                     </div>
                     <label>Number of Speech Slots <input type="number" name="speech_slots" value="3" min="0" max="10" /></label>
-                    <p style="font-size: 11px; color: #666; margin-top: 5px;">* This will automatically create matching Evaluator slots.</p>
+                    <p style="font-size:11px;color:#666;margin-top:5px;">* This will automatically create matching Evaluator and Table Topics Speaker slots.</p>
                 </div>
                 <label class="tmp-wide">Agenda notes <textarea name="agenda_notes" rows="2"></textarea></label>
                 <div class="tmp-form-actions tmp-wide">
@@ -316,7 +351,19 @@ class TMP_Shortcodes {
                 <div class="tmp-wide"><small>Create unassigned role slots here. Members can then request these roles, and you can approve them with one click.</small></div>
                 <label>Role <select data-tmp-role-select required></select></label>
                 <label>Member <select name="member_id" data-tmp-member-select></select></label>
+                <!-- Cooloff warning injected here by JS -->
+                <div data-tmp-cooloff-warning style="display:none;" class="tmp-wide"></div>
                 <label data-tmp-speech-title-wrapper>Speech title <input name="speech_title" placeholder="Optional speech title" /></label>
+                <!-- Presentation series — shown only for Educational Presentation roles -->
+                <label data-tmp-pres-series-wrapper style="display:none;">
+                    Presentation Series
+                    <select name="presentation_series">
+                        <option value="">Not applicable</option>
+                        <option value="Successful Club Series">Successful Club Series</option>
+                        <option value="Better Speaker Series">Better Speaker Series</option>
+                        <option value="Leadership Excellence Series">Leadership Excellence Series</option>
+                    </select>
+                </label>
                 <label>Duration (mins) <input type="number" name="duration" min="0" placeholder="e.g. 7" /></label>
                 <label>Status
                     <select name="status">
@@ -327,6 +374,15 @@ class TMP_Shortcodes {
                         <option>Completed</option>
                     </select>
                 </label>
+                <!-- Cooloff override — shown by JS when needed -->
+                <div data-tmp-cooloff-override-wrapper class="tmp-wide" style="display:none;padding:10px;background:#fff8e1;border:1px solid #ffd54f;border-radius:4px;">
+                    <label style="display:flex;align-items:center;gap:8px;font-weight:bold;">
+                        <input type="checkbox" name="cooloff_override" value="1"> Override cooloff period
+                    </label>
+                    <label style="margin-top:6px;">
+                        Override reason <input type="text" name="override_reason" placeholder="Brief reason for the exception" />
+                    </label>
+                </div>
                 <div class="tmp-form-actions tmp-wide">
                     <button class="tmp-button tmp-primary" type="submit">Save Assignment</button>
                     <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-assignment>Clear</button>
@@ -340,6 +396,22 @@ class TMP_Shortcodes {
                 </div>
                 <div data-tmp-meeting-list></div>
             </section>
+        </div>
+
+        <!-- Mentor assignment modal (hidden, shown by JS) -->
+        <div id="tmp-mentor-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
+            <div style="background:#fff;border-radius:8px;padding:30px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.2);">
+                <h3 style="margin:0 0 6px;">Assign Mentor</h3>
+                <p id="tmp-mentor-modal-member" style="color:var(--tmp-muted);margin:0 0 16px;font-size:13px;"></p>
+                <label style="display:block;margin-bottom:16px;">
+                    Select eligible mentor (Level 2+, paid &amp; active)
+                    <select id="tmp-mentor-select" style="width:100%;margin-top:6px;"></select>
+                </label>
+                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                    <button class="tmp-button tmp-secondary" id="tmp-mentor-modal-cancel">Cancel</button>
+                    <button class="tmp-button tmp-primary" id="tmp-mentor-modal-save">Save Mentor</button>
+                </div>
+            </div>
         </div>
         <?php
         return ob_get_clean();
