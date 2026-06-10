@@ -315,6 +315,11 @@ class TMP_Shortcodes {
                         <option value="4">Level 4</option>
                         <option value="5">Level 5</option>
                     </select>
+                    <select data-tmp-vpe-mentor-filter>
+                        <option value="all">All Members</option>
+                        <option value="none">No Mentor Assigned</option>
+                        <option value="assigned">Has Mentor</option>
+                    </select>
                 </div>
                 <div data-tmp-vpe-member-list>Loading members...</div>
             </section>
@@ -404,10 +409,11 @@ class TMP_Shortcodes {
                 <h3 style="margin:0 0 6px;">Assign Mentor</h3>
                 <p id="tmp-mentor-modal-member" style="color:var(--tmp-muted);margin:0 0 16px;font-size:13px;"></p>
                 <label style="display:block;margin-bottom:16px;">
-                    Select eligible mentor (Level 2+, paid &amp; active)
+                    Select eligible mentor (Level 2+, active)
                     <select id="tmp-mentor-select" style="width:100%;margin-top:6px;"></select>
                 </label>
-                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                <p id="tmp-mentor-modal-error" style="display:none;color:var(--tmp-burgundy);font-size:13px;margin:0 0 12px;"></p>
+                <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
                     <button class="tmp-button tmp-secondary" id="tmp-mentor-modal-cancel">Cancel</button>
                     <button class="tmp-button tmp-primary" id="tmp-mentor-modal-save">Save Mentor</button>
                 </div>

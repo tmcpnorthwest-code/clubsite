@@ -13,8 +13,8 @@
 
   let refreshVPE = () => {};
 
-  const qs  = (sel, root = document) => root.querySelector(sel);
-  const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const qs  = (sel, root = document) => root ? root.querySelector(sel) : null;
+  const qsa = (sel, root = document) => root ? Array.from(root.querySelectorAll(sel)) : [];
   const esc = (v) => String(v || "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 
   function formatTime(totalMinutes) {
@@ -49,7 +49,8 @@
   }
 
   async function api(path, options = {}) {
-    let url = `${TMPortal.restUrl}${path}`;
+    const base = TMPortal.restUrl.replace(/\/$/, "");  // strip trailing slash WordPress adds
+    let url = `${base}${path}`;
     if (!options.method || options.method === "GET") {
       url += (url.includes("?") ? "&" : "?") + "_=" + Date.now();
     }
@@ -102,16 +103,18 @@
       const level  = Number(member.level || 1);
       const pct    = Math.max(20, Math.min(100, level * 20));
 
-      qs("[data-tmp-member-name]",    root).textContent = member.full_name;
-      qs("[data-tmp-member-summary]", root).textContent = `${member.pathway} - Level ${level}`;
-      qs("[data-tmp-progress]",       root).textContent = `${pct}%`;
-      qs("[data-tmp-progress-bar]",   root).style.width = `${pct}%`;
-      qs("[data-tmp-state]",          root).textContent = member.state || "Active";
-      qs("[data-tmp-project]",        root).textContent = member.current_project || "Not assigned";
-      qs("[data-tmp-next-action]",    root).textContent = member.next_action || "No next action recorded.";
-      qs("[data-tmp-notes]",          root).textContent = member.officer_notes || "No officer notes yet.";
+      const setField = (sel, val) => { const el = qs(sel, root); if (el) el.textContent = val; };
+      setField("[data-tmp-member-name]",    member.full_name);
+      setField("[data-tmp-member-summary]", `${member.pathway} - Level ${level}`);
+      setField("[data-tmp-progress]",       `${pct}%`);
+      const bar = qs("[data-tmp-progress-bar]", root); if (bar) bar.style.width = `${pct}%`;
+      setField("[data-tmp-state]",          member.state || "Active");
+      setField("[data-tmp-project]",        member.current_project || "Not assigned");
+      setField("[data-tmp-next-action]",    member.next_action || "No next action recorded.");
+      setField("[data-tmp-notes]",          member.officer_notes || "No officer notes yet.");
 
-      qs("[data-tmp-levels]", root).innerHTML = levels.map((lbl, i) => {
+      const levelsEl = qs("[data-tmp-levels]", root);
+      if (levelsEl) levelsEl.innerHTML = levels.map((lbl, i) => {
         const n   = i + 1;
         const cls = n < level ? "tmp-done" : n === level ? "tmp-active" : "";
         return `<li class="${cls}">${esc(lbl)}</li>`;
@@ -161,9 +164,9 @@
                 <thead><tr><th>Requirement</th><th>Progress</th><th>Status</th></tr></thead>
                 <tbody>${gaps.map((g) => `
                   <tr style="background:${g.met ? "#f1f8e9" : "#fff8e1"}">
-                    <td>${esc(g.label)}</td>
-                    <td>${g.done} / ${g.needed}</td>
-                    <td><span class="tmp-tag" style="background:${g.met ? "#2e7d32" : "#ef6c00"};color:#fff;">${g.met ? "✓ Done" : "Needed"}</span></td>
+                    <td data-label="Requirement">${esc(g.label)}</td>
+                    <td data-label="Progress">${g.done} / ${g.needed}</td>
+                    <td data-label="Status"><span class="tmp-tag" style="background:${g.met ? "#2e7d32" : "#ef6c00"};color:#fff;">${g.met ? "✓ Done" : "Needed"}</span></td>
                   </tr>`).join("")}
                 </tbody>
               </table>
@@ -173,7 +176,7 @@
 
       // ── Active requests ────────────────────────────────────────────────────
       const requests = await api("/me/requests").catch(() => []);
-      qs("[data-tmp-active-requests]", root).innerHTML = requests.length
+      const arEl = qs("[data-tmp-active-requests]", root); if (arEl) arEl.innerHTML = requests.length
         ? `<div class="tmp-table-wrap"><table class="tmp-table">
             <thead><tr><th>Meeting</th><th>Role</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>${requests.map((r) => {
@@ -181,25 +184,25 @@
               const denied   = r.assigned_id && String(r.assigned_id) !== String(member.id) && r.assignment_status === "Confirmed";
               const style    = approved ? "background:#2e7d32;color:#fff;" : denied ? "background:#c62828;color:#fff;" : "background:#eee;color:#333;";
               const label    = approved ? "Approved" : denied ? "Denied" : "Pending";
-              return `<tr><td>${esc(r.meeting_date)} - ${esc(r.theme)}</td><td>${esc(r.role_name)}</td>
-                <td><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
-                <td><span class="tmp-tag" style="${style}">${label}</span></td>
-                <td><button class="tmp-small-button tmp-danger" data-cancel-request="${esc(r.id)}">Cancel</button></td></tr>`;
+              return `<tr><td data-label="Meeting">${esc(r.meeting_date)} - ${esc(r.theme)}</td><td data-label="Role">${esc(r.role_name)}</td>
+                <td data-label="Priority"><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
+                <td data-label="Status"><span class="tmp-tag" style="${style}">${label}</span></td>
+                <td data-label="Action"><button class="tmp-small-button tmp-danger" data-cancel-request="${esc(r.id)}">Cancel</button></td></tr>`;
             }).join("")}</tbody></table></div>`
         : "<p>You have no active role requests.</p>";
 
       // ── Request history ────────────────────────────────────────────────────
       const history = await api("/me/requests/history").catch(() => []);
-      qs("[data-tmp-request-history]", root).innerHTML = history.length
+      const rhEl = qs("[data-tmp-request-history]", root); if (rhEl) rhEl.innerHTML = history.length
         ? `<div class="tmp-table-wrap"><table class="tmp-table">
             <thead><tr><th>Meeting</th><th>Role</th><th>Priority</th><th>Status</th></tr></thead>
             <tbody>${history.map((r) => {
               const approved = String(r.assigned_id) === String(member.id) && r.assignment_status === "Confirmed";
               const denied   = r.assigned_id && String(r.assigned_id) !== String(member.id) && r.assignment_status === "Confirmed";
               const style    = approved ? "background:#2e7d32;color:#fff;" : denied ? "background:#c62828;color:#fff;" : "background:#eee;color:#333;";
-              return `<tr><td>${esc(r.meeting_date)} - ${esc(r.theme)}</td><td>${esc(r.role_name)}</td>
-                <td><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
-                <td><span class="tmp-tag" style="${style}">${approved ? "Approved" : denied ? "Denied" : "Unprocessed"}</span></td></tr>`;
+              return `<tr><td data-label="Meeting">${esc(r.meeting_date)} - ${esc(r.theme)}</td><td data-label="Role">${esc(r.role_name)}</td>
+                <td data-label="Priority"><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
+                <td data-label="Status"><span class="tmp-tag" style="${style}">${approved ? "Approved" : denied ? "Denied" : "Unprocessed"}</span></td></tr>`;
             }).join("")}</tbody></table></div>`
         : "<p>No request history found.</p>";
 
@@ -212,14 +215,14 @@
             <div class="tmp-table-wrap"><table class="tmp-table">
               <thead><tr><th>Role</th><th>Count</th><th>Last Completed</th></tr></thead>
               <tbody>${roleHistory[lvl].map((r) =>
-                `<tr><td>${esc(r.role_name)}${r.presentation_series ? `<br><small style="color:var(--tmp-muted)">${esc(r.presentation_series)}</small>` : ""}</td>
-                <td>${esc(r.count)}</td><td>${esc(r.last_completed_date)}</td></tr>`
+                `<tr><td data-label="Role">${esc(r.role_name)}${r.presentation_series ? `<br><small style="color:var(--tmp-muted)">${esc(r.presentation_series)}</small>` : ""}</td>
+                <td data-label="Count">${esc(r.count)}</td><td data-label="Last Completed">${esc(r.last_completed_date)}</td></tr>`
               ).join("")}</tbody></table></div>`;
         }
       } else {
         roleHistoryHtml = "<p>No role history found.</p>";
       }
-      qs("[data-tmp-role-history]", root).innerHTML = roleHistoryHtml;
+      const rHistEl = qs("[data-tmp-role-history]", root); if (rHistEl) rHistEl.innerHTML = roleHistoryHtml;
 
       // ── Open slots ─────────────────────────────────────────────────────────
       const slotsResp  = await api("/meetings/open-slots");
@@ -268,16 +271,18 @@
         return acc;
       }, {});
 
-      mSelect.innerHTML = '<option value="">Select a meeting...</option>' +
-        Object.values(root._groupedSlots).map((g) =>
-          `<option value="${esc(g.id)}">${esc(g.text)} (${g.roles.length} roles open)</option>`
-        ).join("");
+      if (mSelect) {
+        mSelect.innerHTML = '<option value="">Select a meeting...</option>' +
+          Object.values(root._groupedSlots).map((g) =>
+            `<option value="${esc(g.id)}">${esc(g.text)} (${g.roles.length} roles open)</option>`
+          ).join("");
+      }
 
       rSelects.forEach((sel) => { sel.innerHTML = '<option value="">Select a meeting first...</option>'; });
 
       // ── Recommendations ────────────────────────────────────────────────────
       const recs = await api("/me/recommendations").catch(() => []);
-      qs("[data-tmp-recommendations]", root).innerHTML = recs.length
+      const recsEl = qs("[data-tmp-recommendations]", root); if (recsEl) recsEl.innerHTML = recs.length
         ? recs.map((r) => `<div class="tmp-rec-item"><strong>${esc(r.title)}</strong><small>${esc(r.type)}</small><p>${esc(r.note)}</p></div>`).join("")
         : "<p>No recommendations today.</p>";
 
@@ -287,8 +292,9 @@
       const mentees = await api("/mentor/mentees").catch(() => []);
       if (mentees.length > 0) {
         const mentorDash = qs("[data-tmp-mentor-dashboard]", root);
-        mentorDash.style.display = "block";
-        qs("[data-tmp-mentee-list]", mentorDash).innerHTML = `
+        if (mentorDash) mentorDash.style.display = "block";
+        const menteeList = qs("[data-tmp-mentee-list]", mentorDash);
+        if (menteeList) menteeList.innerHTML = `
           <div class="tmp-table-wrap"><table class="tmp-table">
             <thead><tr><th>Mentee</th><th>Level / Project</th><th>Participation</th><th>At Risk?</th><th>Level Progress</th></tr></thead>
             <tbody>${mentees.map((m) => {
@@ -306,7 +312,12 @@
       }
 
     } catch (err) {
-      root.innerHTML = `<div class="tmp-panel"><h2>Dashboard unavailable</h2><p>${esc(err.message)}</p></div>`;
+      console.error("Dashboard error:", err);
+      root.innerHTML = `<div class="tmp-panel">
+        <h2>Dashboard unavailable</h2>
+        <p>${esc(err.message)}</p>
+        <pre style="font-size:11px;color:#888;white-space:pre-wrap;margin-top:10px">${esc(err.stack || "")}</pre>
+      </div>`;
     }
   }
 
@@ -315,12 +326,12 @@
     if (!root) return;
 
     const reqForm = qs("[data-tmp-member-request-form]", root);
-    const mSelect = qs("[data-tmp-req-meeting-select]", reqForm);
+    const mSelect = reqForm ? qs("[data-tmp-req-meeting-select]", reqForm) : null;
 
     await updateMemberDashboard();
 
     // Cancel request
-    qs("[data-tmp-active-requests]", root).addEventListener("click", async (e) => {
+    qs("[data-tmp-active-requests]", root)?.addEventListener("click", async (e) => {
       const btn = e.target.closest("[data-cancel-request]");
       if (!btn) return;
       if (confirm("Cancel this role request?")) {
@@ -337,7 +348,7 @@
     });
 
     // Meeting select → populate role dropdowns with goal/cooloff tags
-    mSelect.addEventListener("change", () => {
+    mSelect?.addEventListener("change", () => {
       const group = Object.values(root._groupedSlots || {}).find((g) => String(g.id) === mSelect.value);
 
       const seen = new Set();
@@ -380,7 +391,7 @@
     });
 
     // Submit role requests
-    reqForm.addEventListener("submit", async (e) => {
+    reqForm?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const rSelect = qs("[data-tmp-req-role-select]", reqForm);
       if (!rSelect.value || !root._member) return;
@@ -428,7 +439,7 @@
         (levelFilter === "all" || String(m.level) === levelFilter)
       );
 
-      count.textContent = `${filtered.length} ${filtered.length === 1 ? "record" : "records"}`;
+      if (count) count.textContent = `${filtered.length} ${filtered.length === 1 ? "record" : "records"}`;
 
       const memberToRow = (m) => {
         const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
@@ -507,6 +518,7 @@
     const vpeSearch      = qs("[data-tmp-vpe-search]", root);
     const vpePathway     = qs("[data-tmp-vpe-pathway]", root);
     const vpeLevel       = qs("[data-tmp-vpe-level]", root);
+    const vpeMentorFilt  = qs("[data-tmp-vpe-mentor-filter]", root);
     const overviewList   = qs("[data-tmp-vpe-member-list]", root);
     const overviewCount  = qs("[data-tmp-vpe-member-count]", root);
     const cooloffWarning = qs("[data-tmp-cooloff-warning]", assignmentForm);
@@ -519,23 +531,35 @@
     // -- Members overview + mentor assignment ----------------------------------
 
     async function renderMembers(force = false) {
-      if (force || !root._allMembers) root._allMembers = await api("/members");
+      if (force || !root._allMembers) {
+        try {
+          root._allMembers = await api("/members");
+        } catch (err) {
+          if (overviewList) overviewList.innerHTML = `<p style="color:var(--tmp-burgundy)">Could not load members: ${esc(err.message)}</p>`;
+          return;
+        }
+      }
       const all = root._allMembers;
 
-      const search    = (vpeSearch?.value || "").toLowerCase();
-      const pathway   = vpePathway?.value || "all";
-      const levelFilt = vpeLevel?.value || "all";
+      const search      = (vpeSearch?.value || "").toLowerCase();
+      const pathway     = vpePathway?.value || "all";
+      const levelFilt   = vpeLevel?.value || "all";
+      const mentorFilt  = vpeMentorFilt?.value || "all";
 
       const eligible = (all || []).filter((m) =>
         m.is_eligible &&
         (!search || m.full_name.toLowerCase().includes(search) || m.email.toLowerCase().includes(search)) &&
         (pathway === "all" || m.pathway === pathway) &&
-        (levelFilt === "all" || String(m.level) === levelFilt)
+        (levelFilt === "all" || String(m.level) === levelFilt) &&
+        (mentorFilt === "all" ||
+         (mentorFilt === "none"     && !m.mentor_id && !m.mentor_name) ||
+         (mentorFilt === "assigned" && (m.mentor_id  ||  m.mentor_name)))
       );
 
       if (memberSelect) {
         memberSelect.innerHTML = '<option value="">Unassigned</option>' +
-          eligible.map((m) => `<option value="${esc(m.id)}">${esc(m.formatted_name)}</option>`).join("");
+          (all || []).filter((m) => m.is_eligible)
+            .map((m) => `<option value="${esc(m.id)}">${esc(m.formatted_name)}</option>`).join("");
       }
 
       // Unmentored alert
@@ -551,24 +575,24 @@
       }
 
       if (overviewList) {
-        overviewCount.textContent = `${eligible.length} members`;
+        if (overviewCount) overviewCount.textContent = `${eligible.length} member${eligible.length !== 1 ? "s" : ""}`;
         overviewList.innerHTML = eligible.length
           ? `<div class="tmp-table-wrap"><table class="tmp-table">
               <thead><tr><th>Name</th><th>Pathway / Level</th><th>Project</th><th>Recent</th><th>Mentor</th><th>Actions</th></tr></thead>
               <tbody>${eligible.map((m) => {
                 const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
                 return `<tr ${inactive ? 'style="background:#fff8e1"' : ""}>
-                  <td><strong>${esc(m.full_name)}</strong>${inactive ? `<br><small style="color:#ef6c00;font-weight:bold">No roles in last ${m.total_recent_meetings_checked} meetings</small>` : ""}</td>
-                  <td>${esc(m.pathway)}<br><small>Level ${esc(m.level)}</small></td>
-                  <td><small>${esc(m.current_project || "None")}</small></td>
-                  <td>${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
-                  <td>${esc(m.mentor_name || "—")}</td>
-                  <td><button class="tmp-small-button" type="button" data-assign-mentor="${esc(m.id)}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">
+                  <td data-label="Name"><strong>${esc(m.full_name)}</strong>${inactive ? `<br><small style="color:#ef6c00;font-weight:bold">No roles in last ${m.total_recent_meetings_checked} meetings</small>` : ""}</td>
+                  <td data-label="Pathway">${esc(m.pathway)}<br><small>Level ${esc(m.level)}</small></td>
+                  <td data-label="Project"><small>${esc(m.current_project || "None")}</small></td>
+                  <td data-label="Recent">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
+                  <td data-label="Mentor">${esc(m.mentor_name || "—")}</td>
+                  <td data-label="Action"><button class="tmp-small-button" type="button" data-assign-mentor="${esc(m.id)}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">
                     ${m.mentor_name ? "Change" : "Assign"} Mentor
                   </button></td>
                 </tr>`;
               }).join("")}</tbody></table></div>`
-          : "<p>No paid members found.</p>";
+          : "<p>No members match the selected filters.</p>";
       }
     }
 
@@ -580,16 +604,16 @@
       const listEl = qs("[data-tmp-due-roles-list]", root);
       if (!sect || !listEl) return;
 
-      cntEl.textContent = due.length ? `${due.length} members` : "";
+      if (cntEl) cntEl.textContent = due.length ? `${due.length} members` : "";
       listEl.innerHTML = due.length
         ? `<div class="tmp-table-wrap"><table class="tmp-table">
             <thead><tr><th>Member</th><th>Level</th><th>Last Role</th><th>Days Since</th></tr></thead>
             <tbody>${due.map((m) => `
               <tr>
-                <td><strong>${esc(m.full_name)}</strong><br><small>${esc(m.pathway)}</small></td>
-                <td>Level ${esc(m.level)}</td>
-                <td>${m.last_role_date ? esc(m.last_role_date) : "<em>Never</em>"}</td>
-                <td><span class="tmp-tag" style="background:${Number(m.days_since_role) > 28 ? "#b71c1c" : "#ef6c00"};color:#fff;">${esc(m.days_since_role)} days</span></td>
+                <td data-label="Member"><strong>${esc(m.full_name)}</strong><br><small>${esc(m.pathway)}</small></td>
+                <td data-label="Level">Level ${esc(m.level)}</td>
+                <td data-label="Last Role">${m.last_role_date ? esc(m.last_role_date) : "<em>Never</em>"}</td>
+                <td data-label="Days Since"><span class="tmp-tag" style="background:${Number(m.days_since_role) > 28 ? "#b71c1c" : "#ef6c00"};color:#fff;">${esc(m.days_since_role)} days</span></td>
               </tr>`).join("")}
             </tbody></table></div>`
         : "<p style=\"color:var(--tmp-muted)\">All eligible members have participated within the cooloff window.</p>";
@@ -600,7 +624,7 @@
       const meetings = await api("/meetings") || [];
       root._meetings = Array.isArray(meetings) ? meetings : [];
 
-      meetingCount.textContent = `${meetings.length} ${meetings.length === 1 ? "meeting" : "meetings"}`;
+      if (meetingCount) meetingCount.textContent = `${meetings.length} ${meetings.length === 1 ? "meeting" : "meetings"}`;
       meetingSelect.innerHTML  = '<option value="">Select a meeting...</option>' +
         meetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}</option>`).join("");
 
@@ -909,15 +933,27 @@
         if (modalLabel) modalLabel.textContent = `Assigning mentor for: ${memberName}`;
 
         // Fetch eligible mentors
-        const mentors = await api("/members/eligible-mentors").catch(() => []);
-        if (mentorSel) {
-          mentorSel.innerHTML = '<option value="">-- No mentor / Remove --</option>' +
-            mentors.map((m) =>
-              `<option value="${esc(m.id)}" ${String(m.id) === currentMentorId ? "selected" : ""}>${esc(m.full_name)} — Level ${m.level} (${esc(m.pathway)})</option>`
-            ).join("");
+        modal.style.display = "flex";
+        if (mentorSel) mentorSel.innerHTML = '<option value="">Loading...</option>';
+
+        let mentors = [];
+        try {
+          mentors = await api("/members/eligible-mentors");
+          if (!Array.isArray(mentors)) mentors = [];
+        } catch (err) {
+          console.error("eligible-mentors fetch failed:", err);
+          if (mentorSel) mentorSel.innerHTML = `<option value="" disabled>Error: ${esc(err.message)}</option>`;
+          return;
         }
 
-        modal.style.display = "flex";
+        if (mentorSel) {
+          mentorSel.innerHTML = mentors.length === 0
+            ? '<option value="">-- No eligible mentors (need Level 2+ Active member) --</option>'
+            : '<option value="">-- No mentor / Remove --</option>' +
+              mentors.map((m) =>
+                `<option value="${esc(m.id)}" ${String(m.id) === currentMentorId ? "selected" : ""}>${esc(m.full_name)} — Level ${m.level} (${esc(m.pathway)})</option>`
+              ).join("");
+        }
       });
 
       modalCancel?.addEventListener("click", () => {
@@ -925,8 +961,11 @@
         pendingMentorMemberId = null;
       });
 
+      const modalError = modal.querySelector("#tmp-mentor-modal-error");
+
       modalSave?.addEventListener("click", async () => {
         if (!pendingMentorMemberId) return;
+        if (modalError) { modalError.textContent = ""; modalError.style.display = "none"; }
         modalSave.disabled = true;
         try {
           await api("/members", {
@@ -937,9 +976,14 @@
           pendingMentorMemberId = null;
           await renderMembers(true);
         } catch (err) {
-          alert("Failed to save mentor: " + err.message);
-        } finally {
+          if (modalError) {
+            modalError.textContent = "Save failed: " + err.message;
+            modalError.style.display = "block";
+          }
           modalSave.disabled = false;
+        } finally {
+          // only re-enable on success path (error path does it above to keep modal open)
+          if (modal.style.display === "none") modalSave.disabled = false;
         }
       });
 
@@ -948,9 +992,10 @@
       });
     }
 
-    vpeSearch?.addEventListener("input",  () => renderMembers());
-    vpePathway?.addEventListener("change",() => renderMembers());
-    vpeLevel?.addEventListener("change",  () => renderMembers());
+    vpeSearch?.addEventListener("input",   () => renderMembers());
+    vpePathway?.addEventListener("change", () => renderMembers());
+    vpeLevel?.addEventListener("change",   () => renderMembers());
+    vpeMentorFilt?.addEventListener("change", () => renderMembers());
 
     try {
       await Promise.all([
@@ -970,17 +1015,17 @@
     const list  = qs("[data-tmp-vpe-requests]", root);
     if (!count || !list) return;
 
-    count.textContent = `${reqs.length} pending`;
+    if (count) count.textContent = `${reqs.length} pending`;
     list.innerHTML = reqs.length
       ? `<div class="tmp-table-wrap"><table class="tmp-table">
           <thead><tr><th>Meeting</th><th>Role</th><th>Member</th><th>Priority</th><th>Action</th></tr></thead>
           <tbody>${reqs.map((r) => `
             <tr>
-              <td>${esc(r.meeting_date)}</td>
-              <td>${esc(r.role_name)}</td>
-              <td><strong>${esc(r.member_name)}</strong></td>
-              <td><span class="tmp-tag" style="background:#eee">P${esc(r.priority)}</span></td>
-              <td><button class="tmp-small-button" style="background:#2e7d32;color:#fff;" data-vpe-approve-req="${esc(r.assignment_id)}" data-vpe-member-id="${esc(r.member_id)}">Approve</button></td>
+              <td data-label="Meeting">${esc(r.meeting_date)}</td>
+              <td data-label="Role">${esc(r.role_name)}</td>
+              <td data-label="Member"><strong>${esc(r.member_name)}</strong></td>
+              <td data-label="Priority"><span class="tmp-tag" style="background:#eee">P${esc(r.priority)}</span></td>
+              <td data-label="Action"><button class="tmp-small-button" style="background:#2e7d32;color:#fff;" data-vpe-approve-req="${esc(r.assignment_id)}" data-vpe-member-id="${esc(r.member_id)}">Approve</button></td>
             </tr>`).join("")}
           </tbody></table></div>`
       : "<p>No pending requests across upcoming meetings.</p>";

@@ -281,28 +281,25 @@ class TMP_Repository {
     }
 
     /**
-     * Returns members eligible to be mentors:
-     * level >= 2 AND (is_exempt OR (paid AND active-state))
+     * Returns members eligible to be mentors: level >= 2 AND not Inactive/Resigned.
+     * Payment check is intentionally excluded — mentoring is a guidance role, not a
+     * TI-credit role. The exempt flag still allows non-Active state members to mentor.
      */
     public static function get_eligible_mentors() {
         global $wpdb;
         $table = self::member_table();
-        $now   = current_time('Y-m-d');
 
-        return $wpdb->get_results($wpdb->prepare(
+        return $wpdb->get_results(
             "SELECT id, full_name, pathway, level
              FROM {$table}
              WHERE level >= 2
                AND (
                    is_exempt_from_unpaid_block = 1
-                   OR (
-                       (paid_until IS NULL OR paid_until >= %s)
-                       AND state = 'Active'
-                   )
+                   OR (state != 'Inactive' AND state != 'Resigned')
                )
              ORDER BY level DESC, full_name ASC",
-            $now
-        ), ARRAY_A);
+            ARRAY_A
+        );
     }
 
     /**
@@ -359,6 +356,19 @@ class TMP_Repository {
         $table = self::member_table();
         $now   = current_time('mysql');
 
+        // Partial-update support: when updating an existing record, merge stored
+        // values for any key not explicitly supplied by the caller.
+        if (!empty($data['id'])) {
+            $existing = self::get_member(absint($data['id']));
+            if ($existing) {
+                foreach ($existing as $key => $value) {
+                    if (!array_key_exists($key, $data)) {
+                        $data[$key] = $value;
+                    }
+                }
+            }
+        }
+
         $record = array(
             'user_id'                    => !empty($data['user_id']) ? absint($data['user_id']) : null,
             'customer_id'                => sanitize_text_field($data['customer_id'] ?? ''),
@@ -375,7 +385,9 @@ class TMP_Repository {
             'onboarding_status'          => sanitize_text_field($data['onboarding_status'] ?? 'Pending'),
             'orientation_date'           => !empty($data['orientation_date']) ? sanitize_text_field($data['orientation_date']) : null,
             'icebreaker_draft_date'      => !empty($data['icebreaker_draft_date']) ? sanitize_text_field($data['icebreaker_draft_date']) : null,
-            'mentor_id'                  => !empty($data['mentor_id']) ? absint($data['mentor_id']) : null,
+            'mentor_id'                  => array_key_exists('mentor_id', $data)
+                                            ? (!empty($data['mentor_id']) ? absint($data['mentor_id']) : null)
+                                            : null,
             'next_action'                => sanitize_text_field($data['next_action'] ?? ''),
             'officer_notes'              => sanitize_textarea_field($data['officer_notes'] ?? ''),
             'updated_at'                 => $now,
