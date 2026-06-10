@@ -443,7 +443,12 @@ class TMP_REST_API {
     private static function csv_indexes($header) {
         $indexes = [];
         foreach ($header as $index => $name) {
-            $indexes[trim((string) $name)] = $index;
+            $name = trim((string) $name);
+            // Strip UTF-8 BOM that Excel/TI portal adds to the first column
+            if ($index === 0) {
+                $name = ltrim($name, "\xEF\xBB\xBF");
+            }
+            $indexes[$name] = $index;
         }
         return $indexes;
     }
