@@ -141,7 +141,10 @@
         });
       }
 
-      // ── Mentor card ────────────────────────────────────────────────────────
+      // ── Mentor card — only relevant for Level 1 members ──────────────────
+      const mentorCard = qs("[data-tmp-mentor-card]", root);
+      if (mentorCard) mentorCard.style.display = level > 1 ? "none" : "";
+
       const mentorInfo = qs("[data-tmp-mentor-info]", root);
       if (mentorInfo) {
         if (member.mentor_id && member.mentor_name) {
@@ -160,22 +163,29 @@
       // ── Mentorship checklist ───────────────────────────────────────────────
       const checklistEl = qs("[data-tmp-mentorship-checklist]", root);
       if (checklistEl) {
-        const STAGES = [
-          { key: "assigned",              label: "Mentor Assigned"       },
-          { key: "orientation_complete",  label: "Orientation Complete"  },
-          { key: "icebreaker_delivered",  label: "Ice Breaker Delivered" },
-          { key: "level1_complete",       label: "Level 1 Complete"      },
-          { key: "closed",                label: "Mentorship Closed"     },
+        const MC_STEPS = [
+          { label: "Mentor Assigned"       },
+          { label: "Orientation Complete"  },
+          { label: "Ice Breaker Delivered" },
+          { label: "Level 1 Complete"      },
+          { label: "Mentorship Closed"     },
         ];
-        const stageOrder = ["no_mentor", "assigned", "orientation_complete", "icebreaker_delivered", "level1_complete", "closed"];
-        const currentIdx = stageOrder.indexOf(member.mentorship_stage || "no_mentor");
+        // Maps stage key → index of the last COMPLETED step (-1 = nothing done yet)
+        const stageToStep = {
+          no_mentor:            -1,
+          assigned:              0,
+          orientation_complete:  1,
+          icebreaker_delivered:  2,
+          level1_complete:       3,
+          closed:                4,
+        };
+        const currentStep = stageToStep[member.mentorship_stage] ?? -1;
         checklistEl.innerHTML = `
           <p style="font-size:0.78rem;font-weight:800;text-transform:uppercase;color:var(--tmp-muted);margin:0 0 10px;">Mentor Program</p>
-          <ol class="tmp-mentor-checklist">${STAGES.map((s, i) => {
-            const stageIdx = stageOrder.indexOf(s.key);
-            const done     = stageIdx < currentIdx || (s.key === "closed" && member.mentorship_stage === "closed");
-            const active   = stageOrder[currentIdx] === s.key;
-            const cls      = done ? "tmp-mc-done" : active ? "tmp-mc-active" : "tmp-mc-pending";
+          <ol class="tmp-mentor-checklist">${MC_STEPS.map((s, i) => {
+            const done   = i <= currentStep;
+            const active = i === currentStep + 1;
+            const cls    = done ? "tmp-mc-done" : active ? "tmp-mc-active" : "tmp-mc-pending";
             return `<li class="tmp-mc-item ${cls}"><span class="tmp-mc-dot"></span>${esc(s.label)}</li>`;
           }).join("")}</ol>`;
       }
@@ -450,15 +460,15 @@
 
       qsa("[data-tmp-req-role-select]", reqForm).forEach((sel) => { sel.innerHTML = opts; });
 
-      // Info box: locked roles explanation
-      const locked  = group ? group.roles.filter((r) => !r.qualified) : [];
+      // Info box: locked roles (deduplicated, base name only)
+      const locked  = unique.filter((r) => !r.qualified);
       const infoBox = qs("[data-tmp-role-info]", reqForm);
       if (infoBox) {
         infoBox.innerHTML = locked.map((r) => {
           const isCooloff = r.cooloff && r.cooloff.in_cooloff;
           const msg       = isCooloff
-            ? `<strong>${esc(r.role_name)}</strong> is in cooloff — eligible from <strong>${esc(r.cooloff.eligible_from)}</strong>.`
-            : `<strong>${esc(r.role_name)}</strong> requires ${esc(r.requirement)}. <a href="https://www.toastmasters.org/membership/club-meeting-roles" target="_blank" style="color:var(--tmp-burgundy);text-decoration:underline;">Learn More</a>`;
+            ? `<strong>${esc(r.display)}</strong> is in cooloff — eligible from <strong>${esc(r.cooloff.eligible_from)}</strong>`
+            : `<strong>${esc(r.display)}</strong> requires ${esc(r.requirement)}`;
           return `<div style="margin-top:5px;font-size:11px;color:var(--tmp-muted)">${msg}</div>`;
         }).join("");
       }

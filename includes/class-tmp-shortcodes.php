@@ -68,24 +68,27 @@ class TMP_Shortcodes {
         <div class="tmp-portal" data-tmp-member-dashboard>
             <div class="tmp-panel">
                 <p class="tmp-eyebrow">Member dashboard</p>
-                <h2 data-tmp-member-name>Loading dashboard</h2>
-                <p data-tmp-member-summary></p>
-                <dl class="tmp-profile-list" style="margin-top:14px;">
-                    <div><dt>Status</dt><dd data-tmp-state></dd></div>
-                    <div><dt>Current Project</dt><dd data-tmp-project></dd></div>
-                    <div><dt>Paid Until</dt><dd data-tmp-paid-until></dd></div>
-                </dl>
+                <div class="tmp-member-header">
+                    <div class="tmp-member-header-info">
+                        <h2 data-tmp-member-name>Loading dashboard</h2>
+                        <p data-tmp-member-summary></p>
+                        <dl class="tmp-profile-list" style="margin-top:14px;">
+                            <div><dt>Status</dt><dd data-tmp-state></dd></div>
+                            <div><dt>Current Project</dt><dd data-tmp-project></dd></div>
+                            <div><dt>Paid Until</dt><dd data-tmp-paid-until></dd></div>
+                        </dl>
+                    </div>
+                    <div class="tmp-member-header-progress">
+                        <div class="tmp-card-head">
+                            <h3 style="margin:0">Pathways Progress</h3>
+                            <span data-tmp-progress style="color:var(--tmp-teal);font-weight:900;">0%</span>
+                        </div>
+                        <div class="tmp-progress" style="margin-top:10px;"><span data-tmp-progress-bar></span></div>
+                        <ol class="tmp-levels" data-tmp-levels></ol>
+                    </div>
+                </div>
             </div>
             <div class="tmp-grid">
-
-                <article class="tmp-panel tmp-progress-card">
-                    <div class="tmp-card-head">
-                        <h3>Pathways Progress</h3>
-                        <span data-tmp-progress>0%</span>
-                    </div>
-                    <div class="tmp-progress"><span data-tmp-progress-bar></span></div>
-                    <ol class="tmp-levels" data-tmp-levels></ol>
-                </article>
 
                 <article class="tmp-panel">
                     <h3>My Milestones</h3>
