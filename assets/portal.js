@@ -930,13 +930,21 @@
       toggleFieldsByRole("");
 
       const meeting = (root._meetings || []).find((m) => String(m.id) === mid);
-      let html = '<option value="">-- Existing Slots (Select to Edit) --</option>';
-      html += (meeting?.assignments || []).map((a) =>
-        `<option value="id:${esc(a.id)}">${esc(a.role_name)} ${a.member_name ? `(${esc(a.member_name)})` : "(Unassigned)"}</option>`
-      ).join("");
-      html += '<option value="">-- Standard Roles (Create New) --</option>';
-      html += Object.keys(TMPortal.standardRoles).map((r) =>
-        `<option value="name:${esc(r)}">${esc(r)}</option>`
+
+      // Deduplicate agenda rows: strip parenthetical notes → base role name.
+      // Keep the first slot per base role so TMOD doesn't appear 4× and Break is hidden.
+      const seenBases = new Set();
+      const dedupedSlots = [];
+      for (const a of (meeting?.assignments || [])) {
+        const base = a.role_name.replace(/\s*\(.*?\)\s*/g, "").trim();
+        if (base.toLowerCase() === "break" || seenBases.has(base)) continue;
+        seenBases.add(base);
+        dedupedSlots.push({ id: a.id, base, memberName: a.member_name });
+      }
+
+      let html = '<option value="">-- Select a Slot --</option>';
+      html += dedupedSlots.map((s) =>
+        `<option value="id:${esc(s.id)}">${esc(s.base)}${s.memberName ? ` (${esc(s.memberName)})` : " (Unassigned)"}</option>`
       ).join("");
       roleSelect.innerHTML = html;
     };
@@ -987,34 +995,25 @@
       if (presSeries) presSeries.style.display = rLower.includes("educational presentation") ? "block" : "none";
     }
 
+    function isCooloffRole(roleName) {
+      const base = (roleName || "").replace(/\s*\(.*?\)\s*/g, "").replace(/\s+\d+$/, "").trim().toLowerCase();
+      return /^speaker$/i.test(base)
+        || base.includes("toastmaster")
+        || base.includes("general evaluator");
+    }
+
     async function checkCooloffForMember(memberId, roleName) {
-      if (!memberId || !roleName) {
+      if (!memberId || !roleName || !isCooloffRole(roleName)) {
         if (cooloffWarning) { cooloffWarning.style.display = "none"; cooloffWarning.innerHTML = ""; }
         if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "none";
         return;
       }
-      // Fetch member's participation to check cooloff
-      const members = root._allMembers || [];
-      const member  = members.find((m) => String(m.id) === String(memberId));
-      if (!member) return;
-
-      // Use /meetings/open-slots cache or a targeted approach: just fetch due-for-roles
-      // Simpler: if member appears in due-for-roles list, no cooloff. Otherwise warn.
-      // The cleanest signal we have client-side is the suggestions trace and suitability.
-      // For immediate UX, we look for the suitability data on the current assignments.
       const currentMeetingId = meetingSelect.value;
       const meeting = (root._meetings || []).find((m) => String(m.id) === currentMeetingId);
       if (!meeting) return;
 
-      // Find the assignment being edited to see if it has a suitability tag from server
-      const formId = assignmentForm.elements.id?.value;
-      const asgn   = formId ? meeting.assignments?.find((a) => String(a.id) === formId) : null;
-      // We can't easily detect cooloff from the list without a dedicated endpoint,
-      // so show the override panel whenever the user manually picks a member,
-      // making it available as a VPE decision tool.
-      // Only show override panel for named standard roles (not blank)
-      if (roleName && cooloffOverrideWrap) cooloffOverrideWrap.style.display = "block";
-      if (roleName && cooloffWarning) {
+      if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "block";
+      if (cooloffWarning) {
         cooloffWarning.style.display = "block";
         cooloffWarning.innerHTML = `<div style="padding:8px;background:#fff3e0;border:1px solid #ffb74d;border-radius:4px;font-size:12px;">
           <strong>Cooloff check:</strong> If this member performed "${esc(roleName)}" within the last ${root._cooloffWeeks || 4} weeks, confirm the override below before saving.
@@ -1417,6 +1416,22 @@
       const chevron = qs(".tmp-chevron", btn);
       if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
       if (!open) await renderRoleGateSettings();
+    });
+
+    // Approve buttons in the Pending Requests section (outside meetingList — needs its own handler)
+    qs("[data-tmp-vpe-requests]", root)?.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-vpe-approve-req]");
+      if (!btn || btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = "Approving…";
+      try {
+        await api("/assignments", { method: "POST", body: JSON.stringify({ id: btn.dataset.vpeApproveReq, member_id: btn.dataset.vpeMemberId, status: "Confirmed" }) });
+        await renderMeetings();
+      } catch (err) {
+        alert("Approval failed: " + err.message);
+        btn.disabled = false;
+        btn.textContent = "Approve";
+      }
     });
 
     try {

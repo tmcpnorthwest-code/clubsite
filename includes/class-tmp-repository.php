@@ -232,6 +232,17 @@ class TMP_Repository {
     // Requirement override helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Cooloff only applies to high-repetition roles that benefit from rotation:
+     * Speaker (Ice Breaker), Toastmaster of the Day, General Evaluator.
+     */
+    private static function is_cooloff_role($base_role) {
+        $lower = strtolower($base_role);
+        return preg_match('/^speaker(\s+\d+)?$/i', $base_role)
+            || strpos($lower, 'toastmaster') !== false
+            || strpos($lower, 'general evaluator') !== false;
+    }
+
     private static function make_req_key($gap) {
         if ($gap['type'] === 'presentation') {
             return $gap['series'];
@@ -963,7 +974,8 @@ class TMP_Repository {
         // Attach per-slot flags
         foreach ($open_slots as &$slot) {
             $base_role = self::get_base_role_name($slot['role_name']);
-            $slot['cooloff'] = $cooloff_info[$base_role] ?? null;
+            // Cooloff only for Speaker / TMOD / GE — not for Timer, Grammarian, etc.
+            $slot['cooloff'] = self::is_cooloff_role($base_role) ? ($cooloff_info[$base_role] ?? null) : null;
             // is_goal: in member's current-level unmet requirements
             $needed_roles = [];
             foreach (self::get_level_requirements()[$member_level] ?? [] as $req) {
@@ -1209,8 +1221,8 @@ class TMP_Repository {
                         continue;
                     }
 
-                    // Cooloff check
-                    if (isset($cooloff_map[$m_id][$base_role])) {
+                    // Cooloff check — only for Speaker / TMOD / GE
+                    if (self::is_cooloff_role($base_role) && isset($cooloff_map[$m_id][$base_role])) {
                         $trace[] = "Cooloff skip: {$member['full_name']} for $base_role (last: {$cooloff_map[$m_id][$base_role]})";
                         continue;
                     }
