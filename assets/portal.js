@@ -191,35 +191,51 @@
       }
 
       // ── Level journey ─────────────────────────────────────────────────────
-      const journeyData = await api("/me/level-gaps").catch(() => null);
-      const journeyEl   = qs("[data-tmp-level-journey]", root);
-      if (journeyEl && journeyData) {
+      const renderJourney = async () => {
+        const journeyData = await api("/me/level-gaps").catch(() => null);
+        const journeyEl   = qs("[data-tmp-level-journey]", root);
+        if (!journeyEl || !journeyData) return;
         const { level: lvl, gaps } = journeyData;
         if (!gaps || gaps.length === 0) {
           journeyEl.innerHTML = `<p style="color:var(--tmp-muted)">No specific role requirements found for Level ${lvl}.</p>`;
-        } else {
-          const metCount   = gaps.filter((g) => g.met).length;
-          const totalCount = gaps.length;
-          const allMet     = metCount === totalCount;
-          journeyEl.innerHTML = `
-            <p style="margin-bottom:10px;font-size:13px;">
-              <strong>${metCount} of ${totalCount}</strong> requirements met at Level ${lvl}.
-              ${allMet ? ' <span style="color:#2e7d32;font-weight:bold;">✓ All done — ready to level up!</span>' : ''}
-            </p>
-            <div class="tmp-table-wrap">
-              <table class="tmp-table">
-                <thead><tr><th>Requirement</th><th>Progress</th><th>Status</th></tr></thead>
-                <tbody>${gaps.map((g) => `
-                  <tr style="background:${g.met ? "#f1f8e9" : "#fff8e1"}">
-                    <td data-label="Requirement">${esc(g.label)}</td>
-                    <td data-label="Progress">${g.done} / ${g.needed}</td>
-                    <td data-label="Status"><span class="tmp-tag" style="background:${g.met ? "#2e7d32" : "#ef6c00"};color:#fff;">${g.met ? "✓ Done" : "Needed"}</span></td>
-                  </tr>`).join("")}
-                </tbody>
-              </table>
-            </div>`;
+          return;
         }
-      }
+        const metCount   = gaps.filter((g) => g.met).length;
+        const totalCount = gaps.length;
+        const allMet     = metCount === totalCount;
+        journeyEl.innerHTML = `
+          <p style="margin-bottom:10px;font-size:13px;">
+            <strong>${metCount} of ${totalCount}</strong> requirements met at Level ${lvl}.
+            ${allMet ? ' <span style="color:#2e7d32;font-weight:bold;">✓ All done — ready to level up!</span>' : ''}
+          </p>
+          <div class="tmp-table-wrap">
+            <table class="tmp-table">
+              <thead><tr><th>Requirement</th><th>Progress</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody>${gaps.map((g) => {
+                const reqKey = g.type === "presentation" ? g.series : (g.roles || []).join("|");
+                let actionHtml;
+                if (g.manual_override) {
+                  actionHtml = `<span style="color:#ef6c00;font-size:11px;">Manually marked</span>
+                    <button class="tmp-small-button" style="margin-left:5px;font-size:10px;" data-undo-override="${esc(g.override_id)}">Undo</button>`;
+                } else if (g.met) {
+                  actionHtml = `<span style="color:var(--tmp-muted);font-size:11px;">Recorded</span>`;
+                } else {
+                  actionHtml = `<button class="tmp-small-button" data-mark-done="${esc(reqKey)}" data-mark-level="${esc(lvl)}">Mark as done</button>`;
+                }
+                return `<tr style="background:${g.met ? "#f1f8e9" : "#fff8e1"}" data-req-key="${esc(reqKey)}">
+                  <td data-label="Requirement">${esc(g.label)}</td>
+                  <td data-label="Progress">${g.done} / ${g.needed}</td>
+                  <td data-label="Status"><span class="tmp-tag" style="background:${g.met ? "#2e7d32" : "#ef6c00"};color:#fff;">${g.met ? "✓ Done" : "Needed"}</span></td>
+                  <td data-label="Action">${actionHtml}</td>
+                </tr>`;
+              }).join("")}
+              </tbody>
+            </table>
+          </div>`;
+
+      };
+      root._renderJourney = renderJourney;
+      await renderJourney();
 
       // ── Active requests ────────────────────────────────────────────────────
       const requests = await api("/me/requests").catch(() => []);
@@ -287,18 +303,22 @@
       const levelHistory  = participation[memberLevel] || {};
 
       const slots = ((slotsResp && Array.isArray(slotsResp.slots)) ? slotsResp.slots : [])
-        .filter((s) => !s.role_name.toLowerCase().includes("presiding officer"))
+        .filter((s) => !s.role_name.toLowerCase().includes("presiding officer") && !s.role_name.startsWith("Break"))
         .map((s) => {
           const role = s.role_name.toLowerCase();
           let qualified   = true;
           let requirement = "";
 
-          if (role.includes("general evaluator") || (role.includes("general") && role.includes("evaluator"))) {
-            qualified = memberLevel >= 4; requirement = "Level 4+ (GE role)";
-          } else if (role.includes("toastmaster") || role.includes("topics master")) {
-            qualified = memberLevel >= 3; requirement = "Level 3+ (Meeting Leadership)";
-          } else if (role.includes("grammarian")) {
-            qualified = memberLevel >= 2; requirement = "Level 2+ (Language Skills)";
+          const gates = TMPortal.roleGateLevels || {};
+          for (const [pattern, minLevel] of Object.entries(gates)) {
+            if (role.includes(pattern)) {
+              const gate = Number(minLevel);
+              if (gate > 0) {
+                qualified   = memberLevel >= gate;
+                requirement = `Level ${gate}+ required`;
+              }
+              break;
+            }
           }
 
           const base = s.role_name.replace(/\s*\(.*?\)\s*/g, "").replace(/\s+\d+$/, "").trim();
@@ -402,6 +422,47 @@
     const mSelect = reqForm ? qs("[data-tmp-req-meeting-select]", reqForm) : null;
 
     await updateMemberDashboard();
+
+    // Level journey — Mark as done / Undo (delegated once on stable parent)
+    qs("[data-tmp-level-journey-panel]", root)?.addEventListener("click", async (e) => {
+      const markBtn = e.target.closest("[data-mark-done]");
+      const undoBtn = e.target.closest("[data-undo-override]");
+
+      if (markBtn && !markBtn._pending) {
+        const rKey  = markBtn.dataset.markDone;
+        const rLvl  = markBtn.dataset.markLevel;
+        const row   = markBtn.closest("tr");
+        const label = row?.querySelector("td")?.textContent || rKey;
+        const note  = prompt(`Mark "${label}" as completed outside this system?\n\nOptional note (e.g. "Completed at district event"):`) ?? false;
+        if (note === false) return;
+        markBtn._pending = true;
+        markBtn.disabled = true;
+        markBtn.textContent = "Saving…";
+        try {
+          await api("/me/requirement-override", { method: "POST", body: JSON.stringify({ level: Number(rLvl), req_key: rKey, note }) });
+          if (root._renderJourney) await root._renderJourney();
+        } catch (err) {
+          alert("Could not save: " + err.message);
+          markBtn._pending = false;
+          markBtn.disabled = false;
+          markBtn.textContent = "Mark as done";
+        }
+      }
+
+      if (undoBtn && !undoBtn._pending) {
+        if (!confirm("Remove this manual override and restore to history-based tracking?")) return;
+        undoBtn._pending = true;
+        undoBtn.disabled = true;
+        try {
+          await api(`/me/requirement-override/${undoBtn.dataset.undoOverride}`, { method: "DELETE" });
+          if (root._renderJourney) await root._renderJourney();
+        } catch (err) {
+          alert("Could not undo: " + err.message);
+          undoBtn._pending = false;
+          undoBtn.disabled = false;
+        }
+      }
+    });
 
     // Meeting Activity expand/collapse toggle
     const meetingToggle = qs("[data-tmp-meeting-toggle]", root);
@@ -698,13 +759,13 @@
             .map((m) => `<option value="${esc(m.id)}">${esc(m.formatted_name)}</option>`).join("");
       }
 
-      // Unmentored alert — only Level 0–1 (actively mentored cohort)
-      const unmentored = (all || []).filter((m) => m.is_eligible && !m.mentor_id && !m.mentor_name && m.level <= 1);
+      // Unmentored alert — only Level 0 (new members; Level 1+ no longer need a mentor)
+      const unmentored = (all || []).filter((m) => m.is_eligible && !m.mentor_id && !m.mentor_name && m.level === 0);
       const alertEl    = qs("[data-tmp-unmentored-alert]", root);
       if (alertEl) {
         alertEl.innerHTML = unmentored.length
           ? `<div style="background:#fff8e1;border:1px solid #ffd54f;border-radius:4px;padding:10px 14px;margin-bottom:12px;font-size:13px;">
-              <strong>${unmentored.length} Level 0–1 member${unmentored.length > 1 ? "s have" : " has"} no mentor assigned.</strong>
+              <strong>${unmentored.length} new member${unmentored.length > 1 ? "s have" : " has"} no mentor assigned.</strong>
               Use the Assign Mentor button below to pair them up.
              </div>`
           : "";
@@ -757,7 +818,7 @@
                   <td data-label="Email"><small>${esc(m.email)}</small></td>
                   <td data-label="Recent">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
                   <td data-label="Mentor">${esc(m.mentor_name || "—")}</td>
-                  <td data-label="Action">${m.level <= 1
+                  <td data-label="Action">${m.level === 0
                     ? `<button class="tmp-small-button" type="button" data-assign-mentor="${esc(m.id)}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">
                         ${m.mentor_name ? "Change" : "Assign"} Mentor
                        </button>`
@@ -848,11 +909,12 @@
           <p>${esc(meeting.agenda_notes || "")}</p>
           ${warning}
           <ul class="tmp-assignment-list">${agendaHtml || "<li><span>No roles scheduled yet.</span></li>"}</ul>
-          <div style="display:flex;gap:10px;margin-top:15px;">
+          <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;">
             <button class="tmp-button tmp-secondary tmp-small" data-suggest-roles="${meeting.id}">Get Intelligent Suggestions</button>
             <button class="tmp-button tmp-secondary tmp-small" data-print-agenda="${meeting.id}">Print Agenda</button>
             <button class="tmp-button tmp-danger tmp-small" data-delete-meeting="${meeting.id}">Delete Meeting</button>
           </div>
+          <div data-tmp-suggestion-panel="${meeting.id}" style="display:none;margin-top:14px;"></div>
         </article>`;
       }).join("")}</div>`;
     }
@@ -879,9 +941,49 @@
       roleSelect.innerHTML = html;
     };
 
+    function roleGateLevel(roleName) {
+      const r = (roleName || "").toLowerCase();
+      const gates = TMPortal.roleGateLevels || {};
+      for (const [pattern, minLevel] of Object.entries(gates)) {
+        if (r.includes(pattern)) return Number(minLevel);
+      }
+      return 0;
+    }
+
+    function updateMemberDropdown(roleName) {
+      if (!memberSelect || !root._allMembers) return;
+      const baseRole = (roleName || "").replace(/\s*\(.*?\)\s*/g, "").replace(/\s+\d+$/, "").trim();
+      if (baseRole.toLowerCase() === "break") {
+        memberSelect.innerHTML = '<option value="">Break — no member needed</option>';
+        memberSelect.disabled  = true;
+        return;
+      }
+      memberSelect.disabled = false;
+      const minLevel  = roleGateLevel(roleName);
+      const currentId = assignmentForm.elements.id?.value;
+      const mid       = meetingSelect.value;
+      const meeting   = (root._meetings || []).find((m) => String(m.id) === mid);
+      const takenIds  = (meeting?.assignments || [])
+        .filter((a) => a.member_id && String(a.id) !== currentId)
+        .map((a) => String(a.member_id));
+
+      const eligible   = root._allMembers.filter((m) => m.is_eligible && m.level >= minLevel && !takenIds.includes(String(m.id)));
+      const ineligible = roleName ? root._allMembers.filter((m) => m.is_eligible && m.level < minLevel) : [];
+
+      let html = '<option value="">Unassigned</option>';
+      html += eligible.map((m) => `<option value="${esc(m.id)}">${esc(m.full_name)} (L${m.level})</option>`).join("");
+      if (ineligible.length) {
+        html += `<optgroup label="Not eligible — Level ${minLevel}+ required">`;
+        html += ineligible.map((m) => `<option disabled value="">${esc(m.full_name)} (L${m.level})</option>`).join("");
+        html += `</optgroup>`;
+      }
+      memberSelect.innerHTML = html;
+    }
+
     function toggleFieldsByRole(roleName) {
       const rLower = (roleName || "").toLowerCase();
-      if (speechWrapper) speechWrapper.style.display = rLower.includes("speaker") ? "block" : "none";
+      // Speech title: only for Speaker slots (Speaker, Speaker 1, etc.) — not Table Topics Speaker
+      if (speechWrapper) speechWrapper.style.display = rLower.startsWith("speaker") ? "block" : "none";
       if (presSeries) presSeries.style.display = rLower.includes("educational presentation") ? "block" : "none";
     }
 
@@ -910,8 +1012,9 @@
       // We can't easily detect cooloff from the list without a dedicated endpoint,
       // so show the override panel whenever the user manually picks a member,
       // making it available as a VPE decision tool.
-      if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "block";
-      if (cooloffWarning) {
+      // Only show override panel for named standard roles (not blank)
+      if (roleName && cooloffOverrideWrap) cooloffOverrideWrap.style.display = "block";
+      if (roleName && cooloffWarning) {
         cooloffWarning.style.display = "block";
         cooloffWarning.innerHTML = `<div style="padding:8px;background:#fff3e0;border:1px solid #ffb74d;border-radius:4px;font-size:12px;">
           <strong>Cooloff check:</strong> If this member performed "${esc(roleName)}" within the last ${root._cooloffWeeks || 4} weeks, confirm the override below before saving.
@@ -946,6 +1049,8 @@
           assignmentForm.elements.meeting_id.value = mid;
           roleSelect.value = val;
           roleName = asgn.role_name;
+          updateMemberDropdown(roleName);
+          if (asgn.member_id) assignmentForm.elements.member_id.value = asgn.member_id;
         }
       } else if (val.startsWith("name:")) {
         const name = val.split(":")[1];
@@ -957,6 +1062,7 @@
       }
 
       toggleFieldsByRole(roleName);
+      updateMemberDropdown(roleName);
       const selMemberId = assignmentForm.elements.member_id?.value;
       if (selMemberId) checkCooloffForMember(selMemberId, roleName);
     });
@@ -964,6 +1070,11 @@
     memberSelect?.addEventListener("change", () => {
       const roleName = assignmentForm.elements.role_name?.value || "";
       checkCooloffForMember(memberSelect.value, roleName);
+      // Auto-set status based on whether a member is selected
+      const statusSel = assignmentForm.elements.status;
+      if (statusSel && !assignmentForm.elements.id?.value) {
+        statusSel.value = memberSelect.value ? "Confirmed" : "Planned";
+      }
     });
 
     // Meeting form submit
@@ -1061,27 +1172,63 @@
         const m = root._meetings.find((x) => String(x.id) === print.dataset.printAgenda);
         if (m) generatePrintView(m);
       } else if (suggest) {
-        const data  = await api(`/meetings/${suggest.dataset.suggestRoles}/suggestions`);
-        const suggs = data.suggestions || [];
-        const trace = data.trace || [];
-        console.log("Suggestions Trace:", trace);
-        console.table(suggs);
-
+        const meetingId = suggest.dataset.suggestRoles;
+        const panel = qs(`[data-tmp-suggestion-panel="${meetingId}"]`, meetingList);
+        if (panel) { panel.style.display = "block"; panel.innerHTML = '<p style="color:var(--tmp-muted);margin:0;">Calculating suggestions…</p>'; }
+        let data, suggs, trace;
+        try {
+          data  = await api(`/meetings/${meetingId}/suggestions`);
+          suggs = data.suggestions || [];
+          trace = data.trace || [];
+        } catch (err) {
+          if (panel) panel.innerHTML = `<p style="color:var(--tmp-burgundy);margin:0;">Error: ${esc(err.message)}</p>`;
+          return;
+        }
         if (!suggs.length) {
-          return alert("No suggestions found.\n\nTRACE:\n" + trace.join("\n"));
+          if (panel) panel.innerHTML = `<div style="background:#f5f5f5;border-radius:6px;padding:12px 14px;">
+            <strong>No suggestions available.</strong>
+            <details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:var(--tmp-muted)">Show trace</summary>
+            <pre style="font-size:11px;margin:6px 0 0;white-space:pre-wrap;color:var(--tmp-muted)">${esc(trace.join("\n"))}</pre></details>
+          </div>`;
+          return;
         }
+        if (panel) panel.innerHTML = `
+          <div style="background:#f0f7ff;border:1px solid #bbdefb;border-radius:6px;padding:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+              <strong>Suggested Assignments (${suggs.length})</strong>
+              <button class="tmp-small-button tmp-primary" data-apply-all="${meetingId}">Apply All</button>
+            </div>
+            <table class="tmp-table" style="min-width:0;font-size:0.88rem;">
+              <thead><tr><th>Role</th><th>Member</th><th>Reason</th><th></th></tr></thead>
+              <tbody>${suggs.map((s) => `<tr>
+                <td>${esc(s.role_name)}</td>
+                <td><strong>${esc(s.suggested_member_name)}</strong></td>
+                <td style="color:var(--tmp-muted)"><small>${esc(s.progression_note || "")}</small></td>
+                <td><button class="tmp-small-button" data-apply-one="${esc(s.id)}" data-apply-member="${esc(s.suggested_member_id)}">Apply</button></td>
+              </tr>`).join("")}</tbody>
+            </table>
+          </div>`;
+        // Store suggestions for Apply All
+        if (panel) panel._suggestions = suggs;
 
-        const summary = suggs.map((s) => {
-          const note = s.progression_note ? ` (${s.progression_note})` : "";
-          return `• ${s.role_name} → ${s.suggested_member_name}${note}`;
-        }).join("\n");
+      } else if (e.target.closest("[data-apply-one]")) {
+        const btn = e.target.closest("[data-apply-one]");
+        btn.disabled = true;
+        await api("/assignments", { method: "POST", body: JSON.stringify({ id: btn.dataset.applyOne, member_id: btn.dataset.applyMember, status: "Confirmed" }) });
+        btn.closest("tr").style.background = "#e8f5e9";
+        btn.textContent = "✓";
+        await renderMeetings();
 
-        if (confirm(`RECOMMENDED ASSIGNMENTS:\n\n${summary}\n\nApply these suggestions?`)) {
-          for (const s of suggs) {
-            await api("/assignments", { method: "POST", body: JSON.stringify({ id: s.id, member_id: s.suggested_member_id, status: "Confirmed" }) });
-          }
-          await renderMeetings();
+      } else if (e.target.closest("[data-apply-all]")) {
+        const btn     = e.target.closest("[data-apply-all]");
+        const panel   = btn.closest("[data-tmp-suggestion-panel]");
+        const suggs   = panel?._suggestions || [];
+        btn.disabled  = true;
+        btn.textContent = "Applying…";
+        for (const s of suggs) {
+          await api("/assignments", { method: "POST", body: JSON.stringify({ id: s.id, member_id: s.suggested_member_id, status: "Confirmed" }) });
         }
+        await renderMeetings();
       }
     });
 
@@ -1187,6 +1334,89 @@
         ? { col, dir: root._vpeSort.dir === "asc" ? "desc" : "asc" }
         : { col, dir: "asc" };
       renderMembers();
+    });
+
+    // -- Role gate settings panel (VPE/admin only) ----------------------------
+    async function renderRoleGateSettings() {
+      const panel = qs("[data-tmp-gate-settings-panel]", root);
+      const body  = qs("[data-tmp-gate-settings-body]",  root);
+      if (!panel || !body) return;
+
+      let gates;
+      try {
+        gates = await api("/settings/role-gates");
+      } catch (err) {
+        body.innerHTML = `<p style="color:var(--tmp-burgundy)">Could not load gate settings: ${esc(err.message)}</p>`;
+        return;
+      }
+
+      body.innerHTML = `
+        <p style="font-size:12px;color:var(--tmp-muted);margin-bottom:10px;">
+          These level gates control who can take each role. Changes take effect immediately for new suggestions and suitability checks.
+        </p>
+        <table class="tmp-table" style="font-size:0.88rem;">
+          <thead><tr><th>Role Pattern</th><th>Minimum Level</th></tr></thead>
+          <tbody>${Object.entries(gates).map(([pattern, lvl]) => `
+            <tr>
+              <td style="text-transform:capitalize;">${esc(pattern)}</td>
+              <td><select data-gate-pattern="${esc(pattern)}" style="padding:3px 6px;">
+                <option value="0" ${Number(lvl) === 0 ? "selected" : ""}>L0 (anyone)</option>
+                <option value="1" ${Number(lvl) === 1 ? "selected" : ""}>L1+</option>
+                <option value="2" ${Number(lvl) === 2 ? "selected" : ""}>L2+</option>
+                <option value="3" ${Number(lvl) === 3 ? "selected" : ""}>L3+</option>
+                <option value="4" ${Number(lvl) === 4 ? "selected" : ""}>L4+</option>
+              </select></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+        <div style="margin-top:12px;">
+          <button class="tmp-small-button tmp-primary" id="tmp-gate-save">Save Gate Settings</button>
+          <span id="tmp-gate-status" style="margin-left:10px;font-size:12px;color:var(--tmp-muted);"></span>
+        </div>`;
+
+      qs("#tmp-gate-save", root)?.addEventListener("click", async () => {
+        const saveBtn    = qs("#tmp-gate-save", root);
+        const statusSpan = qs("#tmp-gate-status", root);
+        saveBtn.disabled = true;
+        if (statusSpan) statusSpan.textContent = "Saving…";
+        const updated = {};
+        qsa("[data-gate-pattern]", body).forEach((sel) => {
+          updated[sel.dataset.gatePattern] = Number(sel.value);
+        });
+        try {
+          const saved = await api("/settings/role-gates", { method: "POST", body: JSON.stringify(updated) });
+          TMPortal.roleGateLevels = saved;
+          if (statusSpan) { statusSpan.textContent = "Saved!"; statusSpan.style.color = "#2e7d32"; }
+          setTimeout(() => { if (statusSpan) statusSpan.textContent = ""; }, 2000);
+        } catch (err) {
+          if (statusSpan) { statusSpan.textContent = "Error: " + err.message; statusSpan.style.color = "#c62828"; }
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    }
+
+    // Inject gate settings panel HTML before first use
+    const gateSection = document.createElement("section");
+    gateSection.className = "tmp-panel";
+    gateSection.innerHTML = `
+      <button class="tmp-collapsible-toggle" data-tmp-gate-settings-toggle aria-expanded="false" style="width:100%;text-align:left;">
+        Role Gate Settings
+        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+      </button>
+      <div data-tmp-gate-settings-body style="display:none;margin-top:14px;"></div>`;
+    gateSection.setAttribute("data-tmp-gate-settings-panel", "");
+    root.appendChild(gateSection);
+
+    qs("[data-tmp-gate-settings-toggle]", root)?.addEventListener("click", async (e) => {
+      const btn  = e.currentTarget;
+      const open = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!open));
+      const body = qs("[data-tmp-gate-settings-body]", root);
+      if (body) body.style.display = open ? "none" : "block";
+      const chevron = qs(".tmp-chevron", btn);
+      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+      if (!open) await renderRoleGateSettings();
     });
 
     try {

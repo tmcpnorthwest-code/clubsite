@@ -22,16 +22,17 @@ class TMP_Shortcodes {
         wp_enqueue_style('tmp-portal');
         wp_enqueue_script('tmp-portal');
         wp_localize_script('tmp-portal', 'TMPortal', [
-            'restUrl'       => esc_url_raw(rest_url('toastmasters/v1')),
-            'nonce'         => wp_create_nonce('wp_rest'),
-            'standardRoles' => TMP_Repository::get_standard_roles(),
-            'loginUrl'      => wp_login_url(get_permalink()),
-            'logoutUrl'     => wp_logout_url(home_url('/')),
-            'currentUser'   => is_user_logged_in() ? [
-                'id'              => get_current_user_id(),
-                'name'            => wp_get_current_user()->display_name,
-                'email'           => wp_get_current_user()->user_email,
-                'canManageMembers'=> current_user_can('tmp_manage_members'),
+            'restUrl'        => esc_url_raw(rest_url('toastmasters/v1')),
+            'nonce'          => wp_create_nonce('wp_rest'),
+            'standardRoles'  => TMP_Repository::get_standard_roles(),
+            'roleGateLevels' => TMP_Repository::get_current_gate_levels(),
+            'loginUrl'       => wp_login_url(get_permalink()),
+            'logoutUrl'      => wp_logout_url(home_url('/')),
+            'currentUser'    => is_user_logged_in() ? [
+                'id'               => get_current_user_id(),
+                'name'             => wp_get_current_user()->display_name,
+                'email'            => wp_get_current_user()->user_email,
+                'canManageMembers' => current_user_can('tmp_manage_members'),
                 'canManageMeetings'=> current_user_can('tmp_manage_meetings'),
             ] : null,
         ]);
@@ -391,7 +392,7 @@ class TMP_Shortcodes {
                     </select>
                 </label>
                 <label>Duration (mins) <input type="number" name="duration" min="0" placeholder="e.g. 7" /></label>
-                <label>Status
+                <label style="display:none;">Status
                     <select name="status">
                         <option>Planned</option>
                         <option>Requested</option>

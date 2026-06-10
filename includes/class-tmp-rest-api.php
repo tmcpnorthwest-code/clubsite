@@ -170,6 +170,39 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_view_all_members'],
         ]);
 
+        // ── Role gate settings ─────────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/settings/role-gates', [
+            [
+                'methods'             => WP_REST_Server::READABLE,
+                'callback'            => [__CLASS__, 'get_role_gates'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+            [
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => [__CLASS__, 'save_role_gates'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+        ]);
+
+        // ── Requirement overrides ──────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/me/requirement-override', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'create_requirement_override'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/me/requirement-override/(?P<id>\d+)', [
+            'methods'             => WP_REST_Server::DELETABLE,
+            'callback'            => [__CLASS__, 'delete_requirement_override'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/members/(?P<id>\d+)/requirement-overrides', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_member_requirement_overrides'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
         // ── Enrolment ──────────────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/enrol', [
             'methods'             => WP_REST_Server::CREATABLE,
@@ -436,6 +469,61 @@ class TMP_REST_API {
         ]);
         if (is_wp_error($member)) return $member;
         return rest_ensure_response(['message' => 'Application received.']);
+    }
+
+    // ── Role gate settings ────────────────────────────────────────────────────────
+
+    public static function get_role_gates() {
+        return rest_ensure_response(TMP_Repository::get_current_gate_levels());
+    }
+
+    public static function save_role_gates(WP_REST_Request $request) {
+        $gates = $request->get_json_params();
+        if (!is_array($gates)) {
+            return new WP_Error('tmp_invalid', 'Expected an object of pattern => level.', ['status' => 400]);
+        }
+        $clean = [];
+        foreach ($gates as $pattern => $level) {
+            $clean[sanitize_text_field($pattern)] = max(0, min(5, absint($level)));
+        }
+        update_option('tmp_role_gate_levels', $clean);
+        return rest_ensure_response($clean);
+    }
+
+    // ── Requirement overrides ─────────────────────────────────────────────────────
+
+    public static function create_requirement_override(WP_REST_Request $request) {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_unauthorized', 'Not linked to a member.', ['status' => 401]);
+        }
+        $params  = $request->get_json_params();
+        $level   = absint($params['level'] ?? 0);
+        $req_key = sanitize_text_field($params['req_key'] ?? '');
+        $note    = sanitize_text_field($params['note'] ?? '');
+        if (!$level || !$req_key) {
+            return new WP_Error('tmp_invalid', 'Level and req_key are required.', ['status' => 400]);
+        }
+        $id = TMP_Repository::create_requirement_override($member['id'], $level, $req_key, $note);
+        return rest_ensure_response(['id' => $id]);
+    }
+
+    public static function delete_requirement_override(WP_REST_Request $request) {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_unauthorized', 'Not linked to a member.', ['status' => 401]);
+        }
+        $deleted = TMP_Repository::delete_requirement_override((int) $request['id'], $member['id']);
+        return rest_ensure_response(['deleted' => $deleted]);
+    }
+
+    public static function get_member_requirement_overrides(WP_REST_Request $request) {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM " . TMP_Repository::overrides_table() . " WHERE member_id = %d ORDER BY level ASC, id ASC",
+            (int) $request['id']
+        ), ARRAY_A);
+        return rest_ensure_response($rows);
     }
 
     // ── CSV helpers ───────────────────────────────────────────────────────────────

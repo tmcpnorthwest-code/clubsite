@@ -34,6 +34,31 @@ class TMP_Repository {
     // Standard roles & TI requirements
     // -------------------------------------------------------------------------
 
+    public static function overrides_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_req_overrides';
+    }
+
+    /**
+     * Ordered map of role name substrings → minimum level required.
+     * Order matters: 'general evaluator' must precede 'evaluator'.
+     */
+    public static function default_gate_levels() {
+        return [
+            'general evaluator'   => 2,
+            'toastmaster'         => 2,
+            'topics master'       => 1,
+            'grammarian'          => 1,
+            'introductory mentor' => 1,
+            'intro mentor'        => 1,
+            'evaluator'           => 1,
+        ];
+    }
+
+    public static function get_current_gate_levels() {
+        return (array) get_option('tmp_role_gate_levels', self::default_gate_levels());
+    }
+
     public static function get_standard_roles() {
         return [
             'Sergeant at Arms'       => 'SAA',
@@ -64,7 +89,7 @@ class TMP_Repository {
                 // TT Speaker must precede Ice Breaker (enforced separately)
                 ['type' => 'role',    'roles' => ['Table Topics Speaker'], 'min' => 1, 'label' => 'Table Topics Speaker'],
                 ['type' => 'role',    'roles' => ['Evaluator'],            'min' => 1, 'label' => 'Evaluator'],
-                ['type' => 'role_or', 'roles' => ['Timer', 'Ah-Counter'],  'min' => 1, 'label' => 'Timer or Ah-Counter'],
+                ['type' => 'role_or', 'roles' => ['Timer', 'Ah-Counter', 'Sergeant at Arms'],  'min' => 1, 'label' => 'Timer, Ah-Counter, or SAA'],
             ],
             2 => [
                 ['type' => 'role',    'roles' => ['Grammarian'],           'min' => 1, 'label' => 'Grammarian'],
@@ -175,7 +200,63 @@ class TMP_Repository {
             }
         }
 
+        // Apply manual overrides (mark unmet requirements as met)
+        $override_rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, req_key FROM " . self::overrides_table() . " WHERE member_id = %d AND level = %d",
+            $member_id, $level
+        ), ARRAY_A);
+        if (!empty($override_rows)) {
+            $override_map = [];
+            foreach ($override_rows as $row) {
+                $override_map[$row['req_key']] = (int) $row['id'];
+            }
+            foreach ($gaps as &$gap) {
+                if ($gap['met']) {
+                    continue;
+                }
+                $key = self::make_req_key($gap);
+                if (isset($override_map[$key])) {
+                    $gap['done']            = $gap['needed'];
+                    $gap['met']             = true;
+                    $gap['manual_override'] = true;
+                    $gap['override_id']     = $override_map[$key];
+                }
+            }
+            unset($gap);
+        }
+
         return $gaps;
+    }
+
+    // -------------------------------------------------------------------------
+    // Requirement override helpers
+    // -------------------------------------------------------------------------
+
+    private static function make_req_key($gap) {
+        if ($gap['type'] === 'presentation') {
+            return $gap['series'];
+        }
+        return implode('|', $gap['roles']);
+    }
+
+    public static function create_requirement_override($member_id, $level, $req_key, $note = '') {
+        global $wpdb;
+        $wpdb->insert(self::overrides_table(), [
+            'member_id'  => absint($member_id),
+            'level'      => absint($level),
+            'req_key'    => sanitize_text_field($req_key),
+            'note'       => sanitize_text_field($note),
+            'created_at' => current_time('mysql'),
+        ]);
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function delete_requirement_override($id, $member_id) {
+        global $wpdb;
+        return (bool) $wpdb->delete(self::overrides_table(), [
+            'id'        => absint($id),
+            'member_id' => absint($member_id),
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -259,6 +340,8 @@ class TMP_Repository {
             $is_unpaid = !empty($row['paid_until']) && strtotime($row['paid_until']) < $now;
             $is_exempt = !empty($row['is_exempt_from_unpaid_block']);
 
+            $row['level']                         = (int) $row['level'];
+            $row['mentor_id']                     = !empty($row['mentor_id']) ? (int) $row['mentor_id'] : null;
             $row['is_eligible']                   = (!$is_unpaid || $is_exempt);
             $row['formatted_name']                = sprintf("%s (%s Level %d)", $row['full_name'], $row['pathway'], $row['level']);
             $row['recent_participation_count']    = $participation_map[$row['id']] ?? 0;
@@ -271,13 +354,18 @@ class TMP_Repository {
     public static function get_member($id) {
         global $wpdb;
         $table = self::member_table();
-        return $wpdb->get_row($wpdb->prepare(
+        $row   = $wpdb->get_row($wpdb->prepare(
             "SELECT m.*, mentor.full_name as mentor_name
              FROM {$table} m
              LEFT JOIN {$table} mentor ON m.mentor_id = mentor.id
              WHERE m.id = %d",
             $id
         ), ARRAY_A);
+        if ($row) {
+            $row['level']     = (int) $row['level'];
+            $row['mentor_id'] = !empty($row['mentor_id']) ? (int) $row['mentor_id'] : null;
+        }
+        return $row;
     }
 
     /**
@@ -640,20 +728,15 @@ class TMP_Repository {
         $role  = strtolower($role_name);
         $level = (int) $member['level'];
 
-        if (strpos($role, 'general evaluator') !== false || strpos($role, 'general') !== false && strpos($role, 'evaluator') !== false) {
-            return $level >= 4
-                ? ['suitable' => true,  'reason' => 'L4+']
-                : ['suitable' => false, 'reason' => 'Needs L4+'];
-        }
-        if (strpos($role, 'toastmaster') !== false || strpos($role, 'topics master') !== false) {
-            return $level >= 3
-                ? ['suitable' => true,  'reason' => 'L3+']
-                : ['suitable' => false, 'reason' => 'Needs L3+'];
-        }
-        if (strpos($role, 'grammarian') !== false) {
-            return $level >= 2
-                ? ['suitable' => true,  'reason' => 'L2+']
-                : ['suitable' => false, 'reason' => 'Needs L2+'];
+        // Dynamic level gate — patterns ordered so longer/more-specific match first
+        $gate_levels = self::get_current_gate_levels();
+        foreach ($gate_levels as $pattern => $min_level) {
+            if (strpos($role, $pattern) !== false) {
+                $gate = (int) $min_level;
+                return $level >= $gate
+                    ? ['suitable' => true,  'reason' => "L{$gate}+"]
+                    : ['suitable' => false, 'reason' => "Needs L{$gate}+"];
+            }
         }
 
         // L1 ordering: Ice Breaker (Speaker at L1) only after Table Topics Speaker at L1
@@ -705,8 +788,8 @@ class TMP_Repository {
     public static function compute_mentorship_stage($member_id, $member) {
         $level = (int) ($member['level'] ?? 1);
 
-        // Closed: member has levelled up past L1 in TI
-        if ($level >= 2) {
+        // Closed: Level 1 in DB means Level 1 is completed — mentor no longer needed
+        if ($level >= 1) {
             return 'closed';
         }
 
@@ -841,6 +924,7 @@ class TMP_Repository {
              WHERE m.meeting_date >= %s
                AND (m.requests_close_at IS NULL OR m.requests_close_at >= %s)
                AND (a.member_id IS NULL OR a.member_id = 0 OR a.member_id = '')
+               AND a.role_name NOT LIKE 'Break%%'
              ORDER BY m.meeting_date ASC LIMIT 50",
             $today,
             $now
@@ -960,7 +1044,17 @@ class TMP_Repository {
         ), ARRAY_A);
 
         $slots = array_filter($slots_raw, function ($s) {
-            return strpos(strtolower($s['role_name']), 'presiding officer') === false;
+            $lower = strtolower($s['role_name']);
+            return strpos($lower, 'presiding officer') === false
+                && strpos($s['role_name'], 'Break') !== 0;
+        });
+
+        // Non-speaker slots processed first so the +40 gap bonus attracts members
+        // toward role requirements before speaker (Ice Breaker) slots are considered.
+        usort($slots, function ($a, $b) {
+            $a_spk = (bool) preg_match('/^speaker(\s+\d+)?$/i', self::get_base_role_name($a['role_name']));
+            $b_spk = (bool) preg_match('/^speaker(\s+\d+)?$/i', self::get_base_role_name($b['role_name']));
+            return $a_spk - $b_spk;
         });
 
         $open_count = count($slots);
@@ -1089,15 +1183,15 @@ class TMP_Repository {
                     }
                 }
 
-                // Hard level gate (skip unsuitable entirely)
-                $role_lower = strtolower($base_role);
-                $gate_level = 1;
-                if (strpos($role_lower, 'general evaluator') !== false) {
-                    $gate_level = 4;
-                } elseif (strpos($role_lower, 'toastmaster') !== false || strpos($role_lower, 'topics master') !== false) {
-                    $gate_level = 3;
-                } elseif (strpos($role_lower, 'grammarian') !== false) {
-                    $gate_level = 2;
+                // Hard level gate (skip unsuitable entirely) — dynamic, from WP option
+                $role_lower  = strtolower($base_role);
+                $gate_level  = 0;
+                $gate_levels = self::get_current_gate_levels();
+                foreach ($gate_levels as $pattern => $min_level) {
+                    if (strpos($role_lower, $pattern) !== false) {
+                        $gate_level = (int) $min_level;
+                        break;
+                    }
                 }
 
                 $best_score  = -1;
@@ -1152,6 +1246,29 @@ class TMP_Repository {
                             $score  += 40;
                             $reason  = "Needs {$gap['label']} (L{$level})";
                             break;
+                        }
+                    }
+
+                    // −20 penalty: Ice Breaker slot but member has unmet non-speech role requirements
+                    if (preg_match('/^speaker(\s+\d+)?$/i', $base_role)) {
+                        $has_unmet_non_speaker = false;
+                        foreach ($gaps as $gap) {
+                            if ($gap['met']) {
+                                continue;
+                            }
+                            if ($gap['type'] === 'presentation') {
+                                $has_unmet_non_speaker = true;
+                                break;
+                            }
+                            foreach ($gap['roles'] ?? [] as $req_role) {
+                                if (!preg_match('/^(speaker|table topics speaker)$/i', trim($req_role))) {
+                                    $has_unmet_non_speaker = true;
+                                    break 2;
+                                }
+                            }
+                        }
+                        if ($has_unmet_non_speaker) {
+                            $score -= 20;
                         }
                     }
 
@@ -1328,9 +1445,14 @@ class TMP_Repository {
             $was_not_final = $old && !in_array($old['status'], ['Confirmed', 'Completed']);
 
             if ($was_not_final && $is_final && !empty($data['member_id'])) {
-                self::notify_assignment_status(absint($data['id']), absint($data['member_id']));
-
                 $role_name   = $old['role_name'] ?? ($record['role_name'] ?? '');
+                $base_for_history = self::get_base_role_name($role_name);
+
+                // Break is a timeline placeholder, not a real role — never record in history
+                if (strtolower($base_for_history) !== 'break') {
+                    self::notify_assignment_status(absint($data['id']), absint($data['member_id']));
+                }
+
                 $meeting_id  = $old['meeting_id'] ?? ($record['meeting_id'] ?? 0);
                 $meeting_date = $wpdb->get_var($wpdb->prepare(
                     "SELECT meeting_date FROM " . self::meeting_table() . " WHERE id = %d",
@@ -1338,16 +1460,20 @@ class TMP_Repository {
                 ));
                 $series = $data['presentation_series'] ?? $old['presentation_series'] ?? null;
 
+                if (strtolower($base_for_history) === 'break') {
+                    // Skip history recording for Break rows
+                } else {
                 $wpdb->insert(self::participation_history_table(), [
                     'member_id'           => absint($data['member_id']),
                     'meeting_id'          => absint($meeting_id),
                     'assignment_id'       => absint($data['id']),
-                    'role_name'           => self::get_base_role_name($role_name),
+                    'role_name'           => $base_for_history,
                     'meeting_date'        => $meeting_date,
-                    'level_at_completion' => (int) self::get_member(absint($data['member_id']))['level'],
+                    'level_at_completion' => max(1, (int) self::get_member(absint($data['member_id']))['level']),
                     'presentation_series' => $series ? sanitize_text_field($series) : null,
                     'created_at'          => $now,
                 ]);
+                } // end else (not break)
             }
 
             $wpdb->update($table, $record, array('id' => absint($data['id'])));

@@ -14,6 +14,9 @@ class TMP_Activator {
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
+        if (!get_option('tmp_role_gate_levels')) {
+            update_option('tmp_role_gate_levels', TMP_Repository::default_gate_levels());
+        }
         flush_rewrite_rules();
         self::log('Activation hook completed');
     }
@@ -35,6 +38,9 @@ class TMP_Activator {
         self::migrate_ah_counter_normalization();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
+        }
+        if (!get_option('tmp_role_gate_levels')) {
+            update_option('tmp_role_gate_levels', TMP_Repository::default_gate_levels());
         }
         update_option('tmp_plugin_version', TMP_VERSION);
         self::log('Upgrade completed');
@@ -89,6 +95,7 @@ class TMP_Activator {
         $assignments = $wpdb->prefix . 'tmp_role_assignments';
         $requests = $wpdb->prefix . 'tmp_member_requests';
         $participation = $wpdb->prefix . 'tmp_participation_history';
+        $overrides = $wpdb->prefix . 'tmp_req_overrides';
 
         // mentor VARCHAR kept for legacy data; mentor_id is the FK used by all new code
         dbDelta("CREATE TABLE {$members} (
@@ -182,6 +189,18 @@ class TMP_Activator {
             PRIMARY KEY  (id),
             KEY member_id (member_id),
             KEY role_name (role_name)
+        ) $charset;");
+
+        dbDelta("CREATE TABLE {$overrides} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id BIGINT UNSIGNED NOT NULL,
+            level TINYINT UNSIGNED NOT NULL,
+            req_key VARCHAR(120) NOT NULL,
+            note VARCHAR(255) NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY  (id),
+            KEY member_id (member_id),
+            KEY member_level (member_id, level)
         ) $charset;");
 
         self::seed_data();
