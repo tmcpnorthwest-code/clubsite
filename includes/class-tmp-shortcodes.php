@@ -226,6 +226,7 @@ class TMP_Shortcodes {
                     </select>
                     <select data-tmp-admin-level>
                         <option value="all">All Levels</option>
+                        <option value="0">Level 0 (Enrolled)</option>
                         <option value="1">Level 1</option>
                         <option value="2">Level 2</option>
                         <option value="3">Level 3</option>
@@ -239,15 +240,18 @@ class TMP_Shortcodes {
                         <option value="pathway">Group by Pathway</option>
                     </select>
                 </div>
+                <div style="margin-bottom:10px;">
+                    <button class="tmp-small-button" type="button" data-tmp-admin-members-toggle>Show Members</button>
+                </div>
                 <div class="tmp-table-wrap">
                     <table class="tmp-table">
                         <thead>
                             <tr>
-                                <th>Name</th>
+                                <th data-sort-col="name">Name <span class="tmp-sort-ind">▲</span></th>
                                 <th>Customer ID</th>
                                 <th>Email</th>
                                 <th>Pathway</th>
-                                <th>Level</th>
+                                <th data-sort-col="level">Level <span class="tmp-sort-ind">↕</span></th>
                                 <th>State</th>
                                 <th>Recent</th>
                                 <th>Exempt?</th>
@@ -307,15 +311,22 @@ class TMP_Shortcodes {
                     <select data-tmp-vpe-pathway>
                         <option value="all">All Pathways</option>
                         <option>No pathway registered</option>
-                        <option>Presentation Mastery</option>
+                        <option>Enrolled — Pathway TBD</option>
                         <option>Dynamic Leadership</option>
+                        <option>Effective Coaching</option>
                         <option>Engaging Humor</option>
+                        <option>Innovative Planning</option>
                         <option>Motivational Strategies</option>
                         <option>Persuasive Influence</option>
+                        <option>Presentation Mastery</option>
+                        <option>Strategic Relationships</option>
+                        <option>Team Collaboration</option>
                         <option>Visionary Communication</option>
+                        <option>Distinguished Toastmaster</option>
                     </select>
                     <select data-tmp-vpe-level>
                         <option value="all">All Levels</option>
+                        <option value="0">Level 0 (Enrolled)</option>
                         <option value="1">Level 1</option>
                         <option value="2">Level 2</option>
                         <option value="3">Level 3</option>
@@ -327,6 +338,9 @@ class TMP_Shortcodes {
                         <option value="none">No Mentor Assigned</option>
                         <option value="assigned">Has Mentor</option>
                     </select>
+                </div>
+                <div style="margin-bottom:10px;">
+                    <button class="tmp-small-button" type="button" data-tmp-vpe-members-toggle>Show Members</button>
                 </div>
                 <div data-tmp-vpe-member-list>Loading members...</div>
             </section>

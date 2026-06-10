@@ -352,8 +352,9 @@ class TMP_REST_API {
                 $updated_users++;
             }
 
-            $credential = strtoupper(self::csv_value($row, $indexes, 'Credentials'));
-            $parsed     = self::parse_credential($credential);
+            $credential        = strtoupper(self::csv_value($row, $indexes, 'Credentials'));
+            $pathways_enrolled = self::csv_value($row, $indexes, 'Pathways Enrolled');
+            $parsed            = self::parse_credential($credential, $pathways_enrolled);
 
             TMP_Repository::upsert_imported_member([
                 'user_id'           => $user_id,
@@ -365,11 +366,7 @@ class TMP_REST_API {
                 'level'             => $parsed['level'],
                 'state'             => self::csv_value($row, $indexes, 'Status (*)') ?: 'Active',
                 'paid_until'        => self::normalize_date(self::csv_value($row, $indexes, 'Paid Until')),
-                'pathways_enrolled' => self::csv_value($row, $indexes, 'Pathways Enrolled'),
-                'current_project'   => $parsed['project'],
-                'mentor_id'         => null,
-                'next_action'       => $parsed['next_action'],
-                'officer_notes'     => $parsed['notes'],
+                'pathways_enrolled' => $pathways_enrolled,
             ]);
 
             $imported++;
@@ -456,47 +453,45 @@ class TMP_REST_API {
         return trim((string) ($row[$indexes[$column]] ?? ''));
     }
 
-    private static function parse_credential($credential) {
+    private static function parse_credential($credential, $pathways_enrolled = '') {
         $paths = [
             'DL' => 'Dynamic Leadership',
+            'EC' => 'Effective Coaching',
             'EH' => 'Engaging Humor',
+            'IP' => 'Innovative Planning',
             'MS' => 'Motivational Strategies',
-            'PM' => 'Presentation Mastery',
             'PI' => 'Persuasive Influence',
+            'PM' => 'Presentation Mastery',
+            'SR' => 'Strategic Relationships',
+            'TC' => 'Team Collaboration',
             'VC' => 'Visionary Communication',
         ];
 
+        // DTM is a special designation, not a pathway-level code
+        if (strtoupper($credential) === 'DTM') {
+            return ['pathway' => 'Distinguished Toastmaster', 'level' => 5];
+        }
+
         if (!$credential || !preg_match('/^([A-Z]{2})([1-5])$/', $credential, $matches)) {
-            return [
-                'pathway'     => 'No pathway registered',
-                'level'       => 1,
-                'project'     => 'Pathway not registered',
-                'next_action' => 'Help member register for a Pathway.',
-                'notes'       => 'Imported with blank or unrecognized credential.',
-            ];
+            // Enrolled in a pathway but no completed level yet → Level 0
+            if (strtolower(trim($pathways_enrolled)) === 'yes') {
+                return ['pathway' => 'Enrolled — Pathway TBD', 'level' => 0];
+            }
+            return ['pathway' => 'No pathway registered', 'level' => 1];
         }
 
         $code    = $matches[1];
         $level   = (int) $matches[2];
-        $pathway = $paths[$code] ?? 'No pathway registered';
+        $pathway = $paths[$code] ?? null;
 
-        if ($pathway === 'No pathway registered') {
-            return [
-                'pathway'     => $pathway,
-                'level'       => 1,
-                'project'     => "Unrecognized credential {$credential}",
-                'next_action' => 'Review imported credential and assign the correct Pathway.',
-                'notes'       => "Imported with unrecognized credential {$credential}.",
-            ];
+        if (!$pathway) {
+            if (strtolower(trim($pathways_enrolled)) === 'yes') {
+                return ['pathway' => 'Enrolled — Pathway TBD', 'level' => 0];
+            }
+            return ['pathway' => 'No pathway registered', 'level' => 1];
         }
 
-        return [
-            'pathway'     => $pathway,
-            'level'       => $level,
-            'project'     => "Credential {$credential}",
-            'next_action' => "Continue {$pathway} Level {$level}.",
-            'notes'       => "Imported from credential {$credential}.",
-        ];
+        return ['pathway' => $pathway, 'level' => $level];
     }
 
     private static function normalize_date($value) {

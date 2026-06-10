@@ -376,7 +376,7 @@ class TMP_Repository {
             'email'                      => sanitize_email($data['email'] ?? ''),
             'phone'                      => sanitize_text_field($data['phone'] ?? ''),
             'pathway'                    => sanitize_text_field($data['pathway'] ?? 'Presentation Mastery'),
-            'level'                      => max(1, min(5, absint($data['level'] ?? 1))),
+            'level'                      => max(0, min(5, absint($data['level'] ?? 1))),
             'state'                      => sanitize_text_field($data['state'] ?? 'Active'),
             'paid_until'                 => !empty($data['paid_until']) ? sanitize_text_field($data['paid_until']) : null,
             'is_exempt_from_unpaid_block'=> isset($data['is_exempt_from_unpaid_block']) ? (bool) $data['is_exempt_from_unpaid_block'] : 0,
@@ -427,6 +427,18 @@ class TMP_Repository {
         }
 
         if ($existing_id) {
+            // Preserve fields that CSV import must never overwrite
+            $preserved = $wpdb->get_row($wpdb->prepare(
+                "SELECT mentor_id, orientation_date, officer_notes FROM {$table} WHERE id = %d",
+                $existing_id
+            ), ARRAY_A);
+            if ($preserved) {
+                foreach (['mentor_id', 'orientation_date', 'officer_notes'] as $field) {
+                    if (!array_key_exists($field, $data)) {
+                        $data[$field] = $preserved[$field];
+                    }
+                }
+            }
             $data['id'] = $existing_id;
         }
 
@@ -645,7 +657,7 @@ class TMP_Repository {
         }
 
         // L1 ordering: Ice Breaker (Speaker at L1) only after Table Topics Speaker at L1
-        if ($level === 1 && preg_match('/^speaker(\s+\d+)?$/i', trim($role_name))) {
+        if ($level <= 1 && preg_match('/^speaker(\s+\d+)?$/i', trim($role_name))) {
             $counts = $participation_at_level ?? self::get_member_participation_counts_for_member($member_id)[1] ?? [];
             $tts_done = isset($counts['Table Topics Speaker']) ? (int) $counts['Table Topics Speaker'] : 0;
             if ($tts_done === 0) {
@@ -664,7 +676,7 @@ class TMP_Repository {
         $level = (int) ($member['level'] ?? 1);
         $recs  = [];
 
-        if ($level === 1) {
+        if ($level <= 1) {
             $recs[] = ['title' => 'Table Topics Speaker', 'type' => 'Role',   'note' => 'Required before your Ice Breaker speech at Level 1.'];
             $recs[] = ['title' => 'Ice Breaker',          'type' => 'Speech', 'note' => 'Your first 4–6 minute speech — after Table Topics Speaker.'];
             $recs[] = ['title' => 'Evaluator',            'type' => 'Role',   'note' => 'Required at Level 1.'];
@@ -758,8 +770,8 @@ class TMP_Repository {
             return 'Register for a Pathway on the TI portal.';
         }
 
-        // 2–5. L1 path driven entirely by mentorship stage
-        if ($level === 1) {
+        // 2–5. L1 path driven entirely by mentorship stage (level 0 = enrolled, pre-L1)
+        if ($level <= 1) {
             $stage = self::compute_mentorship_stage($member_id, $member);
             switch ($stage) {
                 case 'no_mentor':
@@ -1110,7 +1122,7 @@ class TMP_Repository {
                     }
 
                     // L1 ordering: Ice Breaker requires prior Table Topics Speaker
-                    if ($level === 1 && preg_match('/^speaker(\s+\d+)?$/i', $base_role)) {
+                    if ($level <= 1 && preg_match('/^speaker(\s+\d+)?$/i', $base_role)) {
                         $l1_counts = $all_counts[$m_id][1] ?? [];
                         if (($l1_counts['Table Topics Speaker'] ?? 0) === 0) {
                             $trace[] = "L1 ordering skip: {$member['full_name']} needs TT Speaker before Ice Breaker";

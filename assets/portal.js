@@ -507,6 +507,12 @@
     const importStatus = qs("[data-tmp-import-status]", root);
     const table        = qs("[data-tmp-member-table]", root);
     const count        = qs("[data-tmp-member-count]", root);
+    const membersWrap  = qs(".tmp-table-wrap", root);
+    const toggleBtn    = qs("[data-tmp-admin-members-toggle]", root);
+
+    // Collapsed by default
+    if (membersWrap) membersWrap.style.display = "none";
+    if (!root._adminSort) root._adminSort = { col: "name", dir: "asc" };
 
     async function render(force = false) {
       if (force || !root._members) root._members = await api("/members");
@@ -523,7 +529,32 @@
         (levelFilter === "all" || String(m.level) === levelFilter)
       );
 
-      if (count) count.textContent = `${filtered.length} ${filtered.length === 1 ? "record" : "records"}`;
+      // Sort
+      const { col: sortCol, dir: sortDir } = root._adminSort;
+      const sorted = [...filtered].sort((a, b) => {
+        const mul = sortDir === "asc" ? 1 : -1;
+        if (sortCol === "level") {
+          const ld = a.level - b.level;
+          return mul * (ld !== 0 ? ld : a.full_name.localeCompare(b.full_name));
+        }
+        return mul * a.full_name.localeCompare(b.full_name);
+      });
+
+      if (count) count.textContent = `${sorted.length} ${sorted.length === 1 ? "record" : "records"}`;
+
+      // Update toggle button text
+      const isOpen = membersWrap?.style.display !== "none";
+      if (toggleBtn) {
+        toggleBtn.textContent = isOpen ? `Hide Members (${sorted.length})` : `Show Members (${sorted.length})`;
+      }
+
+      // Update sort indicators in static thead
+      qs(".tmp-table thead", root)?.querySelectorAll("[data-sort-col]").forEach((th) => {
+        const ind = qs(".tmp-sort-ind", th);
+        if (ind) ind.textContent = th.dataset.sortCol === sortCol ? (sortDir === "asc" ? "▲" : "▼") : "↕";
+      });
+
+      const levelLabel = (lvl) => lvl === 0 ? "Level 0 (Enrolled)" : `Level ${lvl}`;
 
       const memberToRow = (m) => {
         const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
@@ -532,7 +563,7 @@
           <td>${esc(m.customer_id || "")}</td>
           <td>${esc(m.email)}</td>
           <td>${esc(m.pathway)}</td>
-          <td>Level ${esc(m.level)}</td>
+          <td>${levelLabel(m.level)}</td>
           <td>${esc(m.state)}</td>
           <td style="${inactive ? "color:#ef6c00;font-weight:bold;" : ""}">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
           <td>${m.is_exempt_from_unpaid_block ? "Yes" : "No"}</td>
@@ -541,10 +572,10 @@
       };
 
       if (groupKey === "none") {
-        table.innerHTML = filtered.map(memberToRow).join("");
+        table.innerHTML = sorted.map(memberToRow).join("");
       } else {
-        const groups = filtered.reduce((acc, m) => {
-          const key = (groupKey === "level" ? `Level ${m.level}` : m[groupKey]) || "Unassigned";
+        const groups = sorted.reduce((acc, m) => {
+          const key = (groupKey === "level" ? levelLabel(m.level) : m[groupKey]) || "Unassigned";
           if (!acc[key]) acc[key] = [];
           acc[key].push(m);
           return acc;
@@ -571,6 +602,27 @@
     qs("[data-tmp-admin-group-by]", root)?.addEventListener("change", () => render());
     qs("[data-tmp-admin-status]",   root)?.addEventListener("change", () => render());
     qs("[data-tmp-admin-level]",    root)?.addEventListener("change", () => render());
+
+    // Sort header click handlers (static thead)
+    qs(".tmp-table thead", root)?.querySelectorAll("[data-sort-col]").forEach((th) => {
+      th.style.cursor = "pointer";
+      th.addEventListener("click", () => {
+        const col = th.dataset.sortCol;
+        if (root._adminSort.col === col) {
+          root._adminSort.dir = root._adminSort.dir === "asc" ? "desc" : "asc";
+        } else {
+          root._adminSort = { col, dir: "asc" };
+        }
+        render();
+      });
+    });
+
+    // Toggle handler
+    toggleBtn?.addEventListener("click", () => {
+      const open = membersWrap?.style.display !== "none";
+      if (membersWrap) membersWrap.style.display = open ? "none" : "";
+      render();
+    });
 
     table.addEventListener("click", async (ev) => {
       const del = ev.target.closest("[data-delete-member]");
@@ -646,34 +698,70 @@
             .map((m) => `<option value="${esc(m.id)}">${esc(m.formatted_name)}</option>`).join("");
       }
 
-      // Unmentored alert
-      const unmentored = (all || []).filter((m) => m.is_eligible && !m.mentor_id && !m.mentor_name);
+      // Unmentored alert — only Level 0–1 (actively mentored cohort)
+      const unmentored = (all || []).filter((m) => m.is_eligible && !m.mentor_id && !m.mentor_name && m.level <= 1);
       const alertEl    = qs("[data-tmp-unmentored-alert]", root);
       if (alertEl) {
         alertEl.innerHTML = unmentored.length
           ? `<div style="background:#fff8e1;border:1px solid #ffd54f;border-radius:4px;padding:10px 14px;margin-bottom:12px;font-size:13px;">
-              <strong>${unmentored.length} member${unmentored.length > 1 ? "s have" : " has"} no mentor assigned.</strong>
+              <strong>${unmentored.length} Level 0–1 member${unmentored.length > 1 ? "s have" : " has"} no mentor assigned.</strong>
               Use the Assign Mentor button below to pair them up.
              </div>`
           : "";
       }
 
+      // Sort
+      if (!root._vpeSort) root._vpeSort = { col: "name", dir: "asc" };
+      const { col: vSortCol, dir: vSortDir } = root._vpeSort;
+      const sortedEligible = [...eligible].sort((a, b) => {
+        const mul = vSortDir === "asc" ? 1 : -1;
+        if (vSortCol === "level") {
+          const ld = a.level - b.level;
+          return mul * (ld !== 0 ? ld : a.full_name.localeCompare(b.full_name));
+        }
+        return mul * a.full_name.localeCompare(b.full_name);
+      });
+
+      const vpeToggle = qs("[data-tmp-vpe-members-toggle]", root);
+      const isOpenVpe = overviewList?.style.display !== "none";
+      if (vpeToggle) {
+        vpeToggle.textContent = isOpenVpe
+          ? `Hide Members (${sortedEligible.length})`
+          : `Show Members (${sortedEligible.length})`;
+      }
+
+      const sortInd = (col) => col === vSortCol ? (vSortDir === "asc" ? "▲" : "▼") : "↕";
+      const levelLabel = (lvl) => lvl === 0 ? "Level 0" : `Level ${lvl}`;
+
       if (overviewList) {
-        if (overviewCount) overviewCount.textContent = `${eligible.length} member${eligible.length !== 1 ? "s" : ""}`;
-        overviewList.innerHTML = eligible.length
+        if (overviewCount) overviewCount.textContent = `${sortedEligible.length} member${sortedEligible.length !== 1 ? "s" : ""}`;
+        overviewList.innerHTML = sortedEligible.length
           ? `<div class="tmp-table-wrap"><table class="tmp-table">
-              <thead><tr><th>Name</th><th>Pathway / Level</th><th>Project</th><th>Recent</th><th>Mentor</th><th>Actions</th></tr></thead>
-              <tbody>${eligible.map((m) => {
+              <thead><tr>
+                <th data-sort-col="name" class="tmp-sortable">Name <span class="tmp-sort-ind">${sortInd("name")}</span></th>
+                <th>Pathway</th>
+                <th data-sort-col="level" class="tmp-sortable">Level <span class="tmp-sort-ind">${sortInd("level")}</span></th>
+                <th>Phone</th>
+                <th>Email</th>
+                <th>Recent</th>
+                <th>Mentor</th>
+                <th>Actions</th>
+              </tr></thead>
+              <tbody>${sortedEligible.map((m) => {
                 const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
                 return `<tr ${inactive ? 'style="background:#fff8e1"' : ""}>
                   <td data-label="Name"><strong>${esc(m.full_name)}</strong>${inactive ? `<br><small style="color:#ef6c00;font-weight:bold">No roles in last ${m.total_recent_meetings_checked} meetings</small>` : ""}</td>
-                  <td data-label="Pathway">${esc(m.pathway)}<br><small>Level ${esc(m.level)}</small></td>
-                  <td data-label="Project"><small>${esc(m.current_project || "None")}</small></td>
+                  <td data-label="Pathway"><small>${esc(m.pathway)}</small></td>
+                  <td data-label="Level"><span class="tmp-tag" style="background:#e8eaf6;color:#303f9f;font-size:0.78rem;">${levelLabel(m.level)}</span></td>
+                  <td data-label="Phone"><small>${esc(m.phone || "—")}</small></td>
+                  <td data-label="Email"><small>${esc(m.email)}</small></td>
                   <td data-label="Recent">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
                   <td data-label="Mentor">${esc(m.mentor_name || "—")}</td>
-                  <td data-label="Action"><button class="tmp-small-button" type="button" data-assign-mentor="${esc(m.id)}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">
-                    ${m.mentor_name ? "Change" : "Assign"} Mentor
-                  </button></td>
+                  <td data-label="Action">${m.level <= 1
+                    ? `<button class="tmp-small-button" type="button" data-assign-mentor="${esc(m.id)}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">
+                        ${m.mentor_name ? "Change" : "Assign"} Mentor
+                       </button>`
+                    : ""}</td>
                 </tr>`;
               }).join("")}</tbody></table></div>`
           : "<p>No members match the selected filters.</p>";
@@ -1080,6 +1168,26 @@
     vpePathway?.addEventListener("change", () => renderMembers());
     vpeLevel?.addEventListener("change",   () => renderMembers());
     vpeMentorFilt?.addEventListener("change", () => renderMembers());
+
+    // VPE member list: collapsed by default + sort via event delegation
+    if (overviewList) overviewList.style.display = "none";
+    const vpeToggle = qs("[data-tmp-vpe-members-toggle]", root);
+    vpeToggle?.addEventListener("click", () => {
+      const open = overviewList?.style.display !== "none";
+      if (overviewList) overviewList.style.display = open ? "none" : "";
+      renderMembers();
+    });
+
+    overviewList?.addEventListener("click", (ev) => {
+      const th = ev.target.closest("[data-sort-col]");
+      if (!th) return;
+      const col = th.dataset.sortCol;
+      if (!root._vpeSort) root._vpeSort = { col: "name", dir: "asc" };
+      root._vpeSort = root._vpeSort.col === col
+        ? { col, dir: root._vpeSort.dir === "asc" ? "desc" : "asc" }
+        : { col, dir: "asc" };
+      renderMembers();
+    });
 
     try {
       await Promise.all([

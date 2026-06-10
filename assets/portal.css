@@ -474,6 +474,25 @@
   font-weight: 800;
 }
 
+/* ── Sortable table headers ──────────────────────────────────────────────── */
+
+.tmp-sortable,
+.tmp-table th[data-sort-col] {
+  cursor: pointer;
+  user-select: none;
+}
+
+.tmp-sortable:hover,
+.tmp-table th[data-sort-col]:hover {
+  color: var(--tmp-burgundy);
+}
+
+.tmp-sort-ind {
+  font-size: 0.7rem;
+  color: var(--tmp-muted);
+  margin-left: 3px;
+}
+
 /* ── Admin filters ───────────────────────────────────────────────────────── */
 
 .tmp-admin-filters {
