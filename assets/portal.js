@@ -351,6 +351,12 @@
             }
           }
 
+          // Defensive: ensure Evaluator X roles are gated correctly even if pattern doesn't match
+          if (!role.includes('general evaluator') && role.match(/evaluator/i) && memberLevel < 1) {
+            qualified = false;
+            requirement = 'Level 1+ required';
+          }
+
           const base = s.role_name.replace(/\s*\(.*?\)\s*/g, "").replace(/\s+\d+$/, "").trim();
           const cooloff = s.cooloff || null;
           if (cooloff && cooloff.in_cooloff) {
@@ -594,26 +600,16 @@
         });
       }
 
+      const qualified = unique.filter((r) => r.qualified);
       const opts = '<option value="">(None)</option>' +
-        unique.map((r) => {
+        qualified.map((r) => {
           let label = r.display;
-          if (!r.qualified) label += ` (${r.requirement})`;
-          else if (r.isGoal) label += " ⭐ Goal";
-          return `<option value="${esc(r.assignment_id)}" ${!r.qualified ? "disabled" : ""}>${esc(label)}</option>`;
+          if (r.isGoal) label += " ⭐ Goal";
+          return `<option value="${esc(r.assignment_id)}">${esc(label)}</option>`;
         }).join("");
 
       const rSelects = qsa("[data-tmp-req-role-select]", reqForm);
       rSelects.forEach((sel) => { sel.innerHTML = opts; });
-
-      // Store original disabled state for each option (based on qualification)
-      const optionStates = new Map(); // Maps element to Map of optionValue -> originalDisabledState
-      rSelects.forEach((sel) => {
-        const states = new Map();
-        Array.from(sel.options).forEach((opt) => {
-          states.set(opt.value, opt.disabled);
-        });
-        optionStates.set(sel, states);
-      });
 
       // Prevent duplicate role selection across priorities
       const updateDropdownAvailability = () => {
@@ -626,39 +622,35 @@
           });
 
           Array.from(currentSel.options).forEach((opt) => {
-            // Get original disabled state (from qualification checks)
-            const originalDisabled = optionStates.get(currentSel)?.get(opt.value) || false;
-            // Disable if: originally disabled OR already selected in another priority
             const isDuplicate = opt.value && opt.value !== currentSel.value && selectedInOthers.has(opt.value);
-            opt.disabled = originalDisabled || isDuplicate;
+            opt.disabled = isDuplicate;
           });
         });
       };
 
       rSelects.forEach((sel) => {
         sel.addEventListener("change", updateDropdownAvailability);
-        // Prevent selection of disabled options
-        sel.addEventListener("change", () => {
-          const selectedOption = Array.from(sel.options).find((opt) => opt.value === sel.value);
-          if (selectedOption?.disabled) {
-            sel.value = ""; // Reset to "(None)"
-            alert("This role is not available for you. Check the requirements below.");
-          }
-        });
       });
       updateDropdownAvailability(); // Initial check
 
-      // Info box: locked roles (deduplicated, base name only)
+      // Info box: locked roles (unavailable, showing reasons)
       const locked  = unique.filter((r) => !r.qualified);
       const infoBox = qs("[data-tmp-role-info]", reqForm);
       if (infoBox) {
-        infoBox.innerHTML = locked.map((r) => {
-          const isCooloff = r.cooloff && r.cooloff.in_cooloff;
-          const msg       = isCooloff
-            ? `<strong>${esc(r.display)}</strong> is in cooloff — eligible from <strong>${esc(r.cooloff.eligible_from)}</strong>`
-            : `<strong>${esc(r.display)}</strong> requires ${esc(r.requirement)}`;
-          return `<div style="margin-top:5px;font-size:11px;color:var(--tmp-muted)">${msg}</div>`;
-        }).join("");
+        if (locked.length > 0) {
+          infoBox.innerHTML = `<div style="background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:10px 12px;margin-top:10px;">
+            <p style="margin:0 0 8px;font-weight:bold;color:#666;font-size:12px;text-transform:uppercase;">Unavailable roles</p>
+            ${locked.map((r) => {
+              const isCooloff = r.cooloff && r.cooloff.in_cooloff;
+              const msg = isCooloff
+                ? `<strong>${esc(r.display)}</strong> — in cooloff until ${esc(r.cooloff.eligible_from)}`
+                : `<strong>${esc(r.display)}</strong> — ${esc(r.requirement)}`;
+              return `<div style="margin-top:6px;font-size:11px;color:#666;">${msg}</div>`;
+            }).join("")}
+          </div>`;
+        } else {
+          infoBox.innerHTML = '';
+        }
       }
     });
 
@@ -674,18 +666,6 @@
       if (hasExistingRequest) {
         alert("You already have a request for this meeting. Please cancel it first if you want to request a different role.");
         return;
-      }
-
-      // Validate that no disabled (greyed out) options were selected
-      const rSelects = qsa("[data-tmp-req-role-select]", reqForm);
-      for (const sel of rSelects) {
-        if (sel.value) {
-          const selectedOption = Array.from(sel.options).find((opt) => opt.value === sel.value);
-          if (selectedOption?.disabled) {
-            alert("You cannot select a role you are not qualified for. Please review the requirements shown in red.");
-            return;
-          }
-        }
       }
 
       const btn = reqForm.querySelector("button");

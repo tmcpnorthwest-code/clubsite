@@ -41,24 +41,25 @@ class TMP_Repository {
 
     /**
      * Ordered map of role name substrings → minimum level required.
-     * Order matters: 'general evaluator' must precede 'evaluator'.
+     * Order matters: 'general evaluator' must precede 'evaluator', 'speaker' must precede nothing.
+     * These patterns match role names case-insensitively via stripos() and includes().
      */
     public static function default_gate_levels() {
         return [
-            'general evaluator'   => 2,
-            'toastmaster'         => 2,
-            'speaker'             => 0,
-            'topics master'       => 0,
-            'table topics speaker'=> 0,
-            'evaluator'           => 1,
-            'grammarian'          => 0,
-            'ah counter'          => 0,
-            'ah-counter'          => 0,
-            'timer'               => 0,
-            'sergeant at arms'    => 0,
-            'presiding officer'   => 1,
-            'introductory mentor' => 1,
-            'intro mentor'        => 1,
+            'general evaluator'   => 2,  // L2+ only
+            'toastmaster'         => 2,  // L2+ only
+            'presiding officer'   => 1,  // L1+ only
+            'introductory mentor' => 1,  // L1+ only
+            'intro mentor'        => 1,  // L1+ only
+            'evaluator'           => 1,  // L1+ only (covers Evaluator, Evaluator 1, Evaluator 2, etc.)
+            'speaker'             => 0,  // L0+ (any level) — covers all Speaker roles by default
+            'topics master'       => 0,  // L0+ (any level)
+            'table topics speaker'=> 0,  // L0+ (any level)
+            'grammarian'          => 0,  // L0+ (any level)
+            'ah counter'          => 0,  // L0+ (any level)
+            'ah-counter'          => 0,  // L0+ (any level)
+            'timer'               => 0,  // L0+ (any level)
+            'sergeant at arms'    => 0,  // L0+ (any level)
         ];
     }
 
