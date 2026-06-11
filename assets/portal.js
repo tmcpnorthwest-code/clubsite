@@ -1604,11 +1604,22 @@
   }
 
   async function renderPendingRequests(root) {
-    const data  = await api("/meetings/requests").catch(() => ({ meetings: [] }));
     const count = qs("[data-tmp-request-count]", root);
     const list  = qs("[data-tmp-vpe-requests]", root);
     const approveBtn = qs("[data-tmp-approve-all-btn]", root);
-    if (!count || !list) return;
+    if (!count || !list) {
+      console.error("Pending requests elements not found", { count: !!count, list: !!list });
+      return;
+    }
+
+    let data;
+    try {
+      data = await api("/meetings/requests");
+    } catch (err) {
+      console.error("Failed to fetch pending requests:", err);
+      list.innerHTML = `<div style="color:var(--tmp-burgundy)">Error loading requests: ${esc(err.message)}</div>`;
+      return;
+    }
 
     const { meetings } = data;
     const totalRequests = meetings.reduce((sum, m) => sum + m.totalRequests, 0);

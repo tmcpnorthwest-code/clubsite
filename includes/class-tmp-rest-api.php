@@ -452,7 +452,8 @@ class TMP_REST_API {
     }
 
     public static function get_all_requests() {
-        return rest_ensure_response(TMP_Repository::get_all_pending_requests());
+        $meetings = TMP_Repository::get_all_pending_requests();
+        return rest_ensure_response(['meetings' => $meetings]);
     }
 
     public static function get_meeting_suggestions(WP_REST_Request $request) {
