@@ -1,0 +1,271 @@
+/* ── Toastmasters Login Page ─────────────────────────────────────────────── */
+
+.tmp-login-page {
+  min-height: 80vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.tmp-login-box {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 44px 40px 40px;
+  border: 1px solid #e4ddd2;
+  box-shadow: 0 16px 48px rgba(23, 23, 27, 0.10);
+}
+
+/* ── Logo / club name ─────────────────────────────────────────────────────── */
+
+.tmp-login-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 32px;
+}
+
+.tmp-login-logo svg {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.tmp-login-club-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #18324a;
+  letter-spacing: -0.01em;
+}
+
+/* ── Heading ──────────────────────────────────────────────────────────────── */
+
+.tmp-login-title {
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: #17171b;
+  margin: 0 0 4px;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.tmp-login-subtitle {
+  font-size: 0.875rem;
+  color: #62636b;
+  margin: 0 0 28px;
+}
+
+/* ── Error banner ─────────────────────────────────────────────────────────── */
+
+.tmp-login-error {
+  background: #fce8ed;
+  border: 1px solid #f5b8c4;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #8f1737;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  margin-bottom: 20px;
+}
+
+/* ── Form fields ──────────────────────────────────────────────────────────── */
+
+.tmp-field {
+  margin-bottom: 18px;
+}
+
+.tmp-field label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #17171b;
+  margin-bottom: 6px;
+}
+
+.tmp-field input[type="text"],
+.tmp-field input[type="password"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid #ddd8d1;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: #17171b;
+  background: #fafaf9;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+  -webkit-appearance: none;
+}
+
+.tmp-field input[type="text"]:focus,
+.tmp-field input[type="password"]:focus {
+  border-color: #0f766e;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.10);
+}
+
+/* ── Password visibility toggle ───────────────────────────────────────────── */
+
+.tmp-password-wrap {
+  position: relative;
+}
+
+.tmp-password-wrap input {
+  padding-right: 42px;
+}
+
+.tmp-toggle-password {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #a0a0a8;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.tmp-toggle-password:hover {
+  color: #0f766e;
+}
+
+/* ── Remember / forgot row ────────────────────────────────────────────────── */
+
+.tmp-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tmp-remember {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #62636b;
+  cursor: pointer;
+}
+
+.tmp-remember input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #0f766e;
+  cursor: pointer;
+}
+
+.tmp-field-row a {
+  font-size: 0.85rem;
+  color: #0f766e;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.tmp-field-row a:hover {
+  text-decoration: underline;
+}
+
+/* ── Submit button ────────────────────────────────────────────────────────── */
+
+.tmp-login-submit {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px 18px;
+  background: #8f1737;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.tmp-login-submit:hover:not(:disabled) {
+  background: #7a1230;
+}
+
+.tmp-login-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Or divider ───────────────────────────────────────────────────────────── */
+
+.tmp-login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0 20px;
+  color: #b0b0b8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tmp-login-divider::before,
+.tmp-login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e4ddd2;
+}
+
+/* ── Google button ────────────────────────────────────────────────────────── */
+
+.tmp-google-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 18px;
+  background: #ffffff;
+  border: 1.5px solid #dadce0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  font-weight: 600;
+  color: #3c4043;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.tmp-google-button:hover:not(:disabled) {
+  background: #f8f9fa;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.10);
+}
+
+.tmp-google-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.tmp-google-button svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* ── Responsive ───────────────────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .tmp-login-box {
+    padding: 32px 22px 28px;
+  }
+
+  .tmp-login-title {
+    font-size: 1.4rem;
+  }
+}

@@ -6,16 +6,22 @@ if (!defined('ABSPATH')) {
 
 class TMP_Shortcodes {
     public static function init() {
+        // Register handles now (at WordPress 'init') so they exist when template_redirect fires.
+        // wp_enqueue_scripts still re-registers them (safe no-op) for the standard WP asset pipeline.
+        self::register_assets();
         add_shortcode('tm_member_login',    [__CLASS__, 'member_login']);
         add_shortcode('tm_member_dashboard',[__CLASS__, 'member_dashboard']);
         add_shortcode('tm_admin_portal',    [__CLASS__, 'admin_portal']);
         add_shortcode('tm_vp_education',    [__CLASS__, 'vp_education']);
         add_action('wp_enqueue_scripts',    [__CLASS__, 'register_assets']);
+        add_action('template_redirect',     [__CLASS__, 'auth_redirects']);
     }
 
     public static function register_assets() {
         wp_register_style( 'tmp-portal', TMP_PLUGIN_URL . 'assets/portal.css', [], TMP_VERSION);
         wp_register_script('tmp-portal', TMP_PLUGIN_URL . 'assets/portal.js',  [], TMP_VERSION, true);
+        wp_register_style( 'tmp-login',  TMP_PLUGIN_URL . 'assets/login.css',  [], TMP_VERSION);
+        wp_register_script('tmp-login',  TMP_PLUGIN_URL . 'assets/login.js',   [], TMP_VERSION, true);
     }
 
     private static function enqueue() {
@@ -39,20 +45,86 @@ class TMP_Shortcodes {
     }
 
     public static function member_login() {
-        self::enqueue();
+        // auth_redirects() handles logged-in users at template_redirect level.
+        // If somehow we still reach here while logged in, show nothing.
+        if (is_user_logged_in()) {
+            return '';
+        }
+
+        $redirect_to = isset($_GET['redirect_to']) ? esc_url_raw(wp_unslash($_GET['redirect_to'])) : home_url('/member-dashboard/');
+        $has_google  = !empty(get_option('tmp_google_client_id'));
+        $lost_pw_url = wp_lostpassword_url(home_url('/member-login/'));
+
+        wp_localize_script('tmp-login', 'TMLogin', [
+            'loginUrl'       => rest_url('toastmasters/v1/login'),
+            'googleUrl'      => rest_url('toastmasters/v1/auth/google'),
+            'nonce'          => wp_create_nonce('wp_rest'),
+            'redirectDefault' => esc_url($redirect_to),
+            'hasRedirectTo'  => isset($_GET['redirect_to']),
+            'hasGoogle'      => $has_google,
+        ]);
+
         ob_start();
         ?>
-        <div class="tmp-portal tmp-login-card">
-            <p class="tmp-eyebrow">Member access</p>
-            <h2>Login to your club dashboard</h2>
-            <?php if (is_user_logged_in()) : ?>
-                <p>You are logged in as <?php echo esc_html(wp_get_current_user()->display_name); ?>.</p>
-                <a class="tmp-button tmp-primary" href="<?php echo esc_url(home_url('/member-dashboard/')); ?>">Open dashboard</a>
-                <a class="tmp-button tmp-secondary" href="<?php echo esc_url(wp_logout_url(get_permalink())); ?>">Logout</a>
-            <?php else : ?>
-                <p>Use your WordPress member account to view Pathways progress, current level, and club notes.</p>
-                <a class="tmp-button tmp-primary" href="<?php echo esc_url(wp_login_url(home_url('/member-dashboard/'))); ?>">Login with WordPress</a>
+        <div class="tmp-login-page">
+          <div class="tmp-login-box">
+
+            <div class="tmp-login-logo">
+              <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <circle cx="18" cy="18" r="18" fill="#8f1737"/>
+                <path d="M10 24 L18 12 L26 24" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                <circle cx="18" cy="12" r="2.5" fill="#d69b24"/>
+              </svg>
+              <span class="tmp-login-club-name">Toastmasters Club of Pune North West</span>
+            </div>
+
+            <h1 class="tmp-login-title">Welcome back</h1>
+            <p class="tmp-login-subtitle">Sign in to your member portal.</p>
+
+            <div id="tmp-login-error" class="tmp-login-error" style="display:none;" role="alert" aria-live="polite"></div>
+
+            <form id="tmp-login-form" novalidate>
+              <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>">
+
+              <div class="tmp-field">
+                <label for="tmp-username">Username or Email</label>
+                <input type="text" id="tmp-username" name="username"
+                       autocomplete="username" autocapitalize="off" spellcheck="false" required>
+              </div>
+
+              <div class="tmp-field">
+                <label for="tmp-password">Password</label>
+                <div class="tmp-password-wrap">
+                  <input type="password" id="tmp-password" name="password"
+                         autocomplete="current-password" required>
+                  <button type="button" class="tmp-toggle-password" aria-label="Show password" tabindex="-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="tmp-field tmp-field-row">
+                <label class="tmp-remember"><input type="checkbox" name="remember"> Remember me</label>
+                <a href="<?php echo esc_url($lost_pw_url); ?>">Forgot password?</a>
+              </div>
+
+              <button type="submit" class="tmp-login-submit">Sign in</button>
+            </form>
+
+            <?php if ($has_google) : ?>
+            <div class="tmp-login-divider"><span>or</span></div>
+            <button id="tmp-google-btn" class="tmp-google-button" type="button">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+              </svg>
+              Sign in with Google
+            </button>
             <?php endif; ?>
+
+          </div>
         </div>
         <?php
         return ob_get_clean();
@@ -467,15 +539,60 @@ class TMP_Shortcodes {
         return ob_get_clean();
     }
 
+    // Runs at template_redirect — before any output, so wp_safe_redirect works reliably.
+    public static function auth_redirects() {
+        global $post;
+        if (!$post) return;
+
+        $content = $post->post_content;
+
+        // Login page: enqueue assets here (before wp_head) so CSS loads in <head>
+        if (has_shortcode($content, 'tm_member_login')) {
+            if (is_user_logged_in()) {
+                wp_safe_redirect(self::portal_home());
+                exit;
+            }
+            wp_enqueue_style('tmp-login');
+            wp_enqueue_script('tmp-login');
+            return; // nothing else to check on the login page
+        }
+
+        // Protected pages: redirect to login if the user lacks the required capability
+        if (has_shortcode($content, 'tm_vp_education') && !current_user_can('tmp_manage_meetings')) {
+            wp_safe_redirect(wp_login_url(get_permalink()));
+            exit;
+        }
+
+        if (has_shortcode($content, 'tm_admin_portal') && !current_user_can('tmp_manage_members')) {
+            wp_safe_redirect(wp_login_url(get_permalink()));
+            exit;
+        }
+
+        if (has_shortcode($content, 'tm_member_dashboard') && !is_user_logged_in()) {
+            wp_safe_redirect(wp_login_url(get_permalink()));
+            exit;
+        }
+    }
+
+    private static function portal_home() {
+        $user = wp_get_current_user();
+        if (user_can($user, 'tmp_manage_members'))  return home_url('/club-admin/');
+        if (user_can($user, 'tmp_manage_meetings')) return home_url('/vp-education/');
+        return home_url('/member-dashboard/');
+    }
+
     private static function restricted($title, $message) {
+        // template_redirect normally handles auth before we get here.
+        // This is a fallback for edge cases (e.g. shortcode used in widgets).
         self::enqueue();
+        $login_url = esc_url(wp_login_url(get_permalink()));
         ob_start();
         ?>
         <div class="tmp-portal tmp-login-card">
             <p class="tmp-eyebrow"><?php echo esc_html($title); ?></p>
-            <h2>Login required</h2>
+            <h2>Sign in required</h2>
             <p><?php echo esc_html($message); ?></p>
-            <a class="tmp-button tmp-primary" href="<?php echo esc_url(wp_login_url(get_permalink())); ?>">Login with WordPress</a>
+            <a class="tmp-button tmp-primary" href="<?php echo $login_url; ?>">Sign in</a>
         </div>
         <?php
         return ob_get_clean();
