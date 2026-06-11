@@ -275,7 +275,7 @@ class TMP_Activator {
         ));
     }
 
-    public static function create_pages() {
+    private static function create_pages() {
         self::maybe_create_page('member-login', 'Member Login', '[tm_member_login]');
         self::maybe_create_page('member-dashboard', 'Member Dashboard', '[tm_member_dashboard]');
         self::maybe_create_page('club-admin', 'Club Admin', '[tm_admin_portal]');
@@ -283,26 +283,17 @@ class TMP_Activator {
     }
 
     private static function maybe_create_page($slug, $title, $content) {
-        $page = get_page_by_path($slug, OBJECT, 'page');
-
+        $page = get_page_by_path($slug);
         if ($page) {
-            // Restore and republish if it ended up in the trash
-            if ($page->post_status === 'trash') {
-                wp_update_post([
-                    'ID'           => $page->ID,
-                    'post_status'  => 'publish',
-                    'post_content' => $content,
-                ]);
-            }
             return;
         }
 
-        wp_insert_post([
-            'post_title'   => $title,
-            'post_name'    => $slug,
+        wp_insert_post(array(
+            'post_title' => $title,
+            'post_name' => $slug,
             'post_content' => $content,
-            'post_status'  => 'publish',
-            'post_type'    => 'page',
-        ]);
+            'post_status' => 'publish',
+            'post_type' => 'page',
+        ));
     }
 }
