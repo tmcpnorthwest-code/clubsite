@@ -47,11 +47,18 @@ class TMP_Repository {
         return [
             'general evaluator'   => 2,
             'toastmaster'         => 2,
-            'topics master'       => 1,
-            'grammarian'          => 1,
+            'speaker'             => 0,
+            'topics master'       => 0,
+            'table topics speaker'=> 0,
+            'evaluator'           => 1,
+            'grammarian'          => 0,
+            'ah counter'          => 0,
+            'ah-counter'          => 0,
+            'timer'               => 0,
+            'sergeant at arms'    => 0,
+            'presiding officer'   => 1,
             'introductory mentor' => 1,
             'intro mentor'        => 1,
-            'evaluator'           => 1,
         ];
     }
 
@@ -974,8 +981,22 @@ class TMP_Repository {
         // Attach per-slot flags
         foreach ($open_slots as &$slot) {
             $base_role = self::get_base_role_name($slot['role_name']);
+
+            // Check level requirement from gate settings
+            $min_level = 0; // Default: no requirement (use settings only)
+            $gate_levels = self::get_current_gate_levels();
+            foreach ($gate_levels as $pattern => $level) {
+                if (stripos($base_role, $pattern) !== false) {
+                    $min_level = (int) $level;
+                    break;
+                }
+            }
+            $slot['qualified'] = $member_level >= $min_level;
+            $slot['requirement'] = $min_level > 0 ? "Level {$min_level}+ required" : "Level 0+ (open to all)";
+
             // Cooloff only for Speaker / TMOD / GE — not for Timer, Grammarian, etc.
             $slot['cooloff'] = self::is_cooloff_role($base_role) ? ($cooloff_info[$base_role] ?? null) : null;
+
             // is_goal: in member's current-level unmet requirements
             $needed_roles = [];
             foreach (self::get_level_requirements()[$member_level] ?? [] as $req) {
@@ -1759,8 +1780,8 @@ class TMP_Repository {
             ), ARRAY_A);
 
             $new_status    = $data['status'] ?? ($old['status'] ?? '');
-            $is_final      = in_array($new_status, ['Confirmed', 'Completed']);
-            $was_not_final = $old && !in_array($old['status'], ['Confirmed', 'Completed']);
+            $is_final      = $new_status === 'Completed'; // Only record when meeting is truly completed
+            $was_not_final = $old && $old['status'] !== 'Completed';
 
             if ($was_not_final && $is_final && !empty($data['member_id'])) {
                 $role_name   = $old['role_name'] ?? ($record['role_name'] ?? '');
@@ -1939,6 +1960,47 @@ class TMP_Repository {
             return new WP_Error('tmp_missing_data', 'Missing Meeting or Member ID.', ['status' => 400]);
         }
 
+        // Get member level
+        $member = self::get_member($member_id);
+        if (!$member) {
+            return new WP_Error('tmp_member_not_found', 'Member not found.', ['status' => 404]);
+        }
+        $member_level = (int) $member['level'];
+
+        // Get gate levels
+        $gate_levels = self::get_current_gate_levels();
+
+        // Validate all requested roles
+        $assignments = self::assignment_table();
+        foreach ($priorities as $index => $assignment_id) {
+            if (empty($assignment_id)) continue;
+
+            $role = $wpdb->get_row($wpdb->prepare(
+                "SELECT role_name FROM {$assignments} WHERE id = %d AND meeting_id = %d",
+                $assignment_id, $meeting_id
+            ), ARRAY_A);
+
+            if (!$role) continue;
+
+            // Check level requirement
+            $base_role = self::get_base_role_name($role['role_name']);
+            $min_level = 0;
+            foreach ($gate_levels as $pattern => $level) {
+                if (stripos($base_role, $pattern) !== false) {
+                    $min_level = (int) $level;
+                    break;
+                }
+            }
+
+            if ($member_level < $min_level) {
+                return new WP_Error(
+                    'tmp_level_requirement',
+                    "You are Level {$member_level}, but {$base_role} requires Level {$min_level}+.",
+                    ['status' => 403]
+                );
+            }
+        }
+
         $old_asgn_ids = $wpdb->get_col($wpdb->prepare(
             "SELECT assignment_id FROM $table WHERE meeting_id = %d AND member_id = %d",
             $meeting_id, $member_id
@@ -2076,7 +2138,7 @@ class TMP_Repository {
         foreach ($raw_requests as $req) {
             $meeting_key = $req['meeting_id'];
             $role_base = self::get_base_role_name($req['role_name']);
-            $slot_key = $req['assignment_id'];
+            $slot_key = (int) $req['assignment_id'];
 
             if (!isset($meetings_map[$meeting_key])) {
                 $meetings_map[$meeting_key] = [
@@ -2126,14 +2188,18 @@ class TMP_Repository {
             });
 
             $winner = $reqs[0];
-            $winner_id = $winner['member_id'];
+            $winner_id = (int) $winner['member_id'];
+            $winner_assignment_id = (int) $winner['assignment_id'];
 
             // Mark winner as recommended and generate reasons for losers
             foreach ($meetings_map as &$meeting) {
                 foreach ($meeting['roles'] as &$role) {
                     foreach ($role['requests'] as &$req) {
-                        if ($req['assignment_id'] === $slot_key) {
-                            if ($req['member_id'] === $winner_id) {
+                        $req_assignment_id = (int) $req['assignment_id'];
+                        $req_member_id = (int) $req['member_id'];
+
+                        if ($req_assignment_id === $winner_assignment_id) {
+                            if ($req_member_id === $winner_id) {
                                 $req['isRecommended'] = true;
                                 $req['reasons'] = self::get_reason_tags_for_request($req);
                             } else {

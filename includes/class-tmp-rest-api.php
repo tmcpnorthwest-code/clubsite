@@ -502,7 +502,11 @@ class TMP_REST_API {
     // ── Role gate settings ────────────────────────────────────────────────────────
 
     public static function get_role_gates() {
-        return rest_ensure_response(TMP_Repository::get_current_gate_levels());
+        // Merge stored settings with defaults so new roles appear automatically
+        $defaults = TMP_Repository::default_gate_levels();
+        $stored = (array) get_option('tmp_role_gate_levels', []);
+        $merged = array_merge($defaults, $stored); // Stored values override defaults
+        return rest_ensure_response($merged);
     }
 
     public static function save_role_gates(WP_REST_Request $request) {
