@@ -135,6 +135,11 @@ class TMP_Shortcodes {
                         </section>
 
                         <section class="tmp-meeting-section">
+                            <h4>Your Pending Requests</h4>
+                            <div data-tmp-pending-requests>Loading pending requests...</div>
+                        </section>
+
+                        <section class="tmp-meeting-section">
                             <h4>Role History</h4>
                             <div data-tmp-role-history>Loading history...</div>
                         </section>
@@ -153,11 +158,13 @@ class TMP_Shortcodes {
                             <h4>Available Meeting Slots</h4>
                             <form class="tmp-panel tmp-form" data-tmp-member-request-form style="margin-top:10px; border:1px dashed #ccc;">
                                 <p class="tmp-eyebrow">Request a role</p>
+                                <div data-tmp-deadline-info></div>
+                                <div data-tmp-dupe-request-warning></div>
                                 <div class="tmp-grid" style="grid-template-columns: 1fr; gap: 10px;">
                                     <label>1. Select Meeting
                                         <select name="meeting_id" required data-tmp-req-meeting-select></select>
                                     </label>
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;" data-tmp-role-selection-section>
                                         <label>Priority 1 <select name="priorities[]" required data-tmp-req-role-select></select></label>
                                         <label>Priority 2 <select name="priorities[]" data-tmp-req-role-select></select></label>
                                         <label>Priority 3 <select name="priorities[]" data-tmp-req-role-select></select></label>
@@ -287,6 +294,9 @@ class TMP_Shortcodes {
                 <div class="tmp-card-head">
                     <h3>Pending Role Requests</h3>
                     <span data-tmp-request-count>0 pending</span>
+                </div>
+                <div style="margin-bottom:16px;">
+                    <button class="tmp-button tmp-primary" data-tmp-approve-all-btn style="display:none;">Approve All Recommended</button>
                 </div>
                 <div data-tmp-vpe-requests>Loading requests...</div>
             </section>

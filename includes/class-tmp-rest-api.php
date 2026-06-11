@@ -47,6 +47,12 @@ class TMP_REST_API {
             'permission_callback' => 'is_user_logged_in',
         ]);
 
+        register_rest_route('toastmasters/v1', '/me/pending-requests', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_my_pending_requests'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
         // ── Role requests ──────────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/requests', [
             'methods'             => WP_REST_Server::CREATABLE,
@@ -163,6 +169,12 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
+        register_rest_route('toastmasters/v1', '/assignments/approve-all-recommended', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'approve_all_recommended_requests'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
         // ── Club ───────────────────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/club/kpis', [
             'methods'             => WP_REST_Server::READABLE,
@@ -275,6 +287,14 @@ class TMP_REST_API {
         $level = (int) $member['level'];
         $gaps  = TMP_Repository::get_member_level_gaps($member['id'], $level);
         return rest_ensure_response(['level' => $level, 'gaps' => $gaps]);
+    }
+
+    public static function get_my_pending_requests() {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_member_not_found', 'Member not found.', ['status' => 404]);
+        }
+        return rest_ensure_response(TMP_Repository::get_member_pending_requests($member['id']));
     }
 
     public static function get_open_slots() {
@@ -453,6 +473,13 @@ class TMP_REST_API {
 
     public static function get_assignment_conflicts(WP_REST_Request $request) {
         return rest_ensure_response(TMP_Repository::get_conflicting_requests((int) $request['id']));
+    }
+
+    public static function approve_all_recommended_requests(WP_REST_Request $request) {
+        $params = $request->get_json_params();
+        $meeting_id = isset($params['meeting_id']) ? (int) $params['meeting_id'] : null;
+        $result = TMP_Repository::approve_all_recommended($meeting_id);
+        return rest_ensure_response($result);
     }
 
     // ── Enrolment ────────────────────────────────────────────────────────────────

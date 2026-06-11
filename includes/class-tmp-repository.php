@@ -927,7 +927,7 @@ class TMP_Repository {
         $now   = current_time('mysql');
 
         $open_slots = $wpdb->get_results($wpdb->prepare(
-            "SELECT m.id as meeting_id, m.meeting_date, m.theme,
+            "SELECT m.id as meeting_id, m.meeting_date, m.theme, m.requests_close_at,
                     a.id as assignment_id, a.role_name,
                     (SELECT COUNT(*) FROM " . self::request_table() . " r WHERE r.assignment_id = a.id) as current_requests
              FROM {$meetings} m
@@ -991,6 +991,312 @@ class TMP_Repository {
             'member_level'     => $member_level,
             'member_participation' => $participation,
         ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Request Scoring & Eligibility (Post-Deadline Approval)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Score a single request for ranking during VPE approval.
+     * Higher score = higher priority for assignment.
+     *
+     * Scoring:
+     * - Priority: P1=75, P2=50, P3=25
+     * - Level: L0=0, L5=30
+     * - Goal role: +50
+     * - Fairness (days since last role): 0-20
+     * - Cooloff penalty: -100
+     */
+    public static function score_request($request, $member_data) {
+        $score = 0;
+
+        // Priority: P1=75, P2=50, P3=25
+        $priority = (int) ($request['priority'] ?? 3);
+        $score += (4 - $priority) * 25;
+
+        // Member level: L0=0 ... L5=30
+        $member_level = (int) ($member_data['level'] ?? 1);
+        $score += $member_level * 6;
+
+        // Is goal role for member's level?
+        $role_name = $request['role_name'] ?? '';
+        $member_id = (int) ($member_data['id'] ?? 0);
+        if (self::is_goal_role_for_level($member_id, $role_name, $member_level)) {
+            $score += 50;
+        }
+
+        // Fairness: days since last role (0-20 points)
+        $days_since = self::get_days_since_last_role($member_id);
+        $score += min(20, (int) floor($days_since / 7));
+
+        // Cooloff penalty: -100 if in cooloff
+        $base_role = self::get_base_role_name($role_name);
+        if (self::is_in_cooloff_now($member_id, $base_role)) {
+            $score -= 100;
+        }
+
+        return max(0, $score); // Ensure non-negative
+    }
+
+    /**
+     * Check if role is a goal (needed for member's level advancement)
+     */
+    private static function is_goal_role_for_level($member_id, $role_name, $level) {
+        $base_role = self::get_base_role_name($role_name);
+        $level_reqs = self::get_level_requirements();
+        $level_req = $level_reqs[$level] ?? [];
+
+        foreach ($level_req as $req) {
+            if ($req['type'] === 'role' || $req['type'] === 'role_or') {
+                foreach ($req['roles'] ?? [] as $needed_role) {
+                    if (strtolower($base_role) === strtolower($needed_role)) {
+                        // Check if member already completed this requirement
+                        $counts = self::get_member_participation_counts_for_member($member_id);
+                        $count = $counts[$level][$base_role] ?? 0;
+                        if ($count < ($req['min'] ?? 1)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Get days since member's last role completion
+     */
+    private static function get_days_since_last_role($member_id) {
+        global $wpdb;
+        $history = self::participation_history_table();
+        $last_date = $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(meeting_date) FROM {$history} WHERE member_id = %d",
+            $member_id
+        ));
+
+        if (!$last_date) {
+            return PHP_INT_MAX; // Never had a role
+        }
+
+        $days = floor((current_time('timestamp') - strtotime($last_date)) / 86400);
+        return max(0, $days);
+    }
+
+    /**
+     * Check if member is currently in cooloff for a role
+     */
+    private static function is_in_cooloff_now($member_id, $base_role) {
+        if (!self::is_cooloff_role($base_role)) {
+            return false;
+        }
+
+        global $wpdb;
+        $history = self::participation_history_table();
+        $cooloff_weeks = (int) get_option('tmp_role_cooloff_weeks', 4);
+
+        $last_date = $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(meeting_date) FROM {$history}
+             WHERE member_id = %d AND role_name = %s",
+            $member_id,
+            $base_role
+        ));
+
+        if (!$last_date) {
+            return false;
+        }
+
+        $eligible_ts = strtotime($last_date) + ($cooloff_weeks * 7 * 86400);
+        return current_time('timestamp') < $eligible_ts;
+    }
+
+    /**
+     * Generate human-readable reason why request was not selected
+     */
+    public static function get_reason_for_not_selected($request, $winning_request, $all_requests_for_slot) {
+        $base_role = self::get_base_role_name($request['role_name'] ?? '');
+        $member = self::get_member($request['member_id'] ?? 0);
+        $winning_member = self::get_member($winning_request['member_id'] ?? 0);
+
+        // Reason 1: Higher priority selected
+        if ($winning_request['priority'] < $request['priority']) {
+            $winner_name = $winning_member['full_name'] ?? 'Another member';
+            return "{$winner_name}'s P{$winning_request['priority']} priority ranked higher than your P{$request['priority']}.";
+        }
+
+        // Reason 2: Level requirement not met
+        $gate_levels = self::get_current_gate_levels();
+        foreach ($gate_levels as $pattern => $min_level) {
+            if (strpos(strtolower($base_role), $pattern) !== false) {
+                $member_level = (int) ($member['level'] ?? 1);
+                if ($member_level < $min_level) {
+                    $winner_name = $winning_member['full_name'] ?? 'Another member';
+                    return "You are Level {$member_level}, but {$base_role} requires Level {$min_level}+. {$winner_name} was selected.";
+                }
+                break;
+            }
+        }
+
+        // Reason 3: In cooloff
+        if (self::is_in_cooloff_now($request['member_id'] ?? 0, $base_role)) {
+            $eligible_date = self::get_cooloff_eligible_date($request['member_id'] ?? 0, $base_role);
+            return "You are in cooloff for {$base_role} until {$eligible_date}. Available again after that date.";
+        }
+
+        // Reason 4: Multiple requests, other priorities better
+        if (count($all_requests_for_slot) > 1) {
+            return "Multiple requests received. Other members' priority or qualifications ranked higher.";
+        }
+
+        return "Your request was not selected for this role.";
+    }
+
+    /**
+     * Get date when member becomes eligible from cooloff
+     */
+    private static function get_cooloff_eligible_date($member_id, $base_role) {
+        global $wpdb;
+        $history = self::participation_history_table();
+        $cooloff_weeks = (int) get_option('tmp_role_cooloff_weeks', 4);
+
+        $last_date = $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(meeting_date) FROM {$history}
+             WHERE member_id = %d AND role_name = %s",
+            $member_id,
+            $base_role
+        ));
+
+        if (!$last_date) {
+            return date('Y-m-d');
+        }
+
+        $eligible_ts = strtotime($last_date) + ($cooloff_weeks * 7 * 86400);
+        return date('Y-m-d', $eligible_ts);
+    }
+
+    /**
+     * Approve all recommended requests for a meeting (VPE bulk approval)
+     * Returns: { approved: count, failed: [{ member, role, reason }] }
+     */
+    public static function approve_all_recommended($meeting_id = null) {
+        $pending = self::get_all_pending_requests();
+        $approved_count = 0;
+        $failed = [];
+
+        foreach ($pending as $meeting) {
+            // If specific meeting, skip others
+            if ($meeting_id && $meeting['meetingId'] !== $meeting_id) {
+                continue;
+            }
+
+            foreach ($meeting['roles'] as $role) {
+                // Find the recommended request
+                $recommended = null;
+                foreach ($role['requests'] as $req) {
+                    if ($req['isRecommended']) {
+                        $recommended = $req;
+                        break;
+                    }
+                }
+
+                if (!$recommended) {
+                    continue;
+                }
+
+                // Re-validate eligibility (state may have changed)
+                $validation = self::validate_request_eligibility(
+                    $recommended['memberId'],
+                    $recommended['assignment_id'],  // assignment_id needed for validation
+                    $role['roleName']
+                );
+
+                if (!$validation['eligible']) {
+                    $failed[] = [
+                        'member' => $recommended['memberName'],
+                        'role' => $role['roleName'],
+                        'reason' => $validation['reason']
+                    ];
+                    continue;
+                }
+
+                // Create assignment
+                $assignment = self::save_assignment([
+                    'id' => $recommended['assignmentId'],
+                    'member_id' => $recommended['memberId'],
+                    'status' => 'Confirmed'
+                ]);
+
+                if (is_wp_error($assignment)) {
+                    $failed[] = [
+                        'member' => $recommended['memberName'],
+                        'role' => $role['roleName'],
+                        'reason' => $assignment->get_error_message()
+                    ];
+                    continue;
+                }
+
+                // Delete request (success)
+                self::delete_request($recommended['requestId'], $recommended['memberId']);
+                $approved_count++;
+            }
+        }
+
+        return [
+            'approved' => $approved_count,
+            'failed' => $failed,
+            'success' => count($failed) === 0
+        ];
+    }
+
+    /**
+     * Validate if request can be approved (re-validate at approval time)
+     */
+    private static function validate_request_eligibility($member_id, $assignment_id, $role_name) {
+        $member = self::get_member($member_id);
+        if (!$member) {
+            return ['eligible' => false, 'reason' => 'Member not found'];
+        }
+
+        $member_level = (int) $member['level'];
+        $base_role = self::get_base_role_name($role_name);
+
+        // Check level gate
+        $gate_levels = self::get_current_gate_levels();
+        foreach ($gate_levels as $pattern => $min_level) {
+            if (strpos(strtolower($base_role), $pattern) !== false) {
+                $min = (int) $min_level;
+                if ($member_level < $min) {
+                    return [
+                        'eligible' => false,
+                        'reason' => "Member is Level {$member_level}, requires Level {$min}+"
+                    ];
+                }
+                break;
+            }
+        }
+
+        // Check cooloff (re-validate)
+        if (self::is_in_cooloff_now($member_id, $base_role)) {
+            $eligible_date = self::get_cooloff_eligible_date($member_id, $base_role);
+            return [
+                'eligible' => false,
+                'reason' => "Member in cooloff until {$eligible_date}"
+            ];
+        }
+
+        // Check payment status
+        $now = time();
+        $is_unpaid = !empty($member['paid_until']) && strtotime($member['paid_until']) < $now;
+        $is_exempt = !empty($member['is_exempt_from_unpaid_block']);
+
+        if ($is_unpaid && !$is_exempt) {
+            return [
+                'eligible' => false,
+                'reason' => 'Member payment overdue'
+            ];
+        }
+
+        return ['eligible' => true];
     }
 
     // -------------------------------------------------------------------------
@@ -1731,16 +2037,16 @@ class TMP_Repository {
         $requests   = self::request_table();
         $meetings   = self::meeting_table();
         $assignments = self::assignment_table();
-        $today = current_time('Y-m-d');
+        $now = current_time('Y-m-d H:i:s');
 
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT r.id, r.priority, m.meeting_date, m.theme, a.role_name, a.member_id as assigned_id, a.status as assignment_status
+            "SELECT r.id, r.priority, m.meeting_date, m.theme, m.requests_close_at, a.role_name, a.member_id as assigned_id, a.status as assignment_status
              FROM {$requests} r
              JOIN {$meetings} m ON r.meeting_id = m.id
              JOIN {$assignments} a ON r.assignment_id = a.id
-             WHERE r.member_id = %d AND m.meeting_date >= %s
+             WHERE r.member_id = %d AND (m.requests_close_at IS NULL OR m.requests_close_at > %s)
              ORDER BY m.meeting_date ASC, r.priority ASC",
-            $member_id, $today
+            $member_id, $now
         ), ARRAY_A);
     }
 
@@ -1752,16 +2058,167 @@ class TMP_Repository {
         $members    = self::member_table();
         $today = current_time('Y-m-d');
 
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT r.*, m.meeting_date, m.theme, a.role_name, mem.full_name as member_name
+        $raw_requests = $wpdb->get_results($wpdb->prepare(
+            "SELECT r.*, m.meeting_date, m.theme, m.id as meeting_id, a.role_name, mem.full_name as member_name, mem.level as member_level, mem.pathway
              FROM {$requests} r
              JOIN {$meetings} m ON r.meeting_id = m.id
              JOIN {$assignments} a ON r.assignment_id = a.id
              JOIN {$members} mem ON r.member_id = mem.id
              WHERE m.meeting_date >= %s
-             ORDER BY m.meeting_date ASC, r.priority ASC",
+             ORDER BY m.meeting_date ASC, a.role_name ASC, r.priority ASC",
             $today
         ), ARRAY_A);
+
+        // Organize into tree structure: meeting → role → requests with scoring
+        $meetings_map = [];
+        $slot_requests = []; // Track all requests for each slot to find winner
+
+        foreach ($raw_requests as $req) {
+            $meeting_key = $req['meeting_id'];
+            $role_base = self::get_base_role_name($req['role_name']);
+            $slot_key = $req['assignment_id'];
+
+            if (!isset($meetings_map[$meeting_key])) {
+                $meetings_map[$meeting_key] = [
+                    'meetingId' => (int) $meeting_key,
+                    'meetingDate' => $req['meeting_date'],
+                    'theme' => $req['theme'],
+                    'roles' => []
+                ];
+            }
+
+            if (!isset($meetings_map[$meeting_key]['roles'][$role_base])) {
+                $meetings_map[$meeting_key]['roles'][$role_base] = [
+                    'roleName' => $role_base,
+                    'requests' => []
+                ];
+            }
+
+            // Score this request
+            $member_data = [
+                'id' => $req['member_id'],
+                'level' => $req['member_level']
+            ];
+            $score = self::score_request($req, $member_data);
+
+            $req['score'] = $score;
+            $req['memberLevel'] = (int) $req['member_level'];
+            $req['isRecommended'] = false; // Will set to true for highest scorer
+
+            $meetings_map[$meeting_key]['roles'][$role_base]['requests'][] = $req;
+
+            // Track for finding winner
+            if (!isset($slot_requests[$slot_key])) {
+                $slot_requests[$slot_key] = [];
+            }
+            $slot_requests[$slot_key][] = $req;
+        }
+
+        // Identify recommended (highest score) for each slot and generate reasons
+        foreach ($slot_requests as $slot_key => $reqs) {
+            if (empty($reqs)) continue;
+
+            // Sort by score (descending) then priority (ascending)
+            usort($reqs, function ($a, $b) {
+                $score_cmp = $b['score'] - $a['score'];
+                if ($score_cmp !== 0) return $score_cmp;
+                return $a['priority'] - $b['priority'];
+            });
+
+            $winner = $reqs[0];
+            $winner_id = $winner['member_id'];
+
+            // Mark winner as recommended and generate reasons for losers
+            foreach ($meetings_map as &$meeting) {
+                foreach ($meeting['roles'] as &$role) {
+                    foreach ($role['requests'] as &$req) {
+                        if ($req['assignment_id'] === $slot_key) {
+                            if ($req['member_id'] === $winner_id) {
+                                $req['isRecommended'] = true;
+                                $req['reasons'] = self::get_reason_tags_for_request($req);
+                            } else {
+                                $req['reason'] = self::get_reason_for_not_selected($req, $winner, $reqs);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Convert to final format
+        $result = [];
+        foreach ($meetings_map as $meeting) {
+            $roles = [];
+            foreach ($meeting['roles'] as $role) {
+                usort($role['requests'], function ($a, $b) {
+                    return $a['priority'] - $b['priority'];
+                });
+                $roles[] = [
+                    'roleName' => $role['roleName'],
+                    'requestCount' => count($role['requests']),
+                    'requests' => array_map(function ($req) {
+                        return [
+                            'requestId' => (int) $req['id'],
+                            'assignmentId' => (int) $req['assignment_id'],
+                            'memberId' => (int) $req['member_id'],
+                            'memberName' => $req['member_name'],
+                            'memberLevel' => (int) $req['member_level'],
+                            'pathway' => $req['pathway'],
+                            'priority' => (int) $req['priority'],
+                            'score' => (int) $req['score'],
+                            'isRecommended' => (bool) $req['isRecommended'],
+                            'reasons' => $req['reasons'] ?? [],
+                            'reason' => $req['reason'] ?? null
+                        ];
+                    }, $role['requests'])
+                ];
+            }
+
+            $result[] = [
+                'meetingId' => $meeting['meetingId'],
+                'meetingDate' => $meeting['meetingDate'],
+                'theme' => $meeting['theme'],
+                'totalRequests' => array_sum(array_map(function ($r) { return $r['requestCount']; }, $roles)),
+                'roles' => $roles
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get reason tags for why a request was recommended
+     */
+    private static function get_reason_tags_for_request($request) {
+        $reasons = [];
+        $priority = (int) $request['priority'];
+
+        // Priority reason
+        if ($priority === 1) {
+            $reasons[] = 'P1 priority';
+        } elseif ($priority === 2) {
+            $reasons[] = 'P2 priority';
+        }
+
+        // Goal role reason
+        $member_level = (int) $request['member_level'];
+        $role_name = $request['role_name'];
+        if (self::is_goal_role_for_level($request['member_id'], $role_name, $member_level)) {
+            $reasons[] = 'Goal role';
+        }
+
+        // Fairness reason
+        $days_since = self::get_days_since_last_role($request['member_id']);
+        if ($days_since > 28) {
+            $reasons[] = 'Fair turn';
+        }
+
+        // Level reason
+        if ($member_level >= 3) {
+            $reasons[] = 'Higher level';
+        }
+
+        return $reasons;
     }
 
     public static function get_member_request_history($member_id) {
@@ -1780,6 +2237,68 @@ class TMP_Repository {
              ORDER BY m.meeting_date DESC, r.priority ASC",
             $member_id, $today
         ), ARRAY_A);
+    }
+
+    public static function get_member_pending_requests($member_id) {
+        global $wpdb;
+        $requests   = self::request_table();
+        $meetings   = self::meeting_table();
+        $assignments = self::assignment_table();
+        $now = current_time('Y-m-d H:i:s');
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT r.id as request_id, r.assignment_id, r.priority, r.created_at, m.id as meeting_id, m.meeting_date, m.theme, m.requests_close_at, a.role_name, a.member_id as assigned_member_id, a.status as assignment_status
+             FROM {$requests} r
+             JOIN {$meetings} m ON r.meeting_id = m.id
+             JOIN {$assignments} a ON r.assignment_id = a.id
+             WHERE r.member_id = %d AND m.requests_close_at IS NOT NULL AND m.requests_close_at <= %s
+             ORDER BY m.meeting_date DESC, r.priority ASC",
+            $member_id, $now
+        ), ARRAY_A);
+
+        $now = current_time('Y-m-d H:i:s');
+        $result = [];
+
+        foreach ($rows as $row) {
+            $deadline = $row['requests_close_at'];
+            $is_after_deadline = $deadline && strtotime($now) > strtotime($deadline);
+            $is_approved = $is_after_deadline && $row['assignment_status'] === 'Confirmed' && $row['assigned_member_id'] == $member_id;
+            $is_not_selected = $is_after_deadline && $row['assignment_status'] === 'Confirmed' && $row['assigned_member_id'] != $member_id;
+            $is_pending = !$is_after_deadline || (!$is_approved && !$is_not_selected && $row['assignment_status'] !== 'Confirmed');
+
+            $reason = null;
+            $approval_date = null;
+            $status = 'Pending';
+
+            if ($is_approved) {
+                $status = 'Approved';
+                $approval_date = $row['assignment_status'] === 'Confirmed' ? $now : null;
+            } elseif ($is_not_selected) {
+                $status = 'NotSelected';
+                $reason = self::get_reason_for_not_selected($row);
+                $approval_date = $now;
+            }
+
+            $meeting_passed = strtotime($now) > strtotime($row['meeting_date']);
+            $is_expired = $status !== 'Pending' && $meeting_passed;
+
+            $result[] = [
+                'requestId' => (int) $row['request_id'],
+                'meetingId' => (int) $row['meeting_id'],
+                'meetingDate' => $row['meeting_date'],
+                'meetingTheme' => $row['theme'],
+                'roleName' => $row['role_name'],
+                'priority' => (int) $row['priority'],
+                'status' => $status,
+                'reason' => $reason,
+                'approvalDate' => $approval_date,
+                'deadline' => $deadline,
+                'submittedDate' => $row['created_at'],
+                'isExpired' => $is_expired,
+            ];
+        }
+
+        return ['requests' => $result];
     }
 
     public static function get_conflicting_requests($assignment_id) {

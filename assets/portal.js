@@ -239,6 +239,7 @@
 
       // ── Active requests ────────────────────────────────────────────────────
       const requests = await api("/me/requests").catch(() => []);
+      root._memberRequests = requests;
       const arEl = qs("[data-tmp-active-requests]", root); if (arEl) arEl.innerHTML = requests.length
         ? `<div class="tmp-table-wrap"><table class="tmp-table">
             <thead><tr><th>Meeting</th><th>Role</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
@@ -262,6 +263,28 @@
       }).length;
       const badgeEl = qs("[data-tmp-meeting-badge]", root);
       if (badgeEl) { badgeEl.textContent = pendingCount; badgeEl.style.display = pendingCount > 0 ? "inline-flex" : "none"; }
+
+      // ── Pending Requests (after VPE approval) ───────────────────────────────
+      const pendingData = await api("/me/pending-requests").catch(() => ({ requests: [] }));
+      const prEl = qs("[data-tmp-pending-requests]", root);
+      if (prEl) {
+        prEl.innerHTML = pendingData.requests.length
+          ? `<div class="tmp-table-wrap"><table class="tmp-table">
+              <thead><tr><th>Meeting</th><th>Role</th><th>Priority</th><th>Status</th><th>Reason</th></tr></thead>
+              <tbody>${pendingData.requests.map((r) => {
+                const statusColor = r.status === 'Approved' ? '#2e7d32' : r.status === 'NotSelected' ? '#c62828' : '#ef6c00';
+                const statusIcon = r.status === 'Approved' ? '✓' : r.status === 'NotSelected' ? '✗' : '⏳';
+                const reasonHtml = r.reason ? `<details style="cursor:pointer;"><summary style="color:#666;">Show reason</summary><p style="margin:8px 0;color:#555;font-size:12px;">${esc(r.reason)}</p></details>` : '';
+                return `<tr style="background:${r.isExpired ? '#f5f5f5' : '#fff'}">
+                  <td data-label="Meeting">${esc(r.meetingDate)} - ${esc(r.meetingTheme)}${r.isExpired ? '<br><small style="color:var(--tmp-muted)">Expired</small>' : ''}</td>
+                  <td data-label="Role">${esc(r.roleName)}</td>
+                  <td data-label="Priority"><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
+                  <td data-label="Status"><span class="tmp-tag" style="background:${statusColor};color:#fff;font-weight:bold;">${statusIcon} ${r.status}</span></td>
+                  <td data-label="Reason">${reasonHtml}</td>
+                </tr>`;
+              }).join("")}</tbody></table></div>`
+          : "<p>No pending request results yet. Requests will appear here after the VPE approval deadline.</p>";
+      }
 
       // ── Request history ────────────────────────────────────────────────────
       const history = await api("/me/requests/history").catch(() => []);
@@ -502,6 +525,61 @@
     mSelect?.addEventListener("change", () => {
       const group = Object.values(root._groupedSlots || {}).find((g) => String(g.id) === mSelect.value);
 
+      // Check if request period has expired
+      const now = new Date();
+      const deadlineExpired = group?.roles[0]?.requests_close_at && new Date(group.roles[0].requests_close_at) < now;
+
+      // Show deadline info
+      const deadlineEl = qs("[data-tmp-deadline-info]", reqForm);
+      if (deadlineEl && group?.roles[0]) {
+        const closeTime = group.roles[0].requests_close_at;
+        if (closeTime) {
+          const closeDate = new Date(closeTime);
+          const timeRemaining = closeDate - now;
+          const hoursLeft = Math.floor(timeRemaining / (1000 * 60 * 60));
+          const daysLeft = Math.floor(timeRemaining / (1000 * 60 * 60 * 24));
+
+          if (deadlineExpired) {
+            deadlineEl.innerHTML = `<div style="background:#ffebee;border:1px solid #ef5350;border-radius:4px;padding:10px 12px;margin-bottom:12px;color:#c62828;">
+              <strong>Request period closed</strong> on ${closeDate.toLocaleString()}. Please contact the VP Education if you'd like to request a role.
+            </div>`;
+          } else {
+            const timeStr = daysLeft > 0 ? `${daysLeft}d ${hoursLeft % 24}h` : `${hoursLeft}h`;
+            deadlineEl.innerHTML = `<div style="background:#e3f2fd;border:1px solid #64b5f6;border-radius:4px;padding:10px 12px;margin-bottom:12px;">
+              <strong>Requests close:</strong> ${closeDate.toLocaleString()} <span style="color:#1976d2;font-weight:bold;">(${timeStr} remaining)</span>
+            </div>`;
+          }
+        } else {
+          deadlineEl.innerHTML = '<div style="background:#f1f8e9;border:1px solid #aed581;border-radius:4px;padding:10px 12px;margin-bottom:12px;">No deadline set</div>';
+        }
+      }
+
+      // Check if member already has a request for this meeting
+      const hasExistingRequest = (root._memberRequests || []).some((r) => String(r.meeting_id) === mSelect.value);
+      const dupeWarning = qs("[data-tmp-dupe-request-warning]", reqForm);
+      if (dupeWarning) {
+        if (hasExistingRequest) {
+          dupeWarning.innerHTML = `<div style="background:#fff3e0;border:1px solid #ffb74d;border-radius:4px;padding:10px 12px;margin-bottom:12px;color:#e65100;">
+            <strong>You already have a request for this meeting.</strong> Cancel it first if you want to request a different role.
+          </div>`;
+        } else {
+          dupeWarning.innerHTML = '';
+        }
+      }
+
+      // If deadline expired, hide role selection and show message
+      const roleSection = qs("[data-tmp-role-selection-section]", reqForm);
+      const submitBtn = reqForm?.querySelector("button[type=submit]");
+      if (deadlineExpired || hasExistingRequest) {
+        if (roleSection) roleSection.style.display = deadlineExpired ? "none" : "";
+        if (submitBtn) submitBtn.style.display = deadlineExpired ? "none" : "";
+        if (submitBtn && hasExistingRequest) submitBtn.disabled = true;
+        return;
+      }
+
+      if (roleSection) roleSection.style.display = "";
+      if (submitBtn) { submitBtn.style.display = ""; submitBtn.disabled = false; }
+
       const seen = new Set();
       const unique = [];
       if (group) {
@@ -524,7 +602,51 @@
           return `<option value="${esc(r.assignment_id)}" ${!r.qualified ? "disabled" : ""}>${esc(label)}</option>`;
         }).join("");
 
-      qsa("[data-tmp-req-role-select]", reqForm).forEach((sel) => { sel.innerHTML = opts; });
+      const rSelects = qsa("[data-tmp-req-role-select]", reqForm);
+      rSelects.forEach((sel) => { sel.innerHTML = opts; });
+
+      // Store original disabled state for each option (based on qualification)
+      const optionStates = new Map(); // Maps element to Map of optionValue -> originalDisabledState
+      rSelects.forEach((sel) => {
+        const states = new Map();
+        Array.from(sel.options).forEach((opt) => {
+          states.set(opt.value, opt.disabled);
+        });
+        optionStates.set(sel, states);
+      });
+
+      // Prevent duplicate role selection across priorities
+      const updateDropdownAvailability = () => {
+        rSelects.forEach((currentSel) => {
+          const selectedInOthers = new Set();
+          rSelects.forEach((otherSel) => {
+            if (otherSel !== currentSel && otherSel.value) {
+              selectedInOthers.add(otherSel.value);
+            }
+          });
+
+          Array.from(currentSel.options).forEach((opt) => {
+            // Get original disabled state (from qualification checks)
+            const originalDisabled = optionStates.get(currentSel)?.get(opt.value) || false;
+            // Disable if: originally disabled OR already selected in another priority
+            const isDuplicate = opt.value && opt.value !== currentSel.value && selectedInOthers.has(opt.value);
+            opt.disabled = originalDisabled || isDuplicate;
+          });
+        });
+      };
+
+      rSelects.forEach((sel) => {
+        sel.addEventListener("change", updateDropdownAvailability);
+        // Prevent selection of disabled options
+        sel.addEventListener("change", () => {
+          const selectedOption = Array.from(sel.options).find((opt) => opt.value === sel.value);
+          if (selectedOption?.disabled) {
+            sel.value = ""; // Reset to "(None)"
+            alert("This role is not available for you. Check the requirements below.");
+          }
+        });
+      });
+      updateDropdownAvailability(); // Initial check
 
       // Info box: locked roles (deduplicated, base name only)
       const locked  = unique.filter((r) => !r.qualified);
@@ -545,6 +667,27 @@
       e.preventDefault();
       const rSelect = qs("[data-tmp-req-role-select]", reqForm);
       if (!rSelect.value || !root._member) return;
+
+      // Check if member already has a request for this meeting
+      const meetingId = reqForm.elements.meeting_id.value;
+      const hasExistingRequest = (root._memberRequests || []).some((r) => String(r.meeting_id) === meetingId);
+      if (hasExistingRequest) {
+        alert("You already have a request for this meeting. Please cancel it first if you want to request a different role.");
+        return;
+      }
+
+      // Validate that no disabled (greyed out) options were selected
+      const rSelects = qsa("[data-tmp-req-role-select]", reqForm);
+      for (const sel of rSelects) {
+        if (sel.value) {
+          const selectedOption = Array.from(sel.options).find((opt) => opt.value === sel.value);
+          if (selectedOption?.disabled) {
+            alert("You cannot select a role you are not qualified for. Please review the requirements shown in red.");
+            return;
+          }
+        }
+      }
+
       const btn = reqForm.querySelector("button");
       btn.disabled = true;
       try {
@@ -1423,19 +1566,28 @@
       if (!open) await renderRoleGateSettings();
     });
 
-    // Approve buttons in the Pending Requests section (outside meetingList — needs its own handler)
-    qs("[data-tmp-vpe-requests]", root)?.addEventListener("click", async (e) => {
-      const btn = e.target.closest("[data-vpe-approve-req]");
-      if (!btn || btn.disabled) return;
+    // Approve All Recommended button
+    qs("[data-tmp-approve-all-btn]", root)?.addEventListener("click", async (e) => {
+      const btn = e.target;
+      if (btn.disabled) return;
+      if (!confirm("Approve all recommended requests for all upcoming meetings?")) return;
       btn.disabled = true;
-      btn.textContent = "Approving…";
+      btn.textContent = "Approving all…";
       try {
-        await api("/assignments", { method: "POST", body: JSON.stringify({ id: btn.dataset.vpeApproveReq, member_id: btn.dataset.vpeMemberId, status: "Confirmed" }) });
-        await renderMeetings();
+        const result = await api("/assignments/approve-all-recommended", { method: "POST", body: JSON.stringify({}) });
+        if (result.success) {
+          alert(`✓ Approved ${result.approved} request${result.approved !== 1 ? 's' : ''}!`);
+          await renderMeetings();
+        } else if (result.failed && result.failed.length > 0) {
+          const failures = result.failed.map((f) => `${f.member}: ${f.reason}`).join("\n");
+          alert(`⚠ Some approvals failed:\n\n${failures}`);
+          await renderMeetings();
+        }
       } catch (err) {
-        alert("Approval failed: " + err.message);
+        alert("Bulk approval failed: " + err.message);
+      } finally {
         btn.disabled = false;
-        btn.textContent = "Approve";
+        btn.textContent = "Approve All Recommended";
       }
     });
 
@@ -1452,25 +1604,68 @@
   }
 
   async function renderPendingRequests(root) {
-    const reqs  = await api("/meetings/requests").catch(() => []);
+    const data  = await api("/meetings/requests").catch(() => ({ meetings: [] }));
     const count = qs("[data-tmp-request-count]", root);
     const list  = qs("[data-tmp-vpe-requests]", root);
+    const approveBtn = qs("[data-tmp-approve-all-btn]", root);
     if (!count || !list) return;
 
-    if (count) count.textContent = `${reqs.length} pending`;
-    list.innerHTML = reqs.length
-      ? `<div class="tmp-table-wrap"><table class="tmp-table">
-          <thead><tr><th>Meeting</th><th>Role</th><th>Member</th><th>Priority</th><th>Action</th></tr></thead>
-          <tbody>${reqs.map((r) => `
-            <tr>
-              <td data-label="Meeting">${esc(r.meeting_date)}</td>
-              <td data-label="Role">${esc(r.role_name)}</td>
-              <td data-label="Member"><strong>${esc(r.member_name)}</strong></td>
-              <td data-label="Priority"><span class="tmp-tag" style="background:#eee">P${esc(r.priority)}</span></td>
-              <td data-label="Action"><button class="tmp-small-button" style="background:#2e7d32;color:#fff;" data-vpe-approve-req="${esc(r.assignment_id)}" data-vpe-member-id="${esc(r.member_id)}">Approve</button></td>
-            </tr>`).join("")}
-          </tbody></table></div>`
-      : "<p>No pending requests across upcoming meetings.</p>";
+    const { meetings } = data;
+    const totalRequests = meetings.reduce((sum, m) => sum + m.totalRequests, 0);
+    if (count) count.textContent = `${totalRequests} pending`;
+
+    if (totalRequests === 0) {
+      list.innerHTML = "<p>No pending requests across upcoming meetings.</p>";
+      if (approveBtn) approveBtn.style.display = "none";
+      return;
+    }
+
+    if (approveBtn) approveBtn.style.display = "block";
+
+    let html = '<div style="display:flex;flex-direction:column;gap:12px;">';
+    for (const meeting of meetings) {
+      html += `<div style="border:1px solid #e0e0e0;border-radius:4px;padding:12px;background:#fafafa;">
+        <div style="font-weight:bold;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+          <span>${esc(meeting.meetingDate)} — ${esc(meeting.theme)}</span>
+          <span style="font-size:12px;color:#666;">${meeting.totalRequests} request${meeting.totalRequests !== 1 ? 's' : ''}</span>
+        </div>`;
+
+      for (const role of meeting.roles) {
+        html += `<div style="margin-left:12px;padding:8px;background:#fff;border-left:3px solid #01579b;margin-bottom:8px;">
+          <div style="font-weight:600;margin-bottom:6px;">${esc(role.roleName)}</div>`;
+
+        for (const req of role.requests) {
+          const scoreColor = req.score >= 100 ? '#2e7d32' : req.score >= 75 ? '#ef6c00' : '#999';
+          const recommendedBadge = req.isRecommended
+            ? '<span class="tmp-tag" style="background:#2e7d32;color:#fff;font-weight:bold;margin-left:4px;">✓ RECOMMENDED</span>'
+            : '';
+          const reasonsHtml = req.reasons && req.reasons.length > 0
+            ? req.reasons.map((r) => `<span class="tmp-tag" style="background:#e3f2fd;color:#01579b;font-size:11px;margin:2px;">${esc(r)}</span>`).join('')
+            : '';
+
+          html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;">
+            <div style="flex:1;">
+              <div style="font-size:13px;">
+                <strong>${esc(req.memberName)}</strong> (L${req.memberLevel}, ${esc(req.pathway)})
+                <span class="tmp-tag" style="background:#f5f5f5;margin:0 4px;">P${req.priority}</span>
+                ${recommendedBadge}
+              </div>
+              <div style="font-size:11px;margin-top:3px;color:#666;">
+                <span style="font-weight:bold;color:${scoreColor};">Score: ${req.score}</span>
+                ${reasonsHtml}
+              </div>
+            </div>
+          </div>`;
+        }
+
+        html += `</div>`;
+      }
+
+      html += `</div>`;
+    }
+    html += `</div>`;
+
+    list.innerHTML = html;
   }
 
   // ===========================================================================
