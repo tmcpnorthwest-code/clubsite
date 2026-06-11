@@ -17,6 +17,25 @@
   const qsa = (sel, root = document) => root ? Array.from(root.querySelectorAll(sel)) : [];
   const esc = (v) => String(v || "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 
+  function roleSort(roleName) {
+    const n = (roleName || "").replace(/\s*\(.*?\)\s*/g, "").trim().toLowerCase();
+    const sm = n.match(/^speaker\s*(\d+)$/);
+    const em = n.match(/^evaluator\s*(\d+)$/);
+    if (sm) return 100 + (parseInt(sm[1], 10) - 1) * 2;
+    if (em) return 101 + (parseInt(em[1], 10) - 1) * 2;
+    if (n.includes("table topics master"))  return 90;
+    if (n.includes("table topics speaker")) return 91;
+    if (n.includes("table topics"))         return 92;
+    if (n.includes("presiding officer"))    return 0;
+    if (n === "saa" || n.includes("sergeant at arms")) return 1;
+    if (n.includes("toastmaster"))          return 2;
+    if (n.includes("timer"))                return 3;
+    if (n.includes("ah counter"))           return 4;
+    if (n.includes("grammarian"))           return 5;
+    if (n.includes("general evaluator"))    return 6;
+    return 50;
+  }
+
   function formatTime(totalMinutes) {
     const h = Math.floor(totalMinutes / 60) % 24;
     const m = totalMinutes % 60;
@@ -134,14 +153,39 @@
         return `<li class="${cls}">${esc(lbl)}</li>`;
       }).join("");
 
-      if (member.milestones) {
-        qsa("[data-m]", root).forEach((el) => {
-          const key = el.dataset.m;
-          if (member.milestones[key]) { el.classList.add("tmp-done"); el.title = `Completed: ${member.milestones[key]}`; }
-        });
+      // Define which milestones are visible at each level
+      const milestonesByLevel = {
+        0: ['joined', 'orientation'],
+        1: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
+        2: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
+        3: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
+        4: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
+        5: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
+      };
+      const visibleMilestones = milestonesByLevel[level] || milestonesByLevel[5];
+
+      qsa("[data-m]", root).forEach((el) => {
+        const key = el.dataset.m;
+        const isVisible = visibleMilestones.includes(key);
+        el.style.display = isVisible ? "" : "none";
+        if (isVisible && member.milestones && member.milestones[key]) {
+          el.classList.add("tmp-done");
+          el.title = `Completed: ${member.milestones[key]}`;
+        }
+      });
+
+      // Add note about TI website for pathways details
+      const milestonesPanel = qs("[data-tmp-milestones]", root);
+      if (milestonesPanel && !qs("[data-tmp-ti-note]", milestonesPanel)) {
+        const note = document.createElement("p");
+        note.setAttribute("data-tmp-ti-note", "");
+        note.style.cssText = "margin-top:12px;padding:10px;background:#f0f7ff;border-left:4px solid #1976d2;font-size:12px;color:#333;";
+        note.innerHTML = `For detailed information about Pathways levels and requirements, visit <a href="https://www.toastmasters.org/pathways" target="_blank" rel="noopener" style="color:#1976d2;font-weight:bold;text-decoration:none;">Toastmasters Pathways Overview &rarr;</a>`;
+        milestonesPanel.appendChild(note);
       }
 
-      // ── Mentor card — only relevant for Level 1 members ──────────────────
+      // ── Mentor card — shown only for Level 0 and Level 1 members ──────────
+      // Levels 2+ have completed mentorship and no longer need the mentor card
       const mentorCard = qs("[data-tmp-mentor-card]", root);
       if (mentorCard) mentorCard.style.display = level > 1 ? "none" : "";
 
@@ -237,54 +281,74 @@
       root._renderJourney = renderJourney;
       await renderJourney();
 
-      // ── Active requests ────────────────────────────────────────────────────
-      const requests = await api("/me/requests").catch(() => []);
-      root._memberRequests = requests;
-      const arEl = qs("[data-tmp-active-requests]", root); if (arEl) arEl.innerHTML = requests.length
-        ? `<div class="tmp-table-wrap"><table class="tmp-table">
-            <thead><tr><th>Meeting</th><th>Role</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>${requests.map((r) => {
-              const approved = String(r.assigned_id) === String(member.id) && r.assignment_status === "Confirmed";
-              const denied   = r.assigned_id && String(r.assigned_id) !== String(member.id) && r.assignment_status === "Confirmed";
-              const style    = approved ? "background:#2e7d32;color:#fff;" : denied ? "background:#c62828;color:#fff;" : "background:#eee;color:#333;";
-              const label    = approved ? "Approved" : denied ? "Denied" : "Pending";
-              return `<tr><td data-label="Meeting">${esc(r.meeting_date)} - ${esc(r.theme)}</td><td data-label="Role">${esc(r.role_name)}</td>
-                <td data-label="Priority"><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
-                <td data-label="Status"><span class="tmp-tag" style="${style}">${label}</span></td>
-                <td data-label="Action"><button class="tmp-small-button tmp-danger" data-cancel-request="${esc(r.id)}">Cancel</button></td></tr>`;
-            }).join("")}</tbody></table></div>`
-        : "<p>You have no active role requests.</p>";
+      // ── Active Requests (unified: all upcoming requests with live status) ─────
+      const pendingData = await api("/me/pending-requests").catch(() => ({ requests: [] }));
+      root._memberRequests = pendingData.requests; // Used by duplicate-request guard below
 
-      // Badge: pending (not yet confirmed) request count
-      const pendingCount = requests.filter((r) => {
-        const approved = String(r.assigned_id) === String(member.id) && r.assignment_status === "Confirmed";
-        const denied   = r.assigned_id && String(r.assigned_id) !== String(member.id) && r.assignment_status === "Confirmed";
-        return !approved && !denied;
-      }).length;
+      // Badge: count of genuinely undecided requests
+      const pendingCount = pendingData.requests.filter((r) => r.status === "Pending").length;
       const badgeEl = qs("[data-tmp-meeting-badge]", root);
       if (badgeEl) { badgeEl.textContent = pendingCount; badgeEl.style.display = pendingCount > 0 ? "inline-flex" : "none"; }
 
-      // ── Pending Requests (after VPE approval) ───────────────────────────────
-      const pendingData = await api("/me/pending-requests").catch(() => ({ requests: [] }));
-      const prEl = qs("[data-tmp-pending-requests]", root);
-      if (prEl) {
-        prEl.innerHTML = pendingData.requests.length
-          ? `<div class="tmp-table-wrap"><table class="tmp-table">
-              <thead><tr><th>Meeting</th><th>Role</th><th>Priority</th><th>Status</th><th>Reason</th></tr></thead>
-              <tbody>${pendingData.requests.map((r) => {
-                const statusColor = r.status === 'Approved' ? '#2e7d32' : r.status === 'NotSelected' ? '#c62828' : '#ef6c00';
-                const statusIcon = r.status === 'Approved' ? '✓' : r.status === 'NotSelected' ? '✗' : '⏳';
-                const reasonHtml = r.reason ? `<details style="cursor:pointer;"><summary style="color:#666;">Show reason</summary><p style="margin:8px 0;color:#555;font-size:12px;">${esc(r.reason)}</p></details>` : '';
-                return `<tr style="background:${r.isExpired ? '#f5f5f5' : '#fff'}">
-                  <td data-label="Meeting">${esc(r.meetingDate)} - ${esc(r.meetingTheme)}${r.isExpired ? '<br><small style="color:var(--tmp-muted)">Expired</small>' : ''}</td>
-                  <td data-label="Role">${esc(r.roleName)}</td>
-                  <td data-label="Priority"><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
-                  <td data-label="Status"><span class="tmp-tag" style="background:${statusColor};color:#fff;font-weight:bold;">${statusIcon} ${r.status}</span></td>
-                  <td data-label="Reason">${reasonHtml}</td>
-                </tr>`;
-              }).join("")}</tbody></table></div>`
-          : "<p>No pending request results yet. Requests will appear here after the VPE approval deadline.</p>";
+      // Group requests by meeting for display
+      const byMeeting = {};
+      for (const r of pendingData.requests) {
+        if (!byMeeting[r.meetingId]) {
+          byMeeting[r.meetingId] = { meetingDate: r.meetingDate, meetingTheme: r.meetingTheme, deadline: r.deadline, requests: [] };
+        }
+        byMeeting[r.meetingId].requests.push(r);
       }
+
+      const arEl = qs("[data-tmp-active-requests]", root);
+      if (arEl) {
+        const meetingGroups = Object.values(byMeeting);
+        if (meetingGroups.length === 0) {
+          arEl.innerHTML = "<p>You have no active role requests.</p>";
+        } else {
+          const nowTs = new Date();
+          let html = "";
+          for (const mtg of meetingGroups) {
+            const deadlinePassed = mtg.deadline && new Date(mtg.deadline) <= nowTs;
+            const deadlineNote   = mtg.deadline
+              ? (deadlinePassed
+                  ? `<span style="font-size:11px;color:var(--tmp-burgundy);">Request window closed</span>`
+                  : `<span style="font-size:11px;color:#2e7d32;">Open until ${esc(mtg.deadline.slice(0, 10))}</span>`)
+              : "";
+            html += `<div style="margin-bottom:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <strong>${esc(mtg.meetingDate)} — ${esc(mtg.meetingTheme)}</strong>
+                ${deadlineNote}
+              </div>
+              <div class="tmp-table-wrap"><table class="tmp-table">
+                <thead><tr><th>Role</th><th>Priority</th><th>Status</th><th>Reason</th><th>Action</th></tr></thead>
+                <tbody>${mtg.requests.map((r) => {
+                  const statusColor = r.status === "Approved" ? "#2e7d32" : r.status === "NotSelected" ? "#c62828" : "#757575";
+                  const statusIcon  = r.status === "Approved" ? "✓" : r.status === "NotSelected" ? "✗" : "⏳";
+                  const statusLabel = r.status === "Approved" ? "Approved" : r.status === "NotSelected" ? "Not Selected" : "Pending";
+                  const reasonHtml  = r.reason ? `<span style="color:#555;font-size:12px;">${esc(r.reason)}</span>` : "—";
+                  const canCancel   = r.status === "Pending" && !deadlinePassed;
+                  const actionHtml  = canCancel
+                    ? `<button class="tmp-small-button tmp-danger" data-cancel-request="${esc(r.requestId)}">Cancel</button>`
+                    : "—";
+                  return `<tr>
+                    <td data-label="Role">${esc(r.roleName)}</td>
+                    <td data-label="Priority"><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
+                    <td data-label="Status"><span class="tmp-tag" style="background:${statusColor};color:#fff;font-weight:bold;">${statusIcon} ${statusLabel}</span></td>
+                    <td data-label="Reason">${reasonHtml}</td>
+                    <td data-label="Action">${actionHtml}</td>
+                  </tr>`;
+                }).join("")}
+                </tbody>
+              </table></div>
+            </div>`;
+          }
+          arEl.innerHTML = html;
+        }
+      }
+
+      // Clear the old separate post-deadline section — merged into the view above
+      const prEl = qs("[data-tmp-pending-requests]", root);
+      if (prEl) prEl.innerHTML = "";
 
       // ── Request history ────────────────────────────────────────────────────
       const history = await api("/me/requests/history").catch(() => []);
@@ -292,12 +356,12 @@
         ? `<div class="tmp-table-wrap"><table class="tmp-table">
             <thead><tr><th>Meeting</th><th>Role</th><th>Priority</th><th>Status</th></tr></thead>
             <tbody>${history.map((r) => {
-              const approved = String(r.assigned_id) === String(member.id) && r.assignment_status === "Confirmed";
-              const denied   = r.assigned_id && String(r.assigned_id) !== String(member.id) && r.assignment_status === "Confirmed";
-              const style    = approved ? "background:#2e7d32;color:#fff;" : denied ? "background:#c62828;color:#fff;" : "background:#eee;color:#333;";
+              const statusColor = r.request_status === "Approved" ? "#2e7d32" : r.request_status === "NotSelected" ? "#c62828" : "#eee";
+              const textColor   = (r.request_status === "Approved" || r.request_status === "NotSelected") ? "#fff" : "#333";
+              const label       = r.request_status === "Approved" ? "Approved" : r.request_status === "NotSelected" ? "Not Selected" : "Unprocessed";
               return `<tr><td data-label="Meeting">${esc(r.meeting_date)} - ${esc(r.theme)}</td><td data-label="Role">${esc(r.role_name)}</td>
                 <td data-label="Priority"><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
-                <td data-label="Status"><span class="tmp-tag" style="${style}">${approved ? "Approved" : denied ? "Denied" : "Unprocessed"}</span></td></tr>`;
+                <td data-label="Status"><span class="tmp-tag" style="background:${statusColor};color:${textColor};">${label}</span></td></tr>`;
             }).join("")}</tbody></table></div>`
         : "<p>No request history found.</p>";
 
@@ -561,7 +625,7 @@
       }
 
       // Check if member already has a request for this meeting
-      const hasExistingRequest = (root._memberRequests || []).some((r) => String(r.meeting_id) === mSelect.value);
+      const hasExistingRequest = (root._memberRequests || []).some((r) => String(r.meetingId) === mSelect.value);
       const dupeWarning = qs("[data-tmp-dupe-request-warning]", reqForm);
       if (dupeWarning) {
         if (hasExistingRequest) {
@@ -600,7 +664,7 @@
         });
       }
 
-      const qualified = unique.filter((r) => r.qualified);
+      const qualified = unique.filter((r) => r.qualified).sort((a, b) => roleSort(a.display) - roleSort(b.display));
       const opts = '<option value="">(None)</option>' +
         qualified.map((r) => {
           let label = r.display;
@@ -662,7 +726,7 @@
 
       // Check if member already has a request for this meeting
       const meetingId = reqForm.elements.meeting_id.value;
-      const hasExistingRequest = (root._memberRequests || []).some((r) => String(r.meeting_id) === meetingId);
+      const hasExistingRequest = (root._memberRequests || []).some((r) => String(r.meetingId) === meetingId);
       if (hasExistingRequest) {
         alert("You already have a request for this meeting. Please cancel it first if you want to request a different role.");
         return;
@@ -923,6 +987,7 @@
       const levelLabel = (lvl) => lvl === 0 ? "Level 0" : `Level ${lvl}`;
 
       if (overviewList) {
+        const dueMap = Object.fromEntries((root._dueForRoles || []).map((d) => [String(d.id), d]));
         if (overviewCount) overviewCount.textContent = `${sortedEligible.length} member${sortedEligible.length !== 1 ? "s" : ""}`;
         overviewList.innerHTML = sortedEligible.length
           ? `<div class="tmp-table-wrap"><table class="tmp-table">
@@ -933,11 +998,16 @@
                 <th>Phone</th>
                 <th>Email</th>
                 <th>Recent</th>
+                <th>Last Role</th>
                 <th>Mentor</th>
                 <th>Actions</th>
               </tr></thead>
               <tbody>${sortedEligible.map((m) => {
                 const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
+                const due = dueMap[String(m.id)];
+                const lastRoleCell = due
+                  ? `<span class="tmp-tag" style="background:${Number(due.days_since_role) > 28 ? "#b71c1c" : "#ef6c00"};color:#fff;font-size:11px;">${due.days_since_role}d ago</span>`
+                  : `<span style="color:var(--tmp-muted);font-size:11px;">—</span>`;
                 return `<tr ${inactive ? 'style="background:#fff8e1"' : ""}>
                   <td data-label="Name"><strong>${esc(m.full_name)}</strong>${inactive ? `<br><small style="color:#ef6c00;font-weight:bold">No roles in last ${m.total_recent_meetings_checked} meetings</small>` : ""}</td>
                   <td data-label="Pathway"><small>${esc(m.pathway)}</small></td>
@@ -945,6 +1015,7 @@
                   <td data-label="Phone"><small>${esc(m.phone || "—")}</small></td>
                   <td data-label="Email"><small>${esc(m.email)}</small></td>
                   <td data-label="Recent">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
+                  <td data-label="Last Role">${lastRoleCell}</td>
                   <td data-label="Mentor">${esc(m.mentor_name || "—")}</td>
                   <td data-label="Action">${m.level === 0
                     ? `<button class="tmp-small-button" type="button" data-assign-mentor="${esc(m.id)}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">
@@ -957,28 +1028,7 @@
       }
     }
 
-    // -- Due for roles --------------------------------------------------------
-    async function renderDueForRoles() {
-      const due    = await api("/members/due-for-roles").catch(() => []);
-      const sect   = qs("[data-tmp-due-roles-section]", root);
-      const cntEl  = qs("[data-tmp-due-roles-count]", root);
-      const listEl = qs("[data-tmp-due-roles-list]", root);
-      if (!sect || !listEl) return;
-
-      if (cntEl) cntEl.textContent = due.length ? `${due.length} members` : "";
-      listEl.innerHTML = due.length
-        ? `<div class="tmp-table-wrap"><table class="tmp-table">
-            <thead><tr><th>Member</th><th>Level</th><th>Last Role</th><th>Days Since</th></tr></thead>
-            <tbody>${due.map((m) => `
-              <tr>
-                <td data-label="Member"><strong>${esc(m.full_name)}</strong><br><small>${esc(m.pathway)}</small></td>
-                <td data-label="Level">Level ${esc(m.level)}</td>
-                <td data-label="Last Role">${m.last_role_date ? esc(m.last_role_date) : "<em>Never</em>"}</td>
-                <td data-label="Days Since"><span class="tmp-tag" style="background:${Number(m.days_since_role) > 28 ? "#b71c1c" : "#ef6c00"};color:#fff;">${esc(m.days_since_role)} days</span></td>
-              </tr>`).join("")}
-            </tbody></table></div>`
-        : "<p style=\"color:var(--tmp-muted)\">All eligible members have participated within the cooloff window.</p>";
-    }
+    // -- Due for roles (data loaded at init, used by renderMembers + renderRoleStatus) --------
 
     // -- Meetings list --------------------------------------------------------
     async function renderMeetings(selectedId = null) {
@@ -993,30 +1043,34 @@
       if (selectedId) meetingSelect.value = selectedId;
       updateRoles();
 
-      meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting) => {
+      meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting, idx) => {
         const [h, min] = (meeting.start_time || "18:30:00").split(":").map(Number);
         let t = h * 60 + (min || 0);
 
-        const agendaHtml = (meeting.assignments || []).map((a) => {
-          const start = formatTime(t);
-          const dur   = Number(a.duration || 0);
+        // Pure timeline rows — no operational data (status/cooloff/suitability live in Role Status panel)
+        const agendaRows = (meeting.assignments || []).map((a) => {
+          const start   = formatTime(t);
+          const dur     = Number(a.duration || 0);
           t += dur;
-          const end   = formatTime(t);
-          const hasOverride = a.cooloff_override == 1;
-          return `<li>
-            <span>
-              <strong>${esc(a.role_name)}</strong> / ${a.member_name ? esc(a.member_name) : (a.first_requester ? `<em>Req by ${esc(a.first_requester)}</em>` : "Unassigned")} / ${esc(a.status)} / <small class="tmp-time-tag">${start} / ${dur}m / ${end}</small>
-              ${a.status === "Requested" ? ' <span class="tmp-tag" style="background:#ffd700;padding:2px 4px;border-radius:3px;font-size:10px;">PRIORITY</span>' : ""}
-              ${a.request_count > 1 ? ` <span class="tmp-tag" style="background:#ff5722;color:#fff;padding:2px 4px;border-radius:3px;font-size:10px;">CONFLICT (${a.request_count})</span>` : ""}
-              ${hasOverride ? ` <span class="tmp-tag" style="background:#ff9800;color:#fff;padding:2px 4px;border-radius:3px;font-size:10px;" title="${esc(a.override_reason || "")}">COOLOFF OVERRIDE</span>` : ""}
-              ${a.suitability ? `<span class="tmp-tag" style="background:${a.suitability.suitable ? "#e1f5fe" : "#ffebee"};color:${a.suitability.suitable ? "#01579b" : "#b71c1c"};padding:2px 4px;border-radius:3px;font-size:10px;margin-left:5px;">${esc(a.suitability.reason)}</span>` : ""}
-              ${a.speech_title ? `<br><small>Title: ${esc(a.speech_title)}</small>` : ""}
-            </span>
-            <span>
-              ${a.request_count > 0 ? `<button class="tmp-small-button" style="background:#01579b;color:#fff;font-weight:bold;" type="button" data-view-conflicts="${esc(a.id)}">Review (${a.request_count})</button>` : ""}
-              <button class="tmp-small-button tmp-danger" type="button" data-delete-assignment="${esc(a.id)}">Delete</button>
-            </span>
-          </li>`;
+          const end     = formatTime(t);
+          const isBreak = a.role_name.toLowerCase().startsWith("break");
+
+          if (isBreak) {
+            return `<tr style="background:#f5f5f5;">
+              <td style="color:var(--tmp-muted);">${start}</td>
+              <td style="color:var(--tmp-muted);">${dur}m</td>
+              <td style="color:var(--tmp-muted);">${end}</td>
+              <td colspan="2" style="color:var(--tmp-muted);font-style:italic;text-align:center;">— Break —</td>
+            </tr>`;
+          }
+
+          return `<tr>
+            <td>${start}</td>
+            <td>${dur}m</td>
+            <td>${end}</td>
+            <td>${esc(a.role_name)}${a.speech_title ? `<br><small style="color:var(--tmp-muted);">${esc(a.speech_title)}</small>` : ""}</td>
+            <td>${a.member_name ? esc(a.member_name) : '<em style="color:#ef6c00;">TBA</em>'}</td>
+          </tr>`;
         }).join("");
 
         const totalUsed = t - (h * 60 + (min || 0));
@@ -1025,26 +1079,59 @@
           ? `<p class="tmp-tag" style="background:#b71c1c;color:#fff;display:block;margin:10px 0;text-align:center;padding:5px;border-radius:4px;">Warning: Agenda (${totalUsed}m) exceeds limit (${limit}m)</p>`
           : "";
 
-        return `<article class="tmp-agenda-card">
-          <div class="tmp-card-head">
-            <h4>${esc(meeting.meeting_date)} - ${esc(meeting.theme)}</h4>
-            <div>
-              <span class="tmp-tag">${esc((meeting.start_time || "18:30").substring(0, 5))}</span>
-              ${meeting.requests_close_at ? `<span class="tmp-tag" style="background:#607d8b">Closes: ${esc(meeting.requests_close_at.substring(0, 16))}</span>` : ""}
+        const agendaTable = agendaRows
+          ? `<div class="tmp-table-wrap" style="margin-top:12px;">
+              <table class="tmp-table">
+                <thead><tr><th>Start</th><th>Dur</th><th>End</th><th>Agenda Item</th><th>Member</th></tr></thead>
+                <tbody>${agendaRows}</tbody>
+              </table>
+            </div>`
+          : `<p style="color:var(--tmp-muted);margin-top:12px;">No agenda items yet.</p>`;
+
+        // Assignment-readiness badge (role-count, not agenda-item count)
+        const assignments = meeting.assignments || [];
+        const roleSlots   = assignments.filter((a) => !a.role_name.toLowerCase().startsWith("break"));
+        const unassigned  = roleSlots.filter((a) => !a.member_id).length;
+        const statusBg    = roleSlots.length === 0 ? "#9e9e9e" : unassigned === 0 ? "#2e7d32" : "#ef6c00";
+        const statusLabel = roleSlots.length === 0
+          ? "No roles yet"
+          : unassigned === 0
+            ? "All roles assigned ✓"
+            : `${unassigned} role${unassigned > 1 ? "s" : ""} need${unassigned === 1 ? "s" : ""} a member`;
+
+        const defaultOpen = idx === 0;
+        const bodyDisplay = defaultOpen ? "block" : "none";
+        const ariaExp     = defaultOpen ? "true" : "false";
+        const chevronRot  = defaultOpen ? "rotate(90deg)" : "";
+
+        return `<article class="tmp-agenda-card" data-agenda-meeting="${esc(meeting.id)}">
+          <button class="tmp-agenda-card-toggle" aria-expanded="${ariaExp}" style="width:100%;background:none;border:none;padding:0;cursor:pointer;text-align:left;">
+            <div class="tmp-card-head" style="pointer-events:none;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <h4 style="margin:0;">${esc(meeting.meeting_date)} — ${esc(meeting.theme)}</h4>
+                <span class="tmp-tag" style="background:${statusBg};color:#fff;font-size:11px;">${esc(statusLabel)}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span class="tmp-tag">${esc((meeting.start_time || "18:30").substring(0, 5))}</span>
+                ${meeting.requests_close_at ? `<span class="tmp-tag" style="background:#607d8b;color:#fff;">Closes: ${esc(meeting.requests_close_at.substring(0, 16))}</span>` : ""}
+                <span class="tmp-chevron" aria-hidden="true" style="transform:${chevronRot};transition:transform 0.2s;">&#9658;</span>
+              </div>
+            </div>
+          </button>
+          <div class="tmp-agenda-card-body" style="display:${bodyDisplay};">
+            <p style="margin:6px 0 0;color:var(--tmp-muted);font-size:13px;">${esc(meeting.venue || "Venue not set")}${meeting.agenda_notes ? ` · ${esc(meeting.agenda_notes)}` : ""}</p>
+            ${warning}
+            ${agendaTable}
+            <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;">
+              <button class="tmp-button tmp-secondary tmp-small" data-print-agenda="${meeting.id}">Print Agenda</button>
+              <button class="tmp-button tmp-danger tmp-small" data-delete-meeting="${meeting.id}">Delete Meeting</button>
             </div>
           </div>
-          <p>${esc(meeting.venue || "Venue not set")}</p>
-          <p>${esc(meeting.agenda_notes || "")}</p>
-          ${warning}
-          <ul class="tmp-assignment-list">${agendaHtml || "<li><span>No roles scheduled yet.</span></li>"}</ul>
-          <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;">
-            <button class="tmp-button tmp-secondary tmp-small" data-suggest-roles="${meeting.id}">Get Intelligent Suggestions</button>
-            <button class="tmp-button tmp-secondary tmp-small" data-print-agenda="${meeting.id}">Print Agenda</button>
-            <button class="tmp-button tmp-danger tmp-small" data-delete-meeting="${meeting.id}">Delete Meeting</button>
-          </div>
-          <div data-tmp-suggestion-panel="${meeting.id}" style="display:none;margin-top:14px;"></div>
         </article>`;
       }).join("")}</div>`;
+
+      // Keep the Role Status panel in sync with the currently selected meeting
+      if (meetingSelect.value) renderRoleStatus(meetingSelect.value);
     }
 
     // -- Assignment form helpers ----------------------------------------------
@@ -1070,6 +1157,7 @@
         dedupedSlots.push({ id: a.id, base, memberName: a.member_name });
       }
 
+      dedupedSlots.sort((a, b) => roleSort(a.base) - roleSort(b.base));
       let html = '<option value="">-- Select a Slot --</option>';
       html += dedupedSlots.map((s) =>
         `<option value="id:${esc(s.id)}">${esc(s.base)}${s.memberName ? ` (${esc(s.memberName)})` : " (Unassigned)"}</option>`
@@ -1149,7 +1237,182 @@
       }
     }
 
-    meetingSelect.addEventListener("change", updateRoles);
+    // -- Role Status panel ---------------------------------------------------
+    // Groups multi-segment roles (e.g. Grammarian Intro + Grammarian Closing = one row),
+    // renders an inline member dropdown per role, and handles save + slot removal.
+    function renderRoleStatus(meetingId) {
+      const panel = qs("[data-tmp-role-status-panel]", root);
+      if (!panel) return;
+      if (!meetingId) { panel.style.display = "none"; return; }
+
+      const meeting = (root._meetings || []).find((m) => String(m.id) === String(meetingId));
+      if (!meeting) { panel.style.display = "none"; return; }
+
+      // Group by base role — collapses multi-segment duplicates (Intro+Closing) into one row
+      const roleGroups = {};
+      for (const a of (meeting.assignments || [])) {
+        if (a.role_name.toLowerCase().startsWith("break")) continue;
+        const base = a.role_name.replace(/\s*\(.*?\)\s*/g, "").trim();
+        if (!roleGroups[base]) roleGroups[base] = [];
+        roleGroups[base].push(a);
+      }
+      if (!Object.keys(roleGroups).length) { panel.style.display = "none"; return; }
+
+      panel.style.display = "block";
+
+      const dueRoleMap = Object.fromEntries((root._dueForRoles || []).map((d) => [String(d.id), d]));
+
+      const rows = Object.entries(roleGroups)
+        .sort(([a], [b]) => roleSort(a) - roleSort(b))
+        .map(([baseRole, group]) => {
+        const primary = group[0];
+        const allIds  = group.map((a) => a.id).join(",");
+        const minLevel = roleGateLevel(primary.role_name);
+
+        // Mark members already assigned to OTHER roles in this meeting
+        const takenIds = new Set(
+          Object.entries(roleGroups)
+            .filter(([k]) => k !== baseRole)
+            .flatMap(([, g]) => g.filter((a) => a.member_id).map((a) => String(a.member_id)))
+        );
+
+        const eligible = (root._allMembers || []).filter((m) => m.is_eligible && m.level >= minLevel);
+        const overdueEligible = eligible.filter((m) => dueRoleMap[String(m.id)])
+          .sort((a, b) => Number(dueRoleMap[String(b.id)].days_since_role) - Number(dueRoleMap[String(a.id)].days_since_role));
+        const regularEligible = eligible.filter((m) => !dueRoleMap[String(m.id)]);
+
+        let opts = '<option value="">— Unassigned —</option>';
+        if (overdueEligible.length) {
+          opts += `<optgroup label="Haven't had a role recently">` +
+            overdueEligible.map((m) => {
+              const note = takenIds.has(String(m.id)) ? " (other role)" : "";
+              const days = dueRoleMap[String(m.id)].days_since_role;
+              return `<option value="${esc(m.id)}" ${String(m.id) === String(primary.member_id) ? "selected" : ""}>${esc(m.full_name)} (L${m.level}) — ${days}d${note}</option>`;
+            }).join("") + `</optgroup>`;
+        }
+        opts += `<optgroup label="All eligible">` +
+          regularEligible.map((m) => {
+            const note = takenIds.has(String(m.id)) ? " (other role)" : "";
+            return `<option value="${esc(m.id)}" ${String(m.id) === String(primary.member_id) ? "selected" : ""}>${esc(m.full_name)} (L${m.level})${note}</option>`;
+          }).join("") + `</optgroup>`;
+
+        const notes = [];
+        if (primary.status === "Needs replacement") notes.push(`<span class="tmp-tag" style="background:#b71c1c;color:#fff;font-size:10px;">⚠ Needs replacement</span>`);
+        if (primary.cooloff_override == 1) notes.push(`<span class="tmp-tag" style="background:#ff9800;color:#fff;font-size:10px;" title="${esc(primary.override_reason || "")}">Cooloff override</span>`);
+        if (primary.suitability && !primary.suitability.suitable) notes.push(`<span class="tmp-tag" style="background:#ffebee;color:#b71c1c;font-size:10px;">${esc(primary.suitability.reason)}</span>`);
+
+        return `<tr>
+          <td data-label="Role" style="white-space:nowrap;">${esc(baseRole)}</td>
+          <td data-label="Member">
+            <select data-assign-roles="${esc(allIds)}" style="width:100%;max-width:220px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">${opts}</select>
+          </td>
+          <td data-label="Notes" style="font-size:11px;">${notes.join(" ") || "—"}</td>
+          <td data-label="Action"><button class="tmp-small-button tmp-danger" type="button" data-delete-roles="${esc(allIds)}" data-role-name="${esc(baseRole)}">Remove slot</button></td>
+        </tr>`;
+      }).join("");
+
+      panel.innerHTML = `
+        <div style="margin-bottom:10px;">
+          <strong style="font-size:13px;">${esc(meeting.meeting_date)} — ${esc(meeting.theme)}</strong>
+          <span style="font-size:12px;color:var(--tmp-muted);margin-left:8px;">Select a member in any row to assign. Use the form above only for new slots, durations, or speech titles.</span>
+        </div>
+        <div class="tmp-table-wrap">
+          <table class="tmp-table" style="font-size:0.88rem;">
+            <thead><tr><th>Role</th><th>Member</th><th>Notes</th><th>Action</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+
+      // Register change (assign) and click (remove) once per panel lifetime
+      if (!panel._listenersAdded) {
+        panel._listenersAdded = true;
+
+        panel.addEventListener("change", async (e) => {
+          const sel = e.target.closest("[data-assign-roles]");
+          if (!sel) return;
+          const ids      = sel.dataset.assignRoles.split(",");
+          const memberId = sel.value || null;
+          sel.disabled   = true;
+          try {
+            for (const id of ids) {
+              await api("/assignments", { method: "POST", body: JSON.stringify({ id: parseInt(id), member_id: memberId, status: memberId ? "Confirmed" : "Planned" }) });
+            }
+            await renderMeetings(meetingSelect.value);
+            updateMemberDashboard().catch(() => {});
+          } catch (err) {
+            alert("Failed to assign: " + err.message);
+            sel.disabled = false;
+          }
+        });
+
+        panel.addEventListener("click", async (e) => {
+          const btn = e.target.closest("[data-delete-roles]");
+          if (!btn) return;
+          const roleName = btn.dataset.roleName || "this role";
+          if (!confirm(`Remove the "${roleName}" slot from this meeting?\n\nThe agenda item will be deleted. Use this when a role won't be needed for this meeting.`)) return;
+          btn.disabled = true;
+          try {
+            for (const id of btn.dataset.deleteRoles.split(",")) {
+              await api(`/assignments/${id}`, { method: "DELETE" });
+            }
+            await renderMeetings(meetingSelect.value);
+            updateMemberDashboard().catch(() => {});
+          } catch (err) {
+            alert("Failed to remove: " + err.message);
+            btn.disabled = false;
+          }
+        });
+      }
+    }
+
+    meetingSelect.addEventListener("change", () => {
+      updateRoles();
+      renderRoleStatus(meetingSelect.value);
+    });
+
+    const suggestionsPanel = qs("[data-tmp-role-suggestions]", assignmentForm);
+
+    function hideSuggestions() {
+      if (suggestionsPanel) { suggestionsPanel.style.display = "none"; suggestionsPanel.innerHTML = ""; }
+    }
+
+    function showSuggestButton(meetingId, roleName) {
+      if (!suggestionsPanel || !meetingId || !roleName) return;
+      suggestionsPanel.style.display = "block";
+      suggestionsPanel.innerHTML = `<button type="button" class="tmp-link-button" data-tmp-fetch-suggestions style="font-size:12px;color:#1976d2;">
+        Suggest a member for "${esc(roleName)}" →
+      </button>`;
+      qs("[data-tmp-fetch-suggestions]", suggestionsPanel)?.addEventListener("click", async () => {
+        suggestionsPanel.innerHTML = `<span style="font-size:12px;color:var(--tmp-muted);">Loading suggestions…</span>`;
+        try {
+          const data  = await api(`/meetings/${meetingId}/suggestions`);
+          const suggs = (data.suggestions || []).filter((s) => {
+            const base = (roleName || "").replace(/\s*\(.*?\)\s*/g, "").replace(/\s+\d+$/, "").trim().toLowerCase();
+            return s.role_name.toLowerCase().includes(base) || base.includes(s.role_name.toLowerCase());
+          }).slice(0, 3);
+          if (!suggs.length) {
+            suggestionsPanel.innerHTML = `<span style="font-size:12px;color:var(--tmp-muted);">No suggestions available for this slot.</span>`;
+            return;
+          }
+          suggestionsPanel.innerHTML = `<div style="background:#f0f7ff;border:1px solid #bbdefb;border-radius:4px;padding:10px 12px;font-size:12px;">
+            <p style="margin:0 0 6px;font-weight:bold;color:#01579b;">Suggested members</p>
+            ${suggs.map((s) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #e3f2fd;">
+              <span><strong>${esc(s.suggested_member_name)}</strong> <small style="color:var(--tmp-muted);">${esc(s.progression_note || "")}</small></span>
+              <button type="button" class="tmp-small-button" data-pick-suggested="${esc(s.suggested_member_id)}">Select</button>
+            </div>`).join("")}
+          </div>`;
+          suggestionsPanel.querySelectorAll("[data-pick-suggested]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              if (memberSelect) memberSelect.value = btn.dataset.pickSuggested;
+              memberSelect?.dispatchEvent(new Event("change"));
+              hideSuggestions();
+            });
+          });
+        } catch (err) {
+          suggestionsPanel.innerHTML = `<span style="font-size:12px;color:var(--tmp-burgundy);">Error: ${esc(err.message)}</span>`;
+        }
+      });
+    }
 
     roleSelect.addEventListener("change", () => {
       const val = roleSelect.value;
@@ -1160,6 +1423,7 @@
         assignmentForm.elements.meeting_id.value = mid;
         assignmentForm.elements.role_name.value  = "";
         toggleFieldsByRole("");
+        hideSuggestions();
         if (cooloffWarning) { cooloffWarning.style.display = "none"; }
         if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "none";
         return;
@@ -1192,6 +1456,9 @@
       updateMemberDropdown(roleName);
       const selMemberId = assignmentForm.elements.member_id?.value;
       if (selMemberId) checkCooloffForMember(selMemberId, roleName);
+      // Show inline suggestion button for this slot
+      if (roleName && mid) showSuggestButton(mid, roleName);
+      else hideSuggestions();
     });
 
     memberSelect?.addEventListener("change", () => {
@@ -1207,15 +1474,28 @@
     // Meeting form submit
     meetingForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      const btn = ev.target.querySelector("button[type=submit]");
+      const btn      = ev.target.querySelector("button[type=submit]");
+      const statusEl = qs("[data-tmp-meeting-save-status]", root);
       if (btn) btn.disabled = true;
       try {
-        const newM = await api("/meetings", { method: "POST", body: JSON.stringify(formData(meetingForm)) });
-        alert("Meeting created successfully with role templates!");
+        const d    = formData(meetingForm);
+        const newM = await api("/meetings", { method: "POST", body: JSON.stringify(d) });
         clearForm(meetingForm);
+        // Auto-collapse the form after a successful save
+        const formToggle = qs("[data-tmp-meeting-form-toggle]", root);
+        const formBody   = qs("[data-tmp-meeting-form-body]", root);
+        if (formToggle) { formToggle.setAttribute("aria-expanded", "false"); qs(".tmp-chevron", formToggle).style.transform = ""; }
+        if (formBody)   formBody.style.display = "none";
+        // Inline success feedback
+        if (statusEl) {
+          statusEl.textContent = `Meeting for ${esc(d.meeting_date || "new date")} created — roles ready.`;
+          statusEl.style.color = "#2e7d32";
+          setTimeout(() => { if (statusEl) { statusEl.textContent = ""; } }, 4000);
+        }
         await renderMeetings(newM.id);
       } catch (err) {
-        alert("Failed to save meeting: " + err.message);
+        if (statusEl) { statusEl.textContent = "Failed: " + err.message; statusEl.style.color = "#c62828"; }
+        else alert("Failed to save meeting: " + err.message);
       } finally {
         if (btn) btn.disabled = false;
       }
@@ -1226,15 +1506,19 @@
       ev.preventDefault();
       const btn = ev.target.querySelector("button[type=submit]");
       if (btn) btn.disabled = true;
+      const retainMeetingId = meetingSelect.value;
       try {
         const d = formData(assignmentForm);
         await api("/assignments", { method: "POST", body: JSON.stringify(d) });
-        alert("Assignment saved.");
         clearForm(assignmentForm);
+        assignmentForm.elements.meeting_id.value = retainMeetingId;
         toggleFieldsByRole("");
+        hideSuggestions();
         if (cooloffWarning) cooloffWarning.style.display = "none";
         if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "none";
-        await renderMeetings();
+        await renderMeetings(retainMeetingId);
+        updateRoles();
+        renderRoleStatus(retainMeetingId);
       } catch (err) {
         alert("Failed to save assignment: " + err.message);
       } finally {
@@ -1242,31 +1526,70 @@
       }
     });
 
+    // Collapsible meeting form toggle
+    qs("[data-tmp-meeting-form-toggle]", root)?.addEventListener("click", (e) => {
+      const btn  = e.currentTarget;
+      const open = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!open));
+      const body = qs("[data-tmp-meeting-form-body]", root);
+      if (body) body.style.display = open ? "none" : "block";
+      const chevron = qs(".tmp-chevron", btn);
+      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+    });
+
+    // "Customise roles" toggle — shows/hides the checkbox grid
+    qs("[data-tmp-customise-roles]", root)?.addEventListener("click", (e) => {
+      const btn  = e.currentTarget;
+      const grid = qs("[data-tmp-roles-grid]", root);
+      if (!grid) return;
+      const open = grid.style.display !== "none";
+      grid.style.display = open ? "none" : "grid";
+      btn.textContent = open ? "Customise roles ▾" : "Use standard template ▴";
+    });
+
+    // Auto-fill deadline = meeting date − 3 days at 18:00 when date changes
+    meetingForm.elements.meeting_date?.addEventListener("change", () => {
+      const dateVal = meetingForm.elements.meeting_date.value;
+      if (!dateVal) return;
+      const deadlineInput = meetingForm.elements.requests_close_at;
+      if (!deadlineInput || deadlineInput.value) return; // don't overwrite if already set
+      const d = new Date(dateVal + "T00:00:00");
+      d.setDate(d.getDate() - 3);
+      const yyyy = d.getFullYear();
+      const mm   = String(d.getMonth() + 1).padStart(2, "0");
+      const dd   = String(d.getDate()).padStart(2, "0");
+      deadlineInput.value = `${yyyy}-${mm}-${dd}T18:00`;
+    });
+
     qs("[data-tmp-clear-meeting]",    root)?.addEventListener("click", () => clearForm(meetingForm));
     qs("[data-tmp-clear-assignment]", root)?.addEventListener("click", () => {
       clearForm(assignmentForm);
       toggleFieldsByRole("");
+      hideSuggestions();
       if (cooloffWarning) cooloffWarning.style.display = "none";
       if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "none";
     });
 
     // Meeting list event delegation
     meetingList.addEventListener("click", async (e) => {
-      const del          = e.target.closest("[data-delete-assignment]");
-      const suggest      = e.target.closest("[data-suggest-roles]");
+      // Collapsible agenda card toggle
+      const cardToggle = e.target.closest(".tmp-agenda-card-toggle");
+      if (cardToggle) {
+        const open = cardToggle.getAttribute("aria-expanded") === "true";
+        cardToggle.setAttribute("aria-expanded", String(!open));
+        const body    = cardToggle.nextElementSibling;
+        if (body) body.style.display = open ? "none" : "block";
+        const chevron = cardToggle.querySelector(".tmp-chevron");
+        if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+        return;
+      }
+
       const print        = e.target.closest("[data-print-agenda]");
       const viewConflicts= e.target.closest("[data-view-conflicts]");
       const delMeeting   = e.target.closest("[data-delete-meeting]");
       const approveReq   = e.target.closest("[data-vpe-approve-req]");
 
-      if (del) {
-        if (confirm("Remove this role from the agenda?")) {
-          e.target.closest("li")?.remove();
-          await api(`/assignments/${del.dataset.deleteAssignment}`, { method: "DELETE" });
-          await renderMeetings();
-          updateMemberDashboard().catch(() => {});
-        }
-      } else if (delMeeting) {
+      if (delMeeting) {
         if (confirm("Delete this meeting and all its assignments permanently?")) {
           e.target.closest("article")?.remove();
           await api(`/meetings/${delMeeting.dataset.deleteMeeting}`, { method: "DELETE" });
@@ -1298,64 +1621,6 @@
       } else if (print) {
         const m = root._meetings.find((x) => String(x.id) === print.dataset.printAgenda);
         if (m) generatePrintView(m);
-      } else if (suggest) {
-        const meetingId = suggest.dataset.suggestRoles;
-        const panel = qs(`[data-tmp-suggestion-panel="${meetingId}"]`, meetingList);
-        if (panel) { panel.style.display = "block"; panel.innerHTML = '<p style="color:var(--tmp-muted);margin:0;">Calculating suggestions…</p>'; }
-        let data, suggs, trace;
-        try {
-          data  = await api(`/meetings/${meetingId}/suggestions`);
-          suggs = data.suggestions || [];
-          trace = data.trace || [];
-        } catch (err) {
-          if (panel) panel.innerHTML = `<p style="color:var(--tmp-burgundy);margin:0;">Error: ${esc(err.message)}</p>`;
-          return;
-        }
-        if (!suggs.length) {
-          if (panel) panel.innerHTML = `<div style="background:#f5f5f5;border-radius:6px;padding:12px 14px;">
-            <strong>No suggestions available.</strong>
-            <details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:var(--tmp-muted)">Show trace</summary>
-            <pre style="font-size:11px;margin:6px 0 0;white-space:pre-wrap;color:var(--tmp-muted)">${esc(trace.join("\n"))}</pre></details>
-          </div>`;
-          return;
-        }
-        if (panel) panel.innerHTML = `
-          <div style="background:#f0f7ff;border:1px solid #bbdefb;border-radius:6px;padding:14px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-              <strong>Suggested Assignments (${suggs.length})</strong>
-              <button class="tmp-small-button tmp-primary" data-apply-all="${meetingId}">Apply All</button>
-            </div>
-            <table class="tmp-table" style="min-width:0;font-size:0.88rem;">
-              <thead><tr><th>Role</th><th>Member</th><th>Reason</th><th></th></tr></thead>
-              <tbody>${suggs.map((s) => `<tr>
-                <td>${esc(s.role_name)}</td>
-                <td><strong>${esc(s.suggested_member_name)}</strong></td>
-                <td style="color:var(--tmp-muted)"><small>${esc(s.progression_note || "")}</small></td>
-                <td><button class="tmp-small-button" data-apply-one="${esc(s.id)}" data-apply-member="${esc(s.suggested_member_id)}">Apply</button></td>
-              </tr>`).join("")}</tbody>
-            </table>
-          </div>`;
-        // Store suggestions for Apply All
-        if (panel) panel._suggestions = suggs;
-
-      } else if (e.target.closest("[data-apply-one]")) {
-        const btn = e.target.closest("[data-apply-one]");
-        btn.disabled = true;
-        await api("/assignments", { method: "POST", body: JSON.stringify({ id: btn.dataset.applyOne, member_id: btn.dataset.applyMember, status: "Confirmed" }) });
-        btn.closest("tr").style.background = "#e8f5e9";
-        btn.textContent = "✓";
-        await renderMeetings();
-
-      } else if (e.target.closest("[data-apply-all]")) {
-        const btn     = e.target.closest("[data-apply-all]");
-        const panel   = btn.closest("[data-tmp-suggestion-panel]");
-        const suggs   = panel?._suggestions || [];
-        btn.disabled  = true;
-        btn.textContent = "Applying…";
-        for (const s of suggs) {
-          await api("/assignments", { method: "POST", body: JSON.stringify({ id: s.id, member_id: s.suggested_member_id, status: "Confirmed" }) });
-        }
-        await renderMeetings();
       }
     });
 
@@ -1572,9 +1837,9 @@
     });
 
     try {
+      root._dueForRoles = await api("/members/due-for-roles").catch(() => []);
       await Promise.all([
         renderMembers(true).catch((err) => console.error("Members load failed:", err)),
-        renderDueForRoles().catch((err) => console.error("Due-for-roles failed:", err)),
         renderMeetings(),
       ]);
     } catch (err) {
@@ -1621,7 +1886,7 @@
           <span style="font-size:12px;color:#666;">${meeting.totalRequests} request${meeting.totalRequests !== 1 ? 's' : ''}</span>
         </div>`;
 
-      for (const role of meeting.roles) {
+      for (const role of meeting.roles.slice().sort((a, b) => roleSort(a.roleName) - roleSort(b.roleName))) {
         html += `<div style="margin-left:12px;padding:8px;background:#fff;border-left:3px solid #01579b;margin-bottom:8px;">
           <div style="font-weight:600;margin-bottom:6px;">${esc(role.roleName)}</div>`;
 
@@ -1634,18 +1899,21 @@
             ? req.reasons.map((r) => `<span class="tmp-tag" style="background:#e3f2fd;color:#01579b;font-size:11px;margin:2px;">${esc(r)}</span>`).join('')
             : '';
 
-          html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;">
+          html += `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:8px;border-bottom:1px solid #eee;background:#fafafa;">
             <div style="flex:1;">
-              <div style="font-size:13px;">
+              <div style="font-size:13px;margin-bottom:4px;">
                 <strong>${esc(req.memberName)}</strong> (L${req.memberLevel}, ${esc(req.pathway)})
                 <span class="tmp-tag" style="background:#f5f5f5;margin:0 4px;">P${req.priority}</span>
                 ${recommendedBadge}
               </div>
-              <div style="font-size:11px;margin-top:3px;color:#666;">
+              <div style="font-size:11px;color:#666;">
                 <span style="font-weight:bold;color:${scoreColor};">Score: ${req.score}</span>
                 ${reasonsHtml}
               </div>
             </div>
+            <button class="tmp-small-button" data-approve-request="${req.requestId}" data-member-id="${req.memberId}" data-meeting-id="${meeting.meetingId}" data-role-name="${esc(role.roleName)}" style="white-space:nowrap;margin-left:8px;">
+              Approve
+            </button>
           </div>`;
         }
 
@@ -1657,6 +1925,44 @@
     html += `</div>`;
 
     list.innerHTML = html;
+
+    // Register the approve-click handler only once per root element.
+    // renderPendingRequests is called after every approval, so without this guard
+    // each re-render would stack another listener on the same element, causing
+    // duplicate API calls that trigger the "already approved" guard on the server.
+    if (!root._vpeApproveListenerAdded) {
+      root._vpeApproveListenerAdded = true;
+      qs("[data-tmp-vpe-requests]", root)?.addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-approve-request]");
+        if (!btn || btn.disabled) return;
+
+        const requestId = btn.dataset.approveRequest;
+        const memberId = btn.dataset.memberId;
+        const meetingId = btn.dataset.meetingId;
+        const roleName = btn.dataset.roleName;
+
+        btn.disabled = true;
+        btn.textContent = "Approving...";
+        try {
+          await api("/requests/approve-and-cascade-reject", {
+            method: "POST",
+            body: JSON.stringify({
+              request_id: parseInt(requestId),
+              member_id: parseInt(memberId),
+              meeting_id: parseInt(meetingId),
+              role_name: roleName
+            })
+          });
+          await renderPendingRequests(root);
+          refreshVPE();
+          updateMemberDashboard().catch(() => {});
+        } catch (err) {
+          alert("Error: " + err.message);
+          btn.disabled = false;
+          btn.textContent = "Approve";
+        }
+      });
+    }
   }
 
   // ===========================================================================

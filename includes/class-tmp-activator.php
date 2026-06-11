@@ -170,10 +170,14 @@ class TMP_Activator {
             member_id BIGINT UNSIGNED NOT NULL,
             assignment_id BIGINT UNSIGNED NOT NULL,
             priority TINYINT UNSIGNED NOT NULL,
+            status VARCHAR(50) DEFAULT 'Pending',
+            reason TEXT NULL,
             created_at DATETIME NOT NULL,
+            updated_at DATETIME NULL,
             PRIMARY KEY  (id),
             KEY meeting_id (meeting_id),
-            KEY member_id (member_id)
+            KEY member_id (member_id),
+            KEY status (status)
         ) $charset;");
 
         dbDelta("CREATE TABLE {$participation} (

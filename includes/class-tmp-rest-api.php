@@ -66,6 +66,12 @@ class TMP_REST_API {
             'permission_callback' => 'is_user_logged_in',
         ]);
 
+        register_rest_route('toastmasters/v1', '/requests/approve-and-cascade-reject', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'approve_and_cascade_reject'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
         // ── Open slots ─────────────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/meetings/open-slots', [
             'methods'             => WP_REST_Server::READABLE,
@@ -172,6 +178,12 @@ class TMP_REST_API {
         register_rest_route('toastmasters/v1', '/assignments/approve-all-recommended', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [__CLASS__, 'approve_all_recommended_requests'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/assignments/approve-conflict-resolved', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'approve_conflict_resolved'],
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
@@ -315,6 +327,22 @@ class TMP_REST_API {
             return new WP_Error('tmp_unauthorized', 'You must be a linked member to cancel requests.', ['status' => 401]);
         }
         return rest_ensure_response(['deleted' => TMP_Repository::delete_request((int) $request['id'], $member['id'])]);
+    }
+
+    public static function approve_and_cascade_reject(WP_REST_Request $request) {
+        $params = $request->get_json_params();
+        $request_id = (int) ($params['request_id'] ?? 0);
+        $member_id = (int) ($params['member_id'] ?? 0);
+        $meeting_id = (int) ($params['meeting_id'] ?? 0);
+        $role_name = sanitize_text_field($params['role_name'] ?? '');
+
+        if (!$request_id || !$member_id || !$meeting_id || !$role_name) {
+            return new WP_Error('tmp_invalid', 'Missing required parameters', ['status' => 400]);
+        }
+
+        $result = TMP_Repository::approve_request_and_cascade_reject($request_id, $member_id, $meeting_id, $role_name);
+        if (is_wp_error($result)) return $result;
+        return rest_ensure_response($result);
     }
 
     // ── Members ────────────────────────────────────────────────────────────────
@@ -480,6 +508,21 @@ class TMP_REST_API {
         $params = $request->get_json_params();
         $meeting_id = isset($params['meeting_id']) ? (int) $params['meeting_id'] : null;
         $result = TMP_Repository::approve_all_recommended($meeting_id);
+        return rest_ensure_response($result);
+    }
+
+    public static function approve_conflict_resolved(WP_REST_Request $request) {
+        $params = $request->get_json_params();
+        $member_id = (int) ($params['member_id'] ?? 0);
+        $meeting_id = (int) ($params['meeting_id'] ?? 0);
+        $selected_role = sanitize_text_field($params['selected_role'] ?? '');
+
+        if (!$member_id || !$meeting_id || !$selected_role) {
+            return new WP_Error('tmp_invalid', 'Missing required parameters', ['status' => 400]);
+        }
+
+        $result = TMP_Repository::approve_conflict_resolved($member_id, $meeting_id, $selected_role);
+        if (is_wp_error($result)) return $result;
         return rest_ensure_response($result);
     }
 

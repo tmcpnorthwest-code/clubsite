@@ -140,6 +140,16 @@
   color: var(--tmp-burgundy);
 }
 
+.tmp-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  color: var(--tmp-teal);
+  font-size: inherit;
+}
+
 /* ── Forms ───────────────────────────────────────────────────────────────── */
 
 .tmp-form {

@@ -301,15 +301,6 @@ class TMP_Shortcodes {
                 <div data-tmp-vpe-requests>Loading requests...</div>
             </section>
 
-            <!-- Members due for a role (no role in last cooloff window) -->
-            <section class="tmp-panel" data-tmp-due-roles-section>
-                <div class="tmp-card-head">
-                    <h3>Members Due for a Role</h3>
-                    <span data-tmp-due-roles-count></span>
-                </div>
-                <div data-tmp-due-roles-list>Loading...</div>
-            </section>
-
             <section class="tmp-panel">
                 <div class="tmp-card-head">
                     <h3>Member Overview (Paid)</h3>
@@ -356,37 +347,52 @@ class TMP_Shortcodes {
                 <div data-tmp-vpe-member-list>Loading members...</div>
             </section>
 
-            <form class="tmp-panel tmp-form" data-tmp-meeting-form>
-                <input type="hidden" name="id" />
-                <label>Meeting date <input type="date" name="meeting_date" required /></label>
-                <label>Start time <input type="time" name="start_time" value="18:30" /></label>
-                <label>Total Duration (mins) <input type="number" name="total_duration" value="120" min="0" /></label>
-                <label>Requests deadline <input type="datetime-local" name="requests_close_at" /></label>
-                <label>Theme <input name="theme" required placeholder="Meeting theme" /></label>
-                <label>Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
-                <div class="tmp-wide tmp-roles-setup" style="margin:10px 0;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;">
-                    <p class="tmp-eyebrow">Meeting Template (New meetings only)</p>
-                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px;">
-                        <?php foreach (TMP_Repository::get_standard_roles() as $fullName => $shortName) : ?>
-                            <label><input type="checkbox" name="roles[]" value="<?php echo esc_attr($fullName); ?>" checked> <?php echo esc_html($shortName); ?></label>
-                        <?php endforeach; ?>
+            <section class="tmp-panel">
+                <button class="tmp-collapsible-toggle" data-tmp-meeting-form-toggle aria-expanded="false" style="width:100%;text-align:left;">
+                    Schedule New Meeting
+                    <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+                </button>
+                <div data-tmp-meeting-form-body style="display:none;margin-top:14px;">
+                <form class="tmp-form" data-tmp-meeting-form>
+                    <input type="hidden" name="id" />
+                    <label>Meeting date <input type="date" name="meeting_date" required /></label>
+                    <label>Start time <input type="time" name="start_time" value="18:30" /></label>
+                    <label>Total Duration (mins) <input type="number" name="total_duration" value="120" min="0" /></label>
+                    <label>Requests deadline <input type="datetime-local" name="requests_close_at" /></label>
+                    <label>Theme <input name="theme" required placeholder="Meeting theme" /></label>
+                    <label>Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
+                    <div class="tmp-wide tmp-roles-setup" style="margin:10px 0;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;">
+                        <p class="tmp-eyebrow">Meeting Template (New meetings only)</p>
+                        <p style="font-size:12px;color:#555;margin:0 0 8px;">
+                            Using standard agenda with all roles.
+                            <button type="button" class="tmp-link-button" data-tmp-customise-roles style="margin-left:6px;font-size:12px;">Customise roles ▾</button>
+                        </p>
+                        <div data-tmp-roles-grid style="display:none;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px;">
+                            <?php foreach (TMP_Repository::get_standard_roles() as $fullName => $shortName) : ?>
+                                <label><input type="checkbox" name="roles[]" value="<?php echo esc_attr($fullName); ?>" checked> <?php echo esc_html($shortName); ?></label>
+                            <?php endforeach; ?>
+                        </div>
+                        <label>Number of Speech Slots <input type="number" name="speech_slots" value="3" min="0" max="10" /></label>
+                        <p style="font-size:11px;color:#666;margin-top:5px;">* This will automatically create matching Evaluator and Table Topics Speaker slots.</p>
                     </div>
-                    <label>Number of Speech Slots <input type="number" name="speech_slots" value="3" min="0" max="10" /></label>
-                    <p style="font-size:11px;color:#666;margin-top:5px;">* This will automatically create matching Evaluator and Table Topics Speaker slots.</p>
+                    <label class="tmp-wide">Agenda notes <textarea name="agenda_notes" rows="2"></textarea></label>
+                    <div class="tmp-form-actions tmp-wide">
+                        <button class="tmp-button tmp-primary" type="submit">Save Meeting</button>
+                        <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-meeting>Clear</button>
+                        <span class="tmp-inline-status" data-tmp-meeting-save-status style="margin-left:10px;font-size:13px;"></span>
+                    </div>
+                </form>
                 </div>
-                <label class="tmp-wide">Agenda notes <textarea name="agenda_notes" rows="2"></textarea></label>
-                <div class="tmp-form-actions tmp-wide">
-                    <button class="tmp-button tmp-primary" type="submit">Save Meeting</button>
-                    <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-meeting>Clear</button>
-                </div>
-            </form>
+            </section>
 
             <form class="tmp-panel tmp-form" data-tmp-assignment-form>
                 <input type="hidden" name="id" />
                 <input type="hidden" name="role_name" />
                 <label>Meeting <select name="meeting_id" required data-tmp-meeting-select></select></label>
-                <div class="tmp-wide"><small>Create unassigned role slots here. Members can then request these roles, and you can approve them with one click.</small></div>
+                <div class="tmp-wide"><small>Add a new role slot, change duration, or set a speech title. To assign members to existing slots, use the Role Assignments table below.</small></div>
                 <label>Role <select data-tmp-role-select required></select></label>
+                <!-- Inline role suggestions — shown by JS when a role slot is selected -->
+                <div data-tmp-role-suggestions class="tmp-wide" style="display:none;"></div>
                 <label>Member <select name="member_id" data-tmp-member-select></select></label>
                 <!-- Cooloff warning injected here by JS -->
                 <div data-tmp-cooloff-warning style="display:none;" class="tmp-wide"></div>
@@ -425,6 +431,12 @@ class TMP_Shortcodes {
                     <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-assignment>Clear</button>
                 </div>
             </form>
+
+            <!-- Role Status panel — populated by JS when a meeting is selected in the form above -->
+            <section class="tmp-panel" data-tmp-role-status-panel style="display:none;">
+                <p class="tmp-eyebrow">Role assignments</p>
+                <!-- content injected by renderRoleStatus() -->
+            </section>
 
             <section class="tmp-panel">
                 <div class="tmp-card-head">

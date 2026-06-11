@@ -1201,65 +1201,69 @@ class TMP_Repository {
      * Returns: { approved: count, failed: [{ member, role, reason }] }
      */
     public static function approve_all_recommended($meeting_id = null) {
-        $pending = self::get_all_pending_requests();
         $approved_count = 0;
         $failed = [];
 
-        foreach ($pending as $meeting) {
-            // If specific meeting, skip others
-            if ($meeting_id && $meeting['meetingId'] !== $meeting_id) {
-                continue;
+        // Continuously re-fetch pending requests after each approval
+        // This ensures cascading rejections are reflected immediately
+        while (true) {
+            $pending = self::get_all_pending_requests();
+            if (empty($pending)) {
+                break;
             }
 
-            foreach ($meeting['roles'] as $role) {
-                // Find the recommended request
-                $recommended = null;
-                foreach ($role['requests'] as $req) {
-                    if ($req['isRecommended']) {
-                        $recommended = $req;
-                        break;
+            $found_any = false;
+
+            foreach ($pending as $meeting) {
+                // If specific meeting, skip others
+                if ($meeting_id && $meeting['meetingId'] !== $meeting_id) {
+                    continue;
+                }
+
+                // For each role, approve the recommended request (which cascades to reject other member requests)
+                foreach ($meeting['roles'] as $role) {
+                    $recommended = null;
+                    foreach ($role['requests'] as $req) {
+                        if ($req['isRecommended']) {
+                            $recommended = $req;
+                            break;
+                        }
                     }
+
+                    if (!$recommended) {
+                        continue;
+                    }
+
+                    // Approve this request (cascade-reject member's other requests automatically)
+                    $result = self::approve_request_and_cascade_reject(
+                        $recommended['requestId'],
+                        $recommended['memberId'],
+                        $meeting['meetingId'],
+                        $role['roleName']
+                    );
+
+                    if (is_wp_error($result)) {
+                        $failed[] = [
+                            'member' => $recommended['memberName'],
+                            'role' => $role['roleName'],
+                            'reason' => $result->get_error_message()
+                        ];
+                        continue;
+                    }
+
+                    $approved_count++;
+                    $found_any = true;
+                    break; // Exit role loop to re-fetch fresh pending list
                 }
 
-                if (!$recommended) {
-                    continue;
+                if ($found_any) {
+                    break; // Exit meeting loop to re-fetch fresh pending list
                 }
+            }
 
-                // Re-validate eligibility (state may have changed)
-                $validation = self::validate_request_eligibility(
-                    $recommended['memberId'],
-                    $recommended['assignment_id'],  // assignment_id needed for validation
-                    $role['roleName']
-                );
-
-                if (!$validation['eligible']) {
-                    $failed[] = [
-                        'member' => $recommended['memberName'],
-                        'role' => $role['roleName'],
-                        'reason' => $validation['reason']
-                    ];
-                    continue;
-                }
-
-                // Create assignment
-                $assignment = self::save_assignment([
-                    'id' => $recommended['assignmentId'],
-                    'member_id' => $recommended['memberId'],
-                    'status' => 'Confirmed'
-                ]);
-
-                if (is_wp_error($assignment)) {
-                    $failed[] = [
-                        'member' => $recommended['memberName'],
-                        'role' => $role['roleName'],
-                        'reason' => $assignment->get_error_message()
-                    ];
-                    continue;
-                }
-
-                // Delete request (success)
-                self::delete_request($recommended['requestId'], $recommended['memberId']);
-                $approved_count++;
+            // If no recommendations found in this iteration, we're done
+            if (!$found_any) {
+                break;
             }
         }
 
@@ -1267,6 +1271,112 @@ class TMP_Repository {
             'approved' => $approved_count,
             'failed' => $failed,
             'success' => count($failed) === 0
+        ];
+    }
+
+    /**
+     * VPE approves a specific request and cascade-rejects member's other requests for that meeting
+     * Ensures one assignment per member per meeting
+     */
+    public static function approve_request_and_cascade_reject($request_id, $member_id, $meeting_id, $role_name) {
+        global $wpdb;
+        $requests = self::request_table();
+
+        // Guard: member cannot hold two roles at the same meeting
+        $already_approved = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$requests}
+             WHERE member_id = %d AND meeting_id = %d AND status = 'Approved'",
+            $member_id,
+            $meeting_id
+        ));
+        if ($already_approved > 0) {
+            return new WP_Error('tmp_already_approved', 'Member already has an approved role at this meeting', ['status' => 400]);
+        }
+
+        // Fetch the request (get assignment_id for slot-exact matching)
+        $request = $wpdb->get_row($wpdb->prepare(
+            "SELECT id, assignment_id FROM {$requests}
+             WHERE id = %d AND member_id = %d AND status = 'Pending'",
+            $request_id,
+            $member_id
+        ), ARRAY_A);
+
+        if (!$request) {
+            return new WP_Error('tmp_not_found', 'Request not found or already processed', ['status' => 404]);
+        }
+
+        $assignment_id = (int) $request['assignment_id'];
+
+        // Re-validate eligibility before approving
+        $validation = self::validate_request_eligibility($member_id, $assignment_id, $role_name);
+        if (!$validation['eligible']) {
+            return new WP_Error('tmp_ineligible', $validation['reason'], ['status' => 400]);
+        }
+
+        // Update only the specific assignment slot — bypass save_assignment's singular-role
+        // propagation which was designed for the manual VPE workflow and would incorrectly
+        // overwrite other variant slots (e.g. "Speaker 1 (Intro)") when one is confirmed.
+        $now_assign = current_time('mysql');
+        $wpdb->update(
+            self::assignment_table(),
+            ['member_id' => $member_id, 'status' => 'Confirmed', 'updated_at' => $now_assign],
+            ['id' => $assignment_id],
+            ['%d', '%s', '%s'],
+            ['%d']
+        );
+        if ($wpdb->last_error) {
+            return new WP_Error('tmp_db_error', 'Failed to update assignment: ' . $wpdb->last_error, ['status' => 500]);
+        }
+
+        $base_role = self::get_base_role_name($role_name);
+        $now = current_time('mysql');
+
+        // Mark this request as Approved
+        $wpdb->update(
+            $requests,
+            ['status' => 'Approved', 'updated_at' => $now],
+            ['id' => $request_id],
+            ['%s', '%s'], ['%d']
+        );
+
+        // STEP 1: Reject member's OTHER pending requests at this meeting
+        // Uses r.meeting_id directly — no join needed, avoids any mismatch
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$requests}
+             SET status = 'NotSelected',
+                 reason = %s,
+                 updated_at = %s
+             WHERE member_id = %d
+               AND meeting_id = %d
+               AND id != %d
+               AND status = 'Pending'",
+            "You were assigned {$base_role} at this meeting",
+            $now,
+            $member_id,
+            $meeting_id,
+            $request_id
+        ));
+
+        // STEP 2: Reject OTHER members' requests for this exact assignment slot only
+        // Scoped to assignment_id so unrelated roles are never touched
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$requests}
+             SET status = 'NotSelected',
+                 reason = %s,
+                 updated_at = %s
+             WHERE assignment_id = %d
+               AND member_id != %d
+               AND status = 'Pending'",
+            "{$base_role} has been assigned to another member",
+            $now,
+            $assignment_id,
+            $member_id
+        ));
+
+        return [
+            'success'      => true,
+            'message'      => 'Request approved',
+            'approved_role' => $base_role,
         ];
     }
 
@@ -2122,24 +2232,26 @@ class TMP_Repository {
         $today = current_time('Y-m-d');
 
         $raw_requests = $wpdb->get_results($wpdb->prepare(
-            "SELECT r.*, m.meeting_date, m.theme, m.id as meeting_id, a.role_name, mem.full_name as member_name, mem.level as member_level, mem.pathway
+            "SELECT r.*, m.meeting_date, m.theme, m.id as meeting_id,
+                    COALESCE(a.role_name, 'Unknown Role') as role_name,
+                    mem.full_name as member_name, mem.level as member_level, mem.pathway
              FROM {$requests} r
              JOIN {$meetings} m ON r.meeting_id = m.id
-             JOIN {$assignments} a ON r.assignment_id = a.id
+             LEFT JOIN {$assignments} a ON r.assignment_id = a.id
              JOIN {$members} mem ON r.member_id = mem.id
              WHERE m.meeting_date >= %s
-             ORDER BY m.meeting_date ASC, a.role_name ASC, r.priority ASC",
+               AND r.status = 'Pending'
+             ORDER BY m.meeting_date ASC, role_name ASC, r.priority ASC",
             $today
         ), ARRAY_A);
 
-        // Organize into tree structure: meeting → role → requests with scoring
+        // Organize into tree structure: meeting → role (base name) → requests with scoring
         $meetings_map = [];
-        $slot_requests = []; // Track all requests for each slot to find winner
 
         foreach ($raw_requests as $req) {
             $meeting_key = $req['meeting_id'];
-            $role_base = self::get_base_role_name($req['role_name']);
-            $slot_key = (int) $req['assignment_id'];
+            $role_base = self::get_base_role_name($req['role_name']); // Normalize role name
+            $slot_key = $role_base;
 
             if (!isset($meetings_map[$meeting_key])) {
                 $meetings_map[$meeting_key] = [
@@ -2150,8 +2262,8 @@ class TMP_Repository {
                 ];
             }
 
-            if (!isset($meetings_map[$meeting_key]['roles'][$role_base])) {
-                $meetings_map[$meeting_key]['roles'][$role_base] = [
+            if (!isset($meetings_map[$meeting_key]['roles'][$slot_key])) {
+                $meetings_map[$meeting_key]['roles'][$slot_key] = [
                     'roleName' => $role_base,
                     'requests' => []
                 ];
@@ -2168,61 +2280,126 @@ class TMP_Repository {
             $req['memberLevel'] = (int) $req['member_level'];
             $req['isRecommended'] = false; // Will set to true for highest scorer
 
-            $meetings_map[$meeting_key]['roles'][$role_base]['requests'][] = $req;
-
-            // Track for finding winner
-            if (!isset($slot_requests[$slot_key])) {
-                $slot_requests[$slot_key] = [];
-            }
-            $slot_requests[$slot_key][] = $req;
+            $meetings_map[$meeting_key]['roles'][$slot_key]['requests'][] = $req;
         }
 
-        // Identify recommended (highest score) for each slot and generate reasons
-        foreach ($slot_requests as $slot_key => $reqs) {
-            if (empty($reqs)) continue;
+        // GREEDY ALLOCATION: per-meeting, recommend each member for at most one role.
+        // Prevents same member showing as "Recommended" across multiple roles simultaneously.
+        foreach ($meetings_map as &$meeting) {
+            // Flatten all requests for this meeting into one list for sorting
+            $candidates = [];
+            foreach ($meeting['roles'] as $role_key => $role) {
+                foreach ($role['requests'] as $req) {
+                    $candidates[] = [
+                        'role_key'  => $role_key,
+                        'member_id' => (int) $req['member_id'],
+                        'score'     => (int) $req['score'],
+                        'priority'  => (int) $req['priority'],
+                    ];
+                }
+            }
 
-            // Sort by score (descending) then priority (ascending)
-            usort($reqs, function ($a, $b) {
-                $score_cmp = $b['score'] - $a['score'];
-                if ($score_cmp !== 0) return $score_cmp;
+            // Sort: highest score first, then lowest priority number (P1 best)
+            usort($candidates, function ($a, $b) {
+                if ($b['score'] !== $a['score']) return $b['score'] - $a['score'];
                 return $a['priority'] - $b['priority'];
             });
 
-            $winner = $reqs[0];
-            $winner_id = (int) $winner['member_id'];
-            $winner_assignment_id = (int) $winner['assignment_id'];
+            // Greedy assign: each member gets at most one recommended role
+            $role_winner   = []; // role_key  → member_id
+            $member_placed = []; // member_id → true
+            foreach ($candidates as $c) {
+                if (isset($member_placed[$c['member_id']]) || isset($role_winner[$c['role_key']])) {
+                    continue;
+                }
+                $role_winner[$c['role_key']]       = $c['member_id'];
+                $member_placed[$c['member_id']]    = true;
+            }
 
-            // Mark winner as recommended and generate reasons for losers
-            foreach ($meetings_map as &$meeting) {
-                foreach ($meeting['roles'] as &$role) {
-                    foreach ($role['requests'] as &$req) {
-                        $req_assignment_id = (int) $req['assignment_id'];
-                        $req_member_id = (int) $req['member_id'];
+            // Apply recommendations and generate reasons
+            foreach ($meeting['roles'] as &$role) {
+                $role_key       = $role['roleName'];
+                $winner_id      = $role_winner[$role_key] ?? null;
 
-                        if ($req_assignment_id === $winner_assignment_id) {
-                            if ($req_member_id === $winner_id) {
-                                $req['isRecommended'] = true;
-                                $req['reasons'] = self::get_reason_tags_for_request($req);
-                            } else {
-                                $req['reason'] = self::get_reason_for_not_selected($req, $winner, $reqs);
-                            }
+                // Find winner's request for reason generation
+                $winner_req = null;
+                if ($winner_id !== null) {
+                    foreach ($role['requests'] as $req) {
+                        if ((int) $req['member_id'] === $winner_id) {
+                            $winner_req = $req;
+                            break;
                         }
                     }
                 }
-            }
-        }
 
-        // Convert to final format
+                foreach ($role['requests'] as &$req) {
+                    if ($winner_id !== null && (int) $req['member_id'] === $winner_id) {
+                        $req['isRecommended'] = true;
+                        $req['reasons']       = self::get_reason_tags_for_request($req);
+                    } else {
+                        $req['isRecommended'] = false;
+                        $req['reason']        = $winner_req
+                            ? self::get_reason_for_not_selected($req, $winner_req, $role['requests'])
+                            : null;
+                    }
+                }
+                unset($req);
+            }
+            unset($role);
+        }
+        unset($meeting);
+
+        // Convert to final format: Role → Requested by Members
+        // Use explicit deduplication by role name to prevent duplicate roles
         $result = [];
         foreach ($meetings_map as $meeting) {
-            $roles = [];
+            $roles_by_name = []; // Deduplicate roles by name
+
             foreach ($meeting['roles'] as $role) {
-                usort($role['requests'], function ($a, $b) {
-                    return $a['priority'] - $b['priority'];
+                $role_name = $role['roleName'];
+
+                // If this role already exists, merge requests
+                if (!isset($roles_by_name[$role_name])) {
+                    $roles_by_name[$role_name] = [
+                        'roleName' => $role_name,
+                        'requests' => []
+                    ];
+                }
+
+                // Add all requests to this role, avoiding duplicates
+                foreach ($role['requests'] as $req) {
+                    $req_id = (int) $req['id'];
+                    // Check if request already exists in this role
+                    $exists = false;
+                    foreach ($roles_by_name[$role_name]['requests'] as $existing) {
+                        if ((int) $existing['id'] === $req_id) {
+                            $exists = true;
+                            break;
+                        }
+                    }
+                    if (!$exists) {
+                        $roles_by_name[$role_name]['requests'][] = $req;
+                    }
+                }
+            }
+
+            // Convert deduplicated roles to final format
+            $roles = [];
+            foreach ($roles_by_name as $role_name => $role) {
+                // Sort requests by recommendation, then by score
+                $requests = $role['requests'];
+                usort($requests, function ($a, $b) {
+                    $rec_a = (bool) ($a['isRecommended'] ?? false);
+                    $rec_b = (bool) ($b['isRecommended'] ?? false);
+                    if ($rec_a !== $rec_b) {
+                        return $rec_a ? -1 : 1; // Recommended first
+                    }
+                    return $b['score'] - $a['score']; // Then by score
                 });
+
                 $roles[] = [
-                    'roleName' => $role['roleName'],
-                    'requestCount' => count($role['requests']),
+                    'roleName' => $role_name,
+                    'requestCount' => count($requests),
                     'requests' => array_map(function ($req) {
                         return [
                             'requestId' => (int) $req['id'],
@@ -2233,11 +2410,11 @@ class TMP_Repository {
                             'pathway' => $req['pathway'],
                             'priority' => (int) $req['priority'],
                             'score' => (int) $req['score'],
-                            'isRecommended' => (bool) $req['isRecommended'],
+                            'isRecommended' => (bool) ($req['isRecommended'] ?? false),
                             'reasons' => $req['reasons'] ?? [],
                             'reason' => $req['reason'] ?? null
                         ];
-                    }, $role['requests'])
+                    }, $requests)
                 ];
             }
 
@@ -2290,16 +2467,18 @@ class TMP_Repository {
 
     public static function get_member_request_history($member_id) {
         global $wpdb;
-        $requests   = self::request_table();
-        $meetings   = self::meeting_table();
+        $requests    = self::request_table();
+        $meetings    = self::meeting_table();
         $assignments = self::assignment_table();
         $today = current_time('Y-m-d');
 
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT r.id, r.priority, m.meeting_date, m.theme, a.role_name, a.member_id as assigned_id, a.status as assignment_status
+            "SELECT r.id, r.priority, r.status as request_status, r.reason,
+                    m.meeting_date, m.theme,
+                    COALESCE(a.role_name, 'Unknown Role') as role_name
              FROM {$requests} r
              JOIN {$meetings} m ON r.meeting_id = m.id
-             JOIN {$assignments} a ON r.assignment_id = a.id
+             LEFT JOIN {$assignments} a ON r.assignment_id = a.id
              WHERE r.member_id = %d AND m.meeting_date < %s
              ORDER BY m.meeting_date DESC, r.priority ASC",
             $member_id, $today
@@ -2308,60 +2487,42 @@ class TMP_Repository {
 
     public static function get_member_pending_requests($member_id) {
         global $wpdb;
-        $requests   = self::request_table();
-        $meetings   = self::meeting_table();
+        $requests    = self::request_table();
+        $meetings    = self::meeting_table();
         $assignments = self::assignment_table();
-        $now = current_time('Y-m-d H:i:s');
+        $today = current_time('Y-m-d');
 
+        // Read status directly from requests table — single source of truth.
+        // LEFT JOIN assignments so orphaned requests (slot deleted) still appear.
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT r.id as request_id, r.assignment_id, r.priority, r.created_at, m.id as meeting_id, m.meeting_date, m.theme, m.requests_close_at, a.role_name, a.member_id as assigned_member_id, a.status as assignment_status
+            "SELECT r.id as request_id, r.assignment_id, r.priority,
+                    r.status as request_status, r.reason,
+                    r.created_at, r.updated_at,
+                    m.id as meeting_id, m.meeting_date, m.theme, m.requests_close_at,
+                    a.role_name
              FROM {$requests} r
              JOIN {$meetings} m ON r.meeting_id = m.id
-             JOIN {$assignments} a ON r.assignment_id = a.id
-             WHERE r.member_id = %d AND m.requests_close_at IS NOT NULL AND m.requests_close_at <= %s
-             ORDER BY m.meeting_date DESC, r.priority ASC",
-            $member_id, $now
+             LEFT JOIN {$assignments} a ON r.assignment_id = a.id
+             WHERE r.member_id = %d
+               AND m.meeting_date >= %s
+             ORDER BY m.meeting_date ASC, r.priority ASC",
+            $member_id, $today
         ), ARRAY_A);
 
-        $now = current_time('Y-m-d H:i:s');
         $result = [];
-
         foreach ($rows as $row) {
-            $deadline = $row['requests_close_at'];
-            $is_after_deadline = $deadline && strtotime($now) > strtotime($deadline);
-            $is_approved = $is_after_deadline && $row['assignment_status'] === 'Confirmed' && $row['assigned_member_id'] == $member_id;
-            $is_not_selected = $is_after_deadline && $row['assignment_status'] === 'Confirmed' && $row['assigned_member_id'] != $member_id;
-            $is_pending = !$is_after_deadline || (!$is_approved && !$is_not_selected && $row['assignment_status'] !== 'Confirmed');
-
-            $reason = null;
-            $approval_date = null;
-            $status = 'Pending';
-
-            if ($is_approved) {
-                $status = 'Approved';
-                $approval_date = $row['assignment_status'] === 'Confirmed' ? $now : null;
-            } elseif ($is_not_selected) {
-                $status = 'NotSelected';
-                $reason = self::get_reason_for_not_selected($row);
-                $approval_date = $now;
-            }
-
-            $meeting_passed = strtotime($now) > strtotime($row['meeting_date']);
-            $is_expired = $status !== 'Pending' && $meeting_passed;
-
             $result[] = [
-                'requestId' => (int) $row['request_id'],
-                'meetingId' => (int) $row['meeting_id'],
-                'meetingDate' => $row['meeting_date'],
+                'requestId'    => (int) $row['request_id'],
+                'meetingId'    => (int) $row['meeting_id'],
+                'meetingDate'  => $row['meeting_date'],
                 'meetingTheme' => $row['theme'],
-                'roleName' => $row['role_name'],
-                'priority' => (int) $row['priority'],
-                'status' => $status,
-                'reason' => $reason,
-                'approvalDate' => $approval_date,
-                'deadline' => $deadline,
+                'roleName'     => $row['role_name'] ?? 'Unknown Role',
+                'priority'     => (int) $row['priority'],
+                'status'       => $row['request_status'] ?? 'Pending',
+                'reason'       => $row['reason'],
+                'deadline'     => $row['requests_close_at'],
                 'submittedDate' => $row['created_at'],
-                'isExpired' => $is_expired,
+                'updatedAt'    => $row['updated_at'],
             ];
         }
 
