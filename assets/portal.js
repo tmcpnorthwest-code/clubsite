@@ -303,7 +303,14 @@
       const levelHistory  = participation[memberLevel] || {};
 
       const slots = ((slotsResp && Array.isArray(slotsResp.slots)) ? slotsResp.slots : [])
-        .filter((s) => !s.role_name.toLowerCase().includes("presiding officer") && !s.role_name.startsWith("Break"))
+        .filter((s) => {
+          const lower = s.role_name.toLowerCase();
+          if (lower.startsWith("break")) return false;
+          // Explicitly include TMOD/Toastmaster in all forms before excluding presiding officer
+          if (lower.includes("toastmaster")) return true;
+          if (lower.includes("presiding officer")) return false;
+          return true;
+        })
         .map((s) => {
           const role = s.role_name.toLowerCase();
           let qualified   = true;
@@ -323,7 +330,6 @@
 
           const base = s.role_name.replace(/\s*\(.*?\)\s*/g, "").replace(/\s+\d+$/, "").trim();
           const cooloff = s.cooloff || null;
-          // Block if in cooloff
           if (cooloff && cooloff.in_cooloff) {
             qualified   = false;
             requirement = `Cooloff until ${cooloff.eligible_from}`;
@@ -500,12 +506,11 @@
       const unique = [];
       if (group) {
         group.roles.forEach((r) => {
-          const display = r.role_name.replace(/\s+\d+(\s*\(.*?\))?$/, "").replace(/\s*\(.*?\)\s*/g, "").trim();
-          if (!seen.has(display)) {
-            seen.add(display);
-            unique.push({ ...r, display });
+          if (!seen.has(r.base)) {
+            seen.add(r.base);
+            unique.push({ ...r, display: r.base });
           } else {
-            const ex = unique.find((x) => x.display === display);
+            const ex = unique.find((x) => x.display === r.base);
             if (r.isGoal) ex.isGoal = true;
           }
         });
