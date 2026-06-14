@@ -641,11 +641,10 @@ class TMP_REST_API {
         }
 
         if (!$credential || !preg_match('/^([A-Z]{2})([1-5])$/', $credential, $matches)) {
-            // Enrolled in a pathway but no completed level yet → Level 0
             if (strtolower(trim($pathways_enrolled)) === 'yes') {
                 return ['pathway' => 'Enrolled — Pathway TBD', 'level' => 0];
             }
-            return ['pathway' => 'No pathway registered', 'level' => 1];
+            return ['pathway' => 'No pathway registered', 'level' => 0];
         }
 
         $code    = $matches[1];
@@ -656,7 +655,7 @@ class TMP_REST_API {
             if (strtolower(trim($pathways_enrolled)) === 'yes') {
                 return ['pathway' => 'Enrolled — Pathway TBD', 'level' => 0];
             }
-            return ['pathway' => 'No pathway registered', 'level' => 1];
+            return ['pathway' => 'No pathway registered', 'level' => 0];
         }
 
         return ['pathway' => $pathway, 'level' => $level];
