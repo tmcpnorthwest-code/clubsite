@@ -68,6 +68,9 @@ if (class_exists('TMP_Repository')) {
     if (method_exists('TMP_Repository', 'get_published_agenda')) {
         $published_agenda = TMP_Repository::get_published_agenda();
     }
+    $spotlight = method_exists('TMP_Repository', 'get_new_member_spotlight')
+        ? TMP_Repository::get_new_member_spotlight()
+        : null;
     if (method_exists('TMP_Repository', 'get_meeting_summary')) {
         $meeting_summary = TMP_Repository::get_meeting_summary();
     }
@@ -616,6 +619,43 @@ if ($next_meeting) {
       <?php endif; ?>
     </div>
   </section>
+
+  <!-- ══════════════════════════════════════════ NEW MEMBER SPOTLIGHT -->
+  <?php if ($spotlight) :
+    $sp        = $spotlight['member'];
+    $sp_joined = !empty($sp['created_at'])
+        ? (new DateTime($sp['created_at']))->format('F Y') : null;
+    $level_labels = ['Level 0 (Enrolled)', 'Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5'];
+    $sp_level  = $level_labels[(int) ($sp['level'] ?? 1)] ?? 'Level 1';
+  ?>
+  <section class="section spotlight-section" id="tmc-spotlight">
+    <p class="eyebrow">Welcome to the Club</p>
+    <h2>Meet Our Newest Member</h2>
+    <div class="spotlight-card">
+      <?php if (!empty($spotlight['photo_url'])) : ?>
+      <div class="spotlight-photo-wrap">
+        <img class="spotlight-photo"
+             src="<?php echo esc_url($spotlight['photo_url']); ?>"
+             alt="<?php echo esc_attr($sp['full_name']); ?>"
+             loading="lazy">
+      </div>
+      <?php endif; ?>
+      <div class="spotlight-content">
+        <h3 class="spotlight-name"><?php echo esc_html($sp['full_name']); ?></h3>
+        <div class="spotlight-meta">
+          <span class="spotlight-badge"><?php echo esc_html($sp_level); ?></span>
+          <span class="spotlight-pathway"><?php echo esc_html($sp['pathway']); ?></span>
+          <?php if ($sp_joined) : ?>
+          <span class="spotlight-joined">Joined <?php echo esc_html($sp_joined); ?></span>
+          <?php endif; ?>
+        </div>
+        <?php if (!empty($spotlight['blurb'])) : ?>
+        <p class="spotlight-blurb">&ldquo;<?php echo esc_html($spotlight['blurb']); ?>&rdquo;</p>
+        <?php endif; ?>
+      </div>
+    </div>
+  </section>
+  <?php endif; ?>
 
   <!-- ══════════════════════════════════════════ ROLE DIVERSITY LEADERS -->
   <?php if (!empty($diversity_leaders)) : ?>

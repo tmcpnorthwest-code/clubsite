@@ -11,6 +11,8 @@ class TMP_Activator {
         self::create_tables();
         self::create_pages();
         self::migrate_v080_timing_and_publish();
+        self::migrate_v090_level_progress();
+        self::migrate_v100_recognition();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -40,6 +42,8 @@ class TMP_Activator {
         self::migrate_v060_voting_columns();
         self::migrate_v070_wrap_up_tables();
         self::migrate_v080_timing_and_publish();
+        self::migrate_v090_level_progress();
+        self::migrate_v100_recognition();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -266,8 +270,44 @@ class TMP_Activator {
             KEY nominee_id (nominee_id)
         ) $charset;");
 
-        $attendance  = $wpdb->prefix . 'tmp_attendance';
-        $win_history = $wpdb->prefix . 'tmp_win_history';
+        $attendance          = $wpdb->prefix . 'tmp_attendance';
+        $win_history         = $wpdb->prefix . 'tmp_win_history';
+        $mentor_ratings      = $wpdb->prefix . 'tmp_mentor_ratings';
+        $recognition_awards  = $wpdb->prefix . 'tmp_recognition_awards';
+
+        dbDelta("CREATE TABLE {$mentor_ratings} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            mentor_id BIGINT UNSIGNED NOT NULL,
+            mentee_id BIGINT UNSIGNED NOT NULL,
+            rating TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            feedback TEXT NULL,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY mentee_period (mentee_id, period_start, period_end),
+            KEY mentor_id (mentor_id)
+        ) $charset;");
+
+        dbDelta("CREATE TABLE {$recognition_awards} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id BIGINT UNSIGNED NOT NULL,
+            member_name VARCHAR(190) NOT NULL DEFAULT '',
+            period_type VARCHAR(20) NOT NULL,
+            period_label VARCHAR(60) NOT NULL DEFAULT '',
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            score DECIMAL(6,2) NOT NULL DEFAULT 0,
+            score_breakdown LONGTEXT NULL,
+            declared_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            declared_at DATETIME NOT NULL,
+            display_on_homepage TINYINT(1) NOT NULL DEFAULT 1,
+            email_sent TINYINT(1) NOT NULL DEFAULT 0,
+            PRIMARY KEY  (id),
+            KEY member_id (member_id),
+            KEY period_type (period_type),
+            KEY period_start (period_start)
+        ) $charset;");
 
         dbDelta("CREATE TABLE {$attendance} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -296,6 +336,37 @@ class TMP_Activator {
             KEY meeting_id (meeting_id),
             KEY member_id (member_id),
             KEY won_at (won_at)
+        ) $charset;");
+
+        $pathway_offsets = $wpdb->prefix . 'tmp_pathway_offsets';
+        dbDelta("CREATE TABLE {$pathway_offsets} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id BIGINT UNSIGNED NOT NULL,
+            level TINYINT UNSIGNED NOT NULL,
+            offset TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            notes VARCHAR(255) NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY member_level (member_id, level)
+        ) $charset;");
+
+        $level_up_requests = $wpdb->prefix . 'tmp_level_up_requests';
+        dbDelta("CREATE TABLE {$level_up_requests} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id BIGINT UNSIGNED NOT NULL,
+            from_level TINYINT UNSIGNED NOT NULL,
+            to_level TINYINT UNSIGNED NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            member_note TEXT NULL,
+            evidence JSON NOT NULL,
+            system_verdict VARCHAR(20) NOT NULL DEFAULT 'incomplete',
+            vpe_note TEXT NULL,
+            created_at DATETIME NOT NULL,
+            reviewed_at DATETIME NULL,
+            reviewed_by BIGINT UNSIGNED NULL,
+            PRIMARY KEY  (id),
+            KEY member_id (member_id),
+            KEY status (status)
         ) $charset;");
 
         self::seed_data();
@@ -393,6 +464,22 @@ class TMP_Activator {
     /**
      * Normalises "Ah Counter" (space) → "Ah-Counter" (hyphen) in history and assignments.
      */
+    /**
+     * v0.9.0: Creates pathway_offsets and level_up_requests tables (handled by dbDelta
+     * in create_tables). No ALTER needed — purely new tables.
+     */
+    private static function migrate_v090_level_progress() {
+        // Tables are created by create_tables() via dbDelta. Nothing extra needed.
+    }
+
+    /**
+     * v0.10.0: Creates tmp_mentor_ratings and tmp_recognition_awards tables (handled by
+     * dbDelta in create_tables). No ALTER needed — purely new tables.
+     */
+    private static function migrate_v100_recognition() {
+        // Tables are created by create_tables() via dbDelta. Nothing extra needed.
+    }
+
     private static function migrate_ah_counter_normalization() {
         global $wpdb;
         $history    = $wpdb->prefix . 'tmp_participation_history';

@@ -256,6 +256,75 @@ class TMP_REST_API {
             ],
         ]);
 
+        // ── New Member Spotlight ──────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/settings/new-member-spotlight', [
+            [
+                'methods'             => WP_REST_Server::READABLE,
+                'callback'            => [__CLASS__, 'get_spotlight_setting'],
+                'permission_callback' => [__CLASS__, 'can_manage_members'],
+            ],
+            [
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => [__CLASS__, 'save_spotlight_setting'],
+                'permission_callback' => [__CLASS__, 'can_manage_members'],
+            ],
+        ]);
+
+        // ── Pathways level progress ────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/me/level-status', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_my_level_status'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/me/level-up-request', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'submit_level_up_request'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/me/level-up-requests', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_my_level_up_requests'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/mentor/mentee-alerts', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_mentee_alerts'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/vpe/members/level-summary', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_vpe_level_summary'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/vpe/level-up-requests', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_vpe_level_up_requests'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/vpe/level-up-requests/(?P<id>\d+)/review', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'review_level_up_request'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/members/(?P<id>\d+)/level-status', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_member_level_status'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/members/(?P<id>\d+)/pathway-offset', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'save_pathway_offset'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
         // ── Requirement overrides ──────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/me/requirement-override', [
             'methods'             => WP_REST_Server::CREATABLE,
@@ -382,6 +451,53 @@ class TMP_REST_API {
             'callback'            => [__CLASS__, 'declare_winners'],
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
+
+        // ── Recognition — TM of Month / Quarter ───────────────────────────────
+        register_rest_route('toastmasters/v1', '/recognition/scores', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_recognition_scores'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/recognition/awards', [
+            [
+                'methods'             => WP_REST_Server::READABLE,
+                'callback'            => [__CLASS__, 'get_recognition_awards'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+            [
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => [__CLASS__, 'declare_recognition_award'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/recognition/awards/(?P<id>\d+)', [
+            [
+                'methods'             => WP_REST_Server::EDITABLE,
+                'callback'            => [__CLASS__, 'update_recognition_award'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+            [
+                'methods'             => WP_REST_Server::DELETABLE,
+                'callback'            => [__CLASS__, 'delete_recognition_award'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+        ]);
+
+        // Mentor ratings — submitted by the logged-in mentee
+        register_rest_route('toastmasters/v1', '/mentor-ratings', [
+            [
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => [__CLASS__, 'save_mentor_rating'],
+                'permission_callback' => 'is_user_logged_in',
+            ],
+            [
+                'methods'             => WP_REST_Server::READABLE,
+                'callback'            => [__CLASS__, 'get_my_mentor_rating'],
+                'permission_callback' => 'is_user_logged_in',
+            ],
+        ]);
     }
 
     // ── Permission helpers ─────────────────────────────────────────────────────
@@ -501,9 +617,30 @@ class TMP_REST_API {
     }
 
     public static function save_member(WP_REST_Request $request) {
-        $member = TMP_Repository::save_member($request->get_json_params());
+        $data = $request->get_json_params();
+
+        // Capture old level before save so we can warn on level bump for L1-L3
+        $readiness_warnings = null;
+        if (!empty($data['id']) && !empty($data['level'])) {
+            $existing = TMP_Repository::get_member((int) $data['id']);
+            $old_lvl  = (int)($existing['level'] ?? 0);
+            $new_lvl  = (int) $data['level'];
+            if ($new_lvl > $old_lvl && $old_lvl >= 1 && $old_lvl <= 3) {
+                $status = TMP_Repository::get_member_full_level_status((int) $data['id']);
+                if ($status['system_verdict'] === 'incomplete') {
+                    $readiness_warnings = $status['verdict_detail'];
+                }
+            }
+        }
+
+        $member = TMP_Repository::save_member($data);
         if (is_wp_error($member)) return $member;
-        return rest_ensure_response($member);
+
+        $response = $member;
+        if ($readiness_warnings !== null) {
+            $response['readiness_warnings'] = $readiness_warnings;
+        }
+        return rest_ensure_response($response);
     }
 
     public static function delete_member(WP_REST_Request $request) {
@@ -750,12 +887,89 @@ class TMP_REST_API {
         return rest_ensure_response($rows);
     }
 
+    // ── Recognition handlers ──────────────────────────────────────────────────
+
+    public static function get_recognition_scores(WP_REST_Request $request) {
+        $period_start = sanitize_text_field($request->get_param('period_start') ?? '');
+        $period_end   = sanitize_text_field($request->get_param('period_end')   ?? '');
+        if (!$period_start || !$period_end) {
+            return new WP_Error('tmp_invalid', 'period_start and period_end are required.', ['status' => 400]);
+        }
+        return rest_ensure_response(TMP_Repository::compute_recognition_scores($period_start, $period_end));
+    }
+
+    public static function get_recognition_awards(WP_REST_Request $request) {
+        $type  = $request->get_param('period_type') ? sanitize_text_field($request->get_param('period_type')) : null;
+        $limit = min(100, max(1, (int) ($request->get_param('limit') ?: 20)));
+        return rest_ensure_response(TMP_Repository::get_recognition_awards($type, $limit));
+    }
+
+    public static function declare_recognition_award(WP_REST_Request $request) {
+        $params = $request->get_json_params();
+        $result = TMP_Repository::declare_recognition_award($params);
+        if (is_wp_error($result)) {
+            return $result;
+        }
+        return rest_ensure_response($result);
+    }
+
+    public static function update_recognition_award(WP_REST_Request $request) {
+        $id     = (int) $request['id'];
+        $params = $request->get_json_params();
+        if (isset($params['display_on_homepage'])) {
+            TMP_Repository::update_recognition_award_homepage($id, $params['display_on_homepage']);
+        }
+        return rest_ensure_response(['success' => true]);
+    }
+
+    public static function delete_recognition_award(WP_REST_Request $request) {
+        $deleted = TMP_Repository::delete_recognition_award((int) $request['id']);
+        return rest_ensure_response(['deleted' => $deleted]);
+    }
+
+    public static function save_mentor_rating(WP_REST_Request $request) {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_unauthorized', 'Not linked to a member.', ['status' => 401]);
+        }
+        if (empty($member['mentor_id'])) {
+            return new WP_Error('tmp_no_mentor', 'You do not have a mentor assigned.', ['status' => 400]);
+        }
+        $params               = $request->get_json_params();
+        $params['mentee_id']  = $member['id'];
+        $params['mentor_id']  = $member['mentor_id'];
+        $result = TMP_Repository::save_mentor_rating($params);
+        if (is_wp_error($result)) {
+            return $result;
+        }
+        return rest_ensure_response($result);
+    }
+
+    public static function get_my_mentor_rating(WP_REST_Request $request) {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_unauthorized', 'Not linked to a member.', ['status' => 401]);
+        }
+        $period_start = sanitize_text_field($request->get_param('period_start') ?? '');
+        $period_end   = sanitize_text_field($request->get_param('period_end')   ?? '');
+        $rating = $period_start && $period_end
+            ? TMP_Repository::get_mentor_rating_for_period($member['id'], $period_start, $period_end)
+            : null;
+        return rest_ensure_response([
+            'has_mentor'   => !empty($member['mentor_id']),
+            'mentor_name'  => $member['mentor_name'] ?? null,
+            'mentor_id'    => $member['mentor_id']   ?? null,
+            'existing_rating' => $rating,
+        ]);
+    }
+
     // ── Public dashboard handlers ─────────────────────────────────────────────────
 
     public static function get_public_recognition(WP_REST_Request $request) {
         $limit = min(50, max(1, (int) ($request->get_param('limit') ?: 20)));
         return rest_ensure_response([
             'level_ups' => TMP_Repository::get_recent_level_ups($limit),
+            'awards'    => TMP_Repository::get_homepage_recognition_awards(),
         ]);
     }
 
@@ -1090,5 +1304,195 @@ class TMP_REST_API {
         }
         update_option('tmp_timing_rules', wp_json_encode($sanitized));
         return rest_ensure_response(['success' => true]);
+    }
+
+    // ── Pathways level progress callbacks ──────────────────────────────────────
+
+    public static function get_my_level_status() {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
+        }
+        return rest_ensure_response(TMP_Repository::get_member_full_level_status($member['id']));
+    }
+
+    public static function submit_level_up_request(WP_REST_Request $request) {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
+        }
+        $note   = sanitize_textarea_field($request->get_json_params()['note'] ?? '');
+        $result = TMP_Repository::submit_level_up_request($member['id'], $note);
+        if (is_wp_error($result)) return $result;
+        return rest_ensure_response(['id' => $result]);
+    }
+
+    public static function get_my_level_up_requests() {
+        global $wpdb;
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
+        }
+        $table = $wpdb->prefix . 'tmp_level_up_requests';
+        $rows  = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, from_level, to_level, status, member_note, system_verdict, vpe_note, created_at, reviewed_at
+               FROM {$table}
+              WHERE member_id = %d
+              ORDER BY created_at DESC
+              LIMIT 10",
+            $member['id']
+        ), ARRAY_A);
+        return rest_ensure_response($rows ?: []);
+    }
+
+    public static function get_mentee_alerts() {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return rest_ensure_response([]);
+        }
+        return rest_ensure_response(TMP_Repository::get_mentor_mentee_alerts($member['id']));
+    }
+
+    public static function get_vpe_level_summary() {
+        global $wpdb;
+        $members_table = $wpdb->prefix . 'tmp_members';
+        $members = $wpdb->get_results(
+            "SELECT id, full_name, pathway, level
+               FROM {$members_table}
+              WHERE state = 'Active' AND level BETWEEN 1 AND 3
+              ORDER BY level ASC, full_name ASC",
+            ARRAY_A
+        );
+
+        $result = [];
+        foreach ($members as $m) {
+            $m_id   = (int) $m['id'];
+            $status = TMP_Repository::get_member_full_level_status($m_id);
+            $sp     = $status['speech_progress'];
+            $roles_unmet = count(array_filter($status['role_gaps'], fn($g) => !$g['met']));
+
+            if ($sp !== null && $sp['done'] === 0 && $roles_unmet === count($status['role_gaps'])) {
+                $traffic = 'stuck';
+            } elseif ($status['ready_to_advance']) {
+                $traffic = 'ready';
+            } else {
+                $traffic = 'in_progress';
+            }
+
+            $result[] = [
+                'member_id'        => $m_id,
+                'name'             => $m['full_name'],
+                'pathway'          => $m['pathway'],
+                'level'            => (int) $m['level'],
+                'speech_done'      => $sp ? $sp['done']   : null,
+                'speech_needed'    => $sp ? $sp['needed'] : null,
+                'roles_unmet'      => $roles_unmet,
+                'roles_total'      => count($status['role_gaps']),
+                'ready_to_advance' => $status['ready_to_advance'],
+                'traffic_light'    => $traffic,
+            ];
+        }
+        return rest_ensure_response($result);
+    }
+
+    public static function get_member_level_status(WP_REST_Request $request) {
+        $member = TMP_Repository::get_member((int) $request['id']);
+        if (!$member) {
+            return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
+        }
+        return rest_ensure_response(TMP_Repository::get_member_full_level_status((int) $request['id']));
+    }
+
+    public static function get_vpe_level_up_requests() {
+        global $wpdb;
+        $table   = $wpdb->prefix . 'tmp_level_up_requests';
+        $members = $wpdb->prefix . 'tmp_members';
+        $rows = $wpdb->get_results(
+            "SELECT r.id, r.member_id, r.from_level, r.to_level, r.status,
+                    r.member_note, r.evidence, r.system_verdict, r.created_at,
+                    m.full_name, m.pathway
+               FROM {$table} r
+               JOIN {$members} m ON m.id = r.member_id
+              WHERE r.status = 'pending'
+              ORDER BY r.created_at ASC",
+            ARRAY_A
+        );
+
+        $result = [];
+        foreach ($rows as $row) {
+            $evidence = json_decode($row['evidence'], true);
+            $result[] = [
+                'id'             => (int) $row['id'],
+                'member_id'      => (int) $row['member_id'],
+                'member_name'    => $row['full_name'],
+                'pathway'        => $row['pathway'],
+                'from_level'     => (int) $row['from_level'],
+                'to_level'       => (int) $row['to_level'],
+                'member_note'    => $row['member_note'],
+                'system_verdict' => $row['system_verdict'],
+                'evidence'       => $evidence,
+                'created_at'     => $row['created_at'],
+            ];
+        }
+        return rest_ensure_response($result);
+    }
+
+    public static function review_level_up_request(WP_REST_Request $request) {
+        $body       = $request->get_json_params();
+        $action     = $body['action'] ?? '';
+        $note       = sanitize_textarea_field($body['note'] ?? '');
+        $request_id = (int) $request['id'];
+        $vpe_id     = get_current_user_id();
+
+        if ($action === 'approve') {
+            $ok = TMP_Repository::approve_level_up_request($request_id, $vpe_id, $note);
+        } elseif ($action === 'deny') {
+            $ok = TMP_Repository::deny_level_up_request($request_id, $vpe_id, $note);
+        } else {
+            return new WP_Error('tmp_invalid_action', 'Action must be approve or deny.', ['status' => 400]);
+        }
+
+        if (!$ok) {
+            return new WP_Error('tmp_not_found', 'Request not found or already reviewed.', ['status' => 404]);
+        }
+        return rest_ensure_response(['ok' => true]);
+    }
+
+    public static function save_pathway_offset(WP_REST_Request $request) {
+        $body   = $request->get_json_params();
+        $m_id   = (int) $request['id'];
+        $level  = (int)($body['level']  ?? 0);
+        $offset = (int)($body['offset'] ?? 0);
+        $notes  = sanitize_text_field($body['notes'] ?? '');
+
+        if (!TMP_Repository::get_member($m_id)) {
+            return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
+        }
+        if ($level < 1 || $level > 3) {
+            return new WP_Error('tmp_invalid_level', 'Offset is only valid for levels 1–3.', ['status' => 400]);
+        }
+
+        TMP_Repository::set_pathway_offset($m_id, $level, $offset, $notes);
+        return rest_ensure_response(['ok' => true]);
+    }
+
+    public static function get_spotlight_setting() {
+        $raw = get_option('tmp_new_member_spotlight', null);
+        return rest_ensure_response($raw ? json_decode($raw, true) : null);
+    }
+
+    public static function save_spotlight_setting(WP_REST_Request $request) {
+        $body      = $request->get_json_params();
+        $member_id = (int) ($body['member_id'] ?? 0);
+        $blurb     = sanitize_textarea_field($body['blurb'] ?? '');
+        $photo_url = esc_url_raw($body['photo_url'] ?? '');
+        $active    = !empty($body['active']);
+
+        if ($member_id && !TMP_Repository::get_member($member_id)) {
+            return new WP_Error('invalid_member', 'Member not found', ['status' => 400]);
+        }
+
+        update_option('tmp_new_member_spotlight', wp_json_encode(compact('member_id', 'blurb', 'photo_url', 'active')));
+        return rest_ensure_response(['ok' => true]);
     }
 }

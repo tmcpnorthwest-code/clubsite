@@ -444,6 +444,154 @@
       root._renderJourney = renderJourney;
       await renderJourney();
 
+      // ── Level status (speech + role progress for L1–L3) ───────────────────────
+      const renderLevelStatus = async () => {
+        const statusEl  = qs("[data-tmp-level-status]", root);
+        const nextLvlEl = qs("[data-tmp-next-level]", root);
+        const lvlUpSect = qs("[data-tmp-levelup-section]", root);
+        const lvlUpStat = qs("[data-tmp-levelup-request-status]", root);
+        const lvlUpBtn  = qs("[data-tmp-request-levelup]", root);
+        if (!statusEl) return;
+
+        const data = await api("/me/level-status").catch(() => null);
+        if (!data) { statusEl.innerHTML = '<p style="color:var(--tmp-muted)">Could not load progress.</p>'; return; }
+
+        root._levelStatus = data;
+        const lvl = data.level;
+        if (nextLvlEl) nextLvlEl.textContent = lvl + 1;
+
+        if (lvl > 3) {
+          statusEl.innerHTML = `<p style="color:var(--tmp-muted);font-size:0.88rem;">Level ${lvl} progress is coordinated with your VPE. Contact your VPE for guidance on L4+ requirements.</p>`;
+          if (lvlUpSect) lvlUpSect.style.display = "none";
+          return;
+        }
+
+        const sp       = data.speech_progress;
+        const gaps     = data.role_gaps || [];
+        const ready    = data.ready_to_advance;
+        const verdict  = data.verdict_detail || [];
+
+        // Speech bar
+        let speechHtml = "";
+        if (sp) {
+          const pct   = Math.round((sp.done / sp.needed) * 100);
+          const chips = (sp.speeches || []).map((s) =>
+            `<span class="tmp-speech-chip" title="${esc(s.meeting_date)}">${esc(s.role_name)} <small>${esc(s.meeting_date)}</small></span>`
+          ).join("");
+          const still = sp.needed - sp.done;
+          for (let i = 0; i < still; i++) chips && 0; // placeholder below
+          const emptyChips = still > 0 ? `<span class="tmp-speech-chip tmp-speech-chip--empty">${still} more needed</span>` : "";
+          speechHtml = `
+            <div style="margin-bottom:14px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <span style="font-weight:600;font-size:0.88rem;">Speeches at Level ${lvl}</span>
+                <span style="font-size:0.88rem;color:var(--tmp-muted);">${sp.done} / ${sp.needed}</span>
+              </div>
+              <div class="tmp-progress" style="margin-bottom:8px;"><span style="width:${pct}%;background:${pct>=100?'var(--tmp-teal)':'var(--tmp-burgundy)'};"></span></div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips}${emptyChips}</div>
+              ${sp.offset > 0 ? `<p style="font-size:0.78rem;color:var(--tmp-muted);margin:6px 0 0;">Includes ${sp.offset} pre-system speech${sp.offset>1?'es':''} set by VPE.</p>` : ""}
+            </div>`;
+        }
+
+        // Role gaps (reuse same rendering as Level Journey panel)
+        const rolesHtml = gaps.length === 0 ? "" : `
+          <div style="margin-bottom:14px;">
+            <p style="font-weight:600;font-size:0.88rem;margin:0 0 6px;">Club Roles at Level ${lvl}</p>
+            ${gaps.map((g) => `
+              <div style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:0.88rem;">
+                <span style="font-size:1rem;">${g.met ? "✅" : "☐"}</span>
+                <span style="${g.met ? "color:var(--tmp-muted);" : ""}">${esc(g.label)}</span>
+                ${g.met ? "" : `<span class="tmp-badge" style="background:#fff3e0;color:#e65100;font-size:0.75rem;">needed</span>`}
+              </div>`).join("")}
+          </div>`;
+
+        // Summary
+        const summaryColor = ready ? "var(--tmp-teal)" : "#e65100";
+        const summaryIcon  = ready ? "🟢" : "🟡";
+        const summaryText  = ready
+          ? "All requirements met — ready to request Level Up!"
+          : verdict.join(" · ");
+        const summaryHtml  = `<p style="font-weight:600;font-size:0.9rem;color:${summaryColor};margin:0;">${summaryIcon} ${esc(summaryText)}</p>`;
+
+        statusEl.innerHTML = speechHtml + rolesHtml + summaryHtml;
+
+        // Level-up section: show only for L1–L2
+        if (lvlUpSect && lvl <= 2) {
+          lvlUpSect.style.display = "";
+          // Check for existing pending request
+          const requests = await api("/me/level-up-requests").catch(() => []);
+          const pending  = (requests || []).find((r) => r.status === "pending");
+          if (pending) {
+            if (lvlUpBtn) lvlUpBtn.style.display = "none";
+            if (lvlUpStat) lvlUpStat.innerHTML = `<p style="color:var(--tmp-muted);font-size:0.88rem;">⏳ Level Up request submitted on ${esc(pending.created_at?.split(" ")[0] || "—")} — awaiting VPE review.</p>`;
+            const denied = (requests || []).find((r) => r.status === "denied");
+            if (denied && lvlUpStat) {
+              lvlUpStat.innerHTML += `<p style="color:var(--tmp-burgundy);font-size:0.88rem;margin-top:4px;">❌ Previous request was not approved. VPE note: ${esc(denied.vpe_note || "No note provided.")}</p>`;
+            }
+          } else {
+            if (lvlUpBtn) {
+              lvlUpBtn.style.display = ready ? "" : "none";
+              if (lvlUpStat && !ready) lvlUpStat.innerHTML = `<p style="color:var(--tmp-muted);font-size:0.88rem;">Complete all Level ${lvl} requirements above to unlock the Level Up request.</p>`;
+              else if (lvlUpStat) lvlUpStat.innerHTML = "";
+            }
+          }
+        } else if (lvlUpSect) {
+          lvlUpSect.style.display = "none";
+        }
+      };
+
+      // Level-up request submit
+      qs("[data-tmp-levelup-section]", root)?.addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-tmp-request-levelup]");
+        if (!btn || btn._pending) return;
+        const note = prompt("Optional note to your VPE (press Cancel to abort):") ?? false;
+        if (note === false) return;
+        btn._pending = true;
+        btn.disabled = true;
+        btn.textContent = "Submitting…";
+        try {
+          await api("/me/level-up-request", { method: "POST", body: JSON.stringify({ note }) });
+          await renderLevelStatus();
+        } catch (err) {
+          alert("Could not submit: " + err.message);
+          btn._pending = false;
+          btn.disabled = false;
+          btn.textContent = "Request Level Up";
+        }
+      });
+
+      await renderLevelStatus();
+
+      // ── Mentee panel (only shown if user is a mentor) ─────────────────────────
+      const renderMenteePanel = async () => {
+        const panel     = qs("[data-tmp-my-mentees-panel]", root);
+        const container = qs("[data-tmp-my-mentees]", root);
+        if (!panel || !container) return;
+
+        const mentees = await api("/mentor/mentee-alerts").catch(() => []);
+        if (!mentees || mentees.length === 0) { panel.style.display = "none"; return; }
+
+        panel.style.display = "";
+        container.innerHTML = mentees.map((m) => {
+          const alertBadges = m.alerts.map((a) => {
+            const color = a.type === "ready_for_level_up" ? "#e8f5e9;color:#2e7d32" : "#fff3e0;color:#e65100";
+            const icon  = a.type === "ready_for_level_up" ? "✅" : "⚠";
+            return `<span class="tmp-badge" style="background:${color};font-size:0.8rem;padding:3px 8px;">${icon} ${esc(a.label)}</span>`;
+          }).join(" ");
+          const sp  = m.speech_progress;
+          const pct = sp ? Math.round((sp.done / sp.needed) * 100) : 0;
+          const spBar = sp ? `<div class="tmp-progress" style="height:6px;margin-top:6px;"><span style="width:${pct}%;background:var(--tmp-teal);"></span></div>
+            <small style="color:var(--tmp-muted);">${sp.done}/${sp.needed} speeches</small>` : "";
+          return `<div style="border:1px solid var(--tmp-line);border-radius:6px;padding:12px;margin-bottom:10px;">
+            <strong>${esc(m.name)}</strong> — <small>${esc(m.pathway)} · Level ${esc(m.level)}</small>
+            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">${alertBadges || '<span style="color:var(--tmp-muted);font-size:0.88rem;">No alerts</span>'}</div>
+            ${spBar}
+          </div>`;
+        }).join("");
+      };
+
+      await renderMenteePanel();
+
       // ── Active Requests (unified: all upcoming requests with live status) ─────
       const pendingData = await api("/me/pending-requests").catch(() => ({ requests: [] }));
       root._memberRequests = pendingData.requests; // Used by duplicate-request guard below
@@ -860,12 +1008,25 @@
       });
       updateDropdownAvailability(); // Initial check
 
-      // Info box: locked roles (unavailable, showing reasons)
+      // Info box: speech encouragement + locked roles
       const locked  = unique.filter((r) => !r.qualified);
       const infoBox = qs("[data-tmp-role-info]", reqForm);
       if (infoBox) {
+        let infoHtml = "";
+        // Speech encouragement for L1–L3 members who still need speeches
+        const lvlSt = root._levelStatus;
+        if (lvlSt && lvlSt.speech_progress && !lvlSt.speech_progress.met) {
+          const hasSpeakerSlot = unique.some((r) => /^speaker/i.test(r.display) || /ice breaker/i.test(r.display));
+          if (hasSpeakerSlot) {
+            const still = lvlSt.speech_progress.needed - lvlSt.speech_progress.done;
+            infoHtml += `<div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:4px;padding:10px 12px;margin-top:8px;font-size:0.88rem;">
+              ⭐ <strong>Getting a Speaker slot counts toward your Level ${lvlSt.level} Pathways project requirements.</strong>
+              You need ${still} more speech${still > 1 ? "es" : ""} at Level ${lvlSt.level}.
+            </div>`;
+          }
+        }
         if (locked.length > 0) {
-          infoBox.innerHTML = `<div style="background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:10px 12px;margin-top:10px;">
+          infoHtml += `<div style="background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:10px 12px;margin-top:10px;">
             <p style="margin:0 0 8px;font-weight:bold;color:#666;font-size:12px;text-transform:uppercase;">Unavailable roles</p>
             ${locked.map((r) => {
               const isCooloff = r.cooloff && r.cooloff.in_cooloff;
@@ -875,9 +1036,8 @@
               return `<div style="margin-top:6px;font-size:11px;color:#666;">${msg}</div>`;
             }).join("")}
           </div>`;
-        } else {
-          infoBox.innerHTML = '';
         }
+        infoBox.innerHTML = infoHtml;
       }
     });
 
@@ -1050,6 +1210,52 @@
     });
 
     await render(true);
+
+    // ── New Member Spotlight ────────────────────────────────────────────────
+    const spotlightForm   = qs("[data-tmp-spotlight-form]", root);
+    const spotlightStatus = qs("[data-tmp-spotlight-status]", root);
+    if (spotlightForm) {
+      const mSelect  = qs("[data-tmp-spotlight-member]", spotlightForm);
+      const blurbEl  = qs("[data-tmp-spotlight-blurb]",  spotlightForm);
+      const photoEl  = qs("[data-tmp-spotlight-photo]",  spotlightForm);
+      const activeEl = qs("[data-tmp-spotlight-active]", spotlightForm);
+
+      (root._members || [])
+        .slice().sort((a, b) => a.full_name.localeCompare(b.full_name))
+        .forEach(m => {
+          const opt = document.createElement("option");
+          opt.value       = m.id;
+          opt.textContent = `${m.full_name} (${m.pathway}, L${m.level})`;
+          mSelect.appendChild(opt);
+        });
+
+      const saved = await api("/settings/new-member-spotlight").catch(() => null);
+      if (saved) {
+        mSelect.value    = String(saved.member_id || "");
+        blurbEl.value    = saved.blurb     || "";
+        photoEl.value    = saved.photo_url || "";
+        activeEl.checked = !!saved.active;
+      }
+
+      spotlightForm.addEventListener("submit", async ev => {
+        ev.preventDefault();
+        spotlightStatus.textContent = "Saving…";
+        try {
+          await api("/settings/new-member-spotlight", {
+            method: "POST",
+            body: JSON.stringify({
+              member_id: Number(mSelect.value),
+              blurb:     blurbEl.value.trim(),
+              photo_url: photoEl.value.trim(),
+              active:    activeEl.checked,
+            }),
+          });
+          spotlightStatus.textContent = "Saved!";
+        } catch (e) {
+          spotlightStatus.textContent = "Save failed: " + e.message;
+        }
+      });
+    }
   }
 
   // ===========================================================================
@@ -3099,11 +3305,574 @@
     });
   }
 
+  // ===========================================================================
+  // LEVEL UP QUEUE (VPE)
+  // ===========================================================================
+
+  async function initLevelUpQueue() {
+    const root = qs("[data-tmp-vpe]");
+    if (!root) return;
+    const listEl  = qs("[data-tmp-levelup-request-list]", root);
+    const countEl = qs("[data-tmp-levelup-pending-count]", root);
+    if (!listEl) return;
+
+    const requests = await api("/vpe/level-up-requests").catch(() => []);
+    if (!requests || requests.length === 0) {
+      if (countEl) countEl.style.display = "none";
+      return;
+    }
+
+    if (countEl) { countEl.textContent = requests.length; countEl.style.display = "inline-flex"; }
+
+    listEl.innerHTML = requests.map((req) => {
+      const ev      = req.evidence || {};
+      const sp      = ev.speech_progress;
+      const gaps    = ev.role_gaps || [];
+      const unmet   = gaps.filter((g) => !g.met);
+      const complete = req.system_verdict === "complete";
+      const verdictBadge = complete
+        ? `<span class="tmp-badge" style="background:#e8f5e9;color:#2e7d32;">✅ Evidence complete</span>`
+        : `<span class="tmp-badge" style="background:#fff3e0;color:#e65100;">⚠ Evidence incomplete</span>`;
+
+      const spLine = sp
+        ? `<p style="margin:4px 0;font-size:0.85rem;">Speeches: ${sp.done}/${sp.needed}${sp.met ? " ✓" : " — needs " + (sp.needed - sp.done) + " more"}</p>`
+        : "";
+      const unmetLines = unmet.map((g) => `<p style="margin:4px 0;font-size:0.85rem;color:#e65100;">• Club role: ${esc(g.label)} not completed</p>`).join("");
+      const memberNote = req.member_note ? `<p style="margin:6px 0;font-size:0.85rem;font-style:italic;">"${esc(req.member_note)}"</p>` : "";
+
+      return `<div class="tmp-levelup-req-card" data-req-id="${req.id}" style="border:1px solid var(--tmp-line);border-radius:6px;padding:14px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div>
+            <strong>${esc(req.member_name)}</strong>
+            <span style="color:var(--tmp-muted);font-size:0.88rem;margin-left:8px;">Level ${req.from_level} → Level ${req.to_level}</span>
+            <span style="color:var(--tmp-muted);font-size:0.8rem;margin-left:8px;">${esc(req.created_at?.split(" ")[0] || "")}</span>
+          </div>
+          ${verdictBadge}
+        </div>
+        <div style="margin:10px 0 0;padding:10px;background:#f9f9f9;border-radius:4px;font-size:0.88rem;">
+          ${spLine}${unmetLines}${memberNote}
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="tmp-button tmp-primary tmp-small-button" data-approve-req="${req.id}">Approve</button>
+          <button class="tmp-button tmp-secondary tmp-small-button" data-deny-req="${req.id}">Deny</button>
+          <input type="text" placeholder="VPE note (optional)" data-vpe-note="${req.id}"
+            style="flex:1;min-width:160px;padding:6px 10px;border:1px solid var(--tmp-line);border-radius:4px;font-size:0.85rem;" />
+        </div>
+      </div>`;
+    }).join("");
+
+    listEl.addEventListener("click", async (e) => {
+      const approveBtn = e.target.closest("[data-approve-req]");
+      const denyBtn    = e.target.closest("[data-deny-req]");
+      const btn        = approveBtn || denyBtn;
+      if (!btn || btn._pending) return;
+
+      const reqId  = btn.dataset.approveReq || btn.dataset.denyReq;
+      const action = approveBtn ? "approve" : "deny";
+      const noteEl = listEl.querySelector(`[data-vpe-note="${reqId}"]`);
+      const note   = noteEl ? noteEl.value : "";
+
+      if (action === "deny" && !note.trim()) {
+        alert("Please add a note explaining the denial.");
+        noteEl?.focus();
+        return;
+      }
+
+      btn._pending = true;
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+      try {
+        await api(`/vpe/level-up-requests/${reqId}/review`, {
+          method: "POST",
+          body: JSON.stringify({ action, note }),
+        });
+        // Remove card and refresh
+        listEl.querySelector(`[data-req-id="${reqId}"]`)?.remove();
+        const remaining = listEl.querySelectorAll("[data-req-id]").length;
+        if (countEl) { countEl.textContent = remaining; if (!remaining) countEl.style.display = "none"; }
+        if (!remaining) listEl.innerHTML = "<p style=\"color:var(--tmp-muted);font-size:0.88rem;\">No pending requests.</p>";
+      } catch (err) {
+        alert("Error: " + err.message);
+        btn._pending = false;
+        btn.disabled = false;
+        btn.textContent = approveBtn ? "Approve" : "Deny";
+      }
+    });
+  }
+
+  // ===========================================================================
+  // LEVEL PROGRESS PANEL (VPE)
+  // ===========================================================================
+
+  async function initLevelProgressPanel() {
+    const root = qs("[data-tmp-vpe]");
+    if (!root) return;
+    const rowsEl   = qs("[data-tmp-vpe-lp-rows]", root);
+    const readyEl  = qs("[data-tmp-vpe-ready-count]", root);
+    const pFilter  = qs("[data-tmp-vpe-lp-pathway]", root);
+    const lFilter  = qs("[data-tmp-vpe-lp-level]", root);
+    const sFilter  = qs("[data-tmp-vpe-lp-status]", root);
+    if (!rowsEl) return;
+
+    let allData = null;
+    let expandedId = null;
+
+    const trafficLabel = (t) => t === "ready" ? "🟢 Ready" : t === "stuck" ? "🔴 Stuck" : "🟡 In Progress";
+    const trafficColor = (t) => t === "ready" ? "#e8f5e9;color:#2e7d32" : t === "stuck" ? "#ffebee;color:#c62828" : "#fff3e0;color:#e65100";
+
+    const render = () => {
+      if (!allData) return;
+      const pw = pFilter?.value || "all";
+      const lv = lFilter?.value || "all";
+      const st = sFilter?.value || "all";
+
+      const filtered = allData.filter((m) =>
+        (pw === "all" || m.pathway === pw) &&
+        (lv === "all" || String(m.level) === lv) &&
+        (st === "all" || m.traffic_light === st)
+      );
+
+      const readyCount = allData.filter((m) => m.traffic_light === "ready").length;
+      if (readyEl) readyEl.textContent = readyCount ? `${readyCount} ready to advance` : "";
+
+      if (!filtered.length) {
+        rowsEl.innerHTML = `<tr><td colspan="6" style="color:var(--tmp-muted);text-align:center;padding:16px;">No members match this filter.</td></tr>`;
+        return;
+      }
+
+      rowsEl.innerHTML = filtered.map((m) => {
+        const spCell  = m.speech_done !== null ? `${m.speech_done}/${m.speech_needed}` : "—";
+        const roleCell = `${m.roles_total - m.roles_unmet}/${m.roles_total}`;
+        const tBg     = trafficColor(m.traffic_light);
+        return `<tr data-lp-member="${m.member_id}" style="cursor:pointer;">
+          <td><strong>${esc(m.name)}</strong><br><small style="color:var(--tmp-muted);">${esc(m.pathway)}</small></td>
+          <td>Level ${m.level}</td>
+          <td>${spCell} speeches</td>
+          <td>${roleCell} roles</td>
+          <td><span class="tmp-badge" style="background:${tBg};">${trafficLabel(m.traffic_light)}</span></td>
+          <td><button class="tmp-small-button" data-expand-lp="${m.member_id}">Details</button></td>
+        </tr>
+        <tr data-lp-detail="${m.member_id}" style="display:none;">
+          <td colspan="6" style="padding:0;"></td>
+        </tr>`;
+      }).join("");
+    };
+
+    const loadDetail = async (memberId) => {
+      const detailRow = rowsEl.querySelector(`[data-lp-detail="${memberId}"]`);
+      if (!detailRow) return;
+      const td = detailRow.querySelector("td");
+      if (!td) return;
+
+      // Toggle close
+      if (expandedId === memberId) {
+        detailRow.style.display = "none";
+        expandedId = null;
+        return;
+      }
+      if (expandedId) {
+        rowsEl.querySelector(`[data-lp-detail="${expandedId}"]`)?.style?.setProperty("display", "none");
+      }
+      expandedId = memberId;
+      detailRow.style.display = "";
+      td.innerHTML = `<div style="padding:12px;background:#f9f9f9;border-top:1px solid var(--tmp-line);">Loading…</div>`;
+
+      try {
+        const data = await api(`/members/${memberId}/level-status`);
+        const sp   = data.speech_progress;
+        const lvl  = data.level;
+
+        const chips = sp ? (sp.speeches || []).map((s) =>
+          `<span class="tmp-speech-chip">${esc(s.role_name)} <small>${esc(s.meeting_date)}</small></span>`
+        ).join("") : "";
+
+        const spHtml = sp ? `
+          <div style="margin-bottom:12px;">
+            <p style="font-weight:600;font-size:0.88rem;margin:0 0 6px;">Speeches (Level ${lvl})</p>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">${chips || "<span style=\"color:var(--tmp-muted)\">None recorded yet</span>"}</div>
+            <p style="font-size:0.85rem;color:var(--tmp-muted);margin:0;">${sp.done}/${sp.needed} done${sp.offset ? ` (includes ${sp.offset} pre-system)` : ""}</p>
+            <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+              <span style="font-size:0.85rem;">Pre-system offset:</span>
+              <button class="tmp-small-button" data-offset-dec="${memberId}" data-offset-lvl="${lvl}">−</button>
+              <span data-offset-val="${memberId}">${sp.offset}</span>
+              <button class="tmp-small-button" data-offset-inc="${memberId}" data-offset-lvl="${lvl}">+</button>
+            </div>
+          </div>` : "";
+
+        const rolesHtml = `<div style="margin-bottom:12px;">
+          <p style="font-weight:600;font-size:0.88rem;margin:0 0 6px;">Club Roles (Level ${lvl})</p>
+          ${(data.role_gaps || []).map((g) => `
+            <div style="font-size:0.88rem;display:flex;align-items:center;gap:6px;margin:3px 0;">
+              ${g.met ? "✅" : "☐"} ${esc(g.label)}
+            </div>`).join("")}
+        </div>`;
+
+        td.innerHTML = `<div style="padding:14px;background:#f9f9f9;border-top:1px solid var(--tmp-line);">
+          ${spHtml}${rolesHtml}
+          <p style="font-size:0.88rem;font-weight:600;color:${data.ready_to_advance ? "var(--tmp-teal)" : "#e65100"};">
+            ${data.ready_to_advance ? "🟢 Ready to advance" : "🟡 " + (data.verdict_detail || []).join(" · ")}
+          </p>
+        </div>`;
+      } catch (err) {
+        td.innerHTML = `<div style="padding:12px;color:var(--tmp-burgundy);">Could not load: ${esc(err.message)}</div>`;
+      }
+    };
+
+    rowsEl.addEventListener("click", async (e) => {
+      const expandBtn = e.target.closest("[data-expand-lp]");
+      const incBtn    = e.target.closest("[data-offset-inc]");
+      const decBtn    = e.target.closest("[data-offset-dec]");
+
+      if (expandBtn) {
+        await loadDetail(expandBtn.dataset.expandLp);
+        return;
+      }
+
+      if (incBtn || decBtn) {
+        const mId   = (incBtn || decBtn).dataset[incBtn ? "offsetInc" : "offsetDec"];
+        const lvl   = (incBtn || decBtn).dataset.offsetLvl;
+        const valEl = rowsEl.querySelector(`[data-offset-val="${mId}"]`);
+        let current = parseInt(valEl?.textContent || "0", 10);
+        current = Math.max(0, current + (incBtn ? 1 : -1));
+        if (valEl) valEl.textContent = current;
+        try {
+          await api(`/members/${mId}/pathway-offset`, {
+            method: "POST",
+            body: JSON.stringify({ level: parseInt(lvl, 10), offset: current }),
+          });
+          // Refresh row data
+          const fresh = await api("/vpe/members/level-summary").catch(() => null);
+          if (fresh) {
+            allData = fresh;
+            render();
+            await loadDetail(mId);
+          }
+        } catch (err) {
+          alert("Could not save offset: " + err.message);
+        }
+      }
+    });
+
+    [pFilter, lFilter, sFilter].forEach((el) => el?.addEventListener("change", render));
+
+    allData = await api("/vpe/members/level-summary").catch(() => []);
+    render();
+  }
+
+  // ── Member: Rate Your Mentor ────────────────────────────────────────────────
+
+  function initMentorRating() {
+    const panel = qs('[data-tmp-mentor-rating-panel]');
+    if (!panel) return;
+
+    // Compute current-month period
+    const now    = new Date();
+    const pStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const pEnd   = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+    api(`/mentor-ratings?period_start=${pStart}&period_end=${pEnd}`).then((data) => {
+      if (!data.has_mentor) return; // no mentor — keep panel hidden
+
+      panel.style.display = '';
+      const desc     = qs('[data-tmp-mentor-rating-desc]', panel);
+      const form     = qs('[data-tmp-mentor-rating-form]', panel);
+      const submitted = qs('[data-tmp-mentor-rating-submitted]', panel);
+      const doneMsg  = qs('[data-tmp-mentor-rating-done-msg]', panel);
+      const statusEl = qs('[data-tmp-mentor-rating-status]', panel);
+
+      if (desc) desc.textContent = `Rate your mentor ${esc(data.mentor_name || '')} for this month.`;
+
+      if (data.existing_rating) {
+        submitted.style.display = '';
+        if (doneMsg) doneMsg.textContent = `You rated your mentor ${data.existing_rating.rating}/5 this month. Thank you!`;
+      } else {
+        form.style.display = '';
+
+        // Star picker highlight
+        const stars = panel.querySelectorAll('[data-star]');
+        let selectedRating = 0;
+        stars.forEach((star) => {
+          star.addEventListener('mouseover', () => highlightStars(stars, +star.dataset.star));
+          star.addEventListener('mouseout',  () => highlightStars(stars, selectedRating));
+          star.addEventListener('click', () => {
+            selectedRating = +star.dataset.star;
+            star.querySelector('input').checked = true;
+            highlightStars(stars, selectedRating);
+          });
+        });
+
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const fd = new FormData(form);
+          const rating = parseInt(fd.get('rating'), 10);
+          if (!rating) { if (statusEl) statusEl.textContent = 'Please select a star rating.'; return; }
+          if (statusEl) statusEl.textContent = 'Saving…';
+          try {
+            await api('/mentor-ratings', {
+              method: 'POST',
+              body: JSON.stringify({ rating, feedback: fd.get('feedback'), period_start: pStart, period_end: pEnd }),
+            });
+            form.style.display = 'none';
+            submitted.style.display = '';
+            if (doneMsg) doneMsg.textContent = `You rated your mentor ${rating}/5 this month. Thank you!`;
+          } catch (err) {
+            if (statusEl) statusEl.textContent = 'Error saving rating. Please try again.';
+          }
+        });
+      }
+    }).catch(() => {});
+  }
+
+  function highlightStars(stars, count) {
+    stars.forEach((s) => { s.style.color = +s.dataset.star <= count ? '#f0b429' : '#ccc'; });
+  }
+
+  // ── Member: Recognition history ─────────────────────────────────────────────
+
+  async function initMyRecognition() {
+    const panel = qs('[data-tmp-my-recognition]');
+    if (!panel) return;
+    const listEl = qs('[data-tmp-my-recognition-list]', panel);
+    if (!listEl) return;
+
+    try {
+      const me = await api('/me');
+      if (!me || !me.id) return;
+
+      const history = await api(`/recognition/awards?member_id=${me.id}&limit=20`).catch(() => []);
+      const mine = Array.isArray(history) ? history.filter((a) => +a.member_id === +me.id) : [];
+      if (!mine.length) return;
+
+      panel.style.display = '';
+      listEl.innerHTML = mine.map((a) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--tmp-line);">
+          <div>
+            <strong>${esc(a.period_type === 'quarter' ? 'Toastmaster of the Quarter' : 'Toastmaster of the Month')}</strong>
+            <span style="color:var(--tmp-muted);font-size:0.85rem;margin-left:8px;">${esc(a.period_label)}</span>
+          </div>
+          <span style="color:var(--tmp-teal);font-weight:700;">${parseFloat(a.score).toFixed(1)} pts</span>
+        </div>
+      `).join('');
+    } catch (_) {}
+  }
+
+  // ── VPE: Recognition panel ──────────────────────────────────────────────────
+
+  function initRecognitionPanel() {
+    const panel = qs('[data-tmp-recognition-panel]');
+    if (!panel) return;
+
+    const typeEl    = qs('[data-tmp-recog-type]', panel);
+    const startEl   = qs('[data-tmp-recog-start]', panel);
+    const endEl     = qs('[data-tmp-recog-end]', panel);
+    const computeBtn = qs('[data-tmp-recog-compute]', panel);
+    const scoresEl  = qs('[data-tmp-recog-scores]', panel);
+    const awardsEl  = qs('[data-tmp-recog-awards-list]', panel);
+
+    // Default period: current month
+    const now = new Date();
+    const m   = String(now.getMonth() + 1).padStart(2, '0');
+    const y   = now.getFullYear();
+    const last = new Date(y, now.getMonth() + 1, 0).getDate();
+    if (startEl) startEl.value = `${y}-${m}-01`;
+    if (endEl)   endEl.value   = `${y}-${m}-${String(last).padStart(2, '0')}`;
+
+    // Auto-set end date when type changes
+    typeEl?.addEventListener('change', () => {
+      if (!startEl?.value) return;
+      const d = new Date(startEl.value + 'T00:00:00');
+      if (typeEl.value === 'quarter') {
+        const qEnd = new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3 + 3, 0);
+        if (endEl) endEl.value = qEnd.toISOString().slice(0, 10);
+      } else {
+        const mEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        if (endEl) endEl.value = mEnd.toISOString().slice(0, 10);
+      }
+    });
+
+    computeBtn?.addEventListener('click', async () => {
+      const pStart = startEl?.value;
+      const pEnd   = endEl?.value;
+      if (!pStart || !pEnd) { alert('Please set period start and end dates.'); return; }
+      if (scoresEl) scoresEl.innerHTML = '<p style="color:var(--tmp-muted)">Computing…</p>';
+
+      try {
+        const scores = await api(`/recognition/scores?period_start=${pStart}&period_end=${pEnd}`);
+        if (!scores.length) {
+          scoresEl.innerHTML = '<p style="color:var(--tmp-muted)">No completed meetings found in this period.</p>';
+          return;
+        }
+        renderScoreTable(scores, scoresEl, typeEl?.value, pStart, pEnd);
+      } catch (err) {
+        if (scoresEl) scoresEl.innerHTML = '<p style="color:var(--tmp-burgundy)">Error computing scores.</p>';
+      }
+    });
+
+    loadPastAwards(awardsEl);
+  }
+
+  function renderScoreTable(scores, container, periodType, pStart, pEnd) {
+    const periodLabel = buildPeriodLabel(periodType, pStart);
+    container.innerHTML = `
+      <table class="tmp-table" style="width:100%;font-size:0.85rem;">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Member</th>
+            <th>Lvl</th>
+            <th title="Attendance score (25 pts max)">Attend</th>
+            <th title="Service role score (35 pts max)">Service</th>
+            <th title="Meeting win score (20 pts max)">Wins</th>
+            <th title="Level-up bonus (15 pts)">Lvl-Up</th>
+            <th title="Mentor rating bonus (5 pts)">Mentor</th>
+            <th>Total</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${scores.map((s, i) => {
+            const b = s.breakdown;
+            const tip = `Attended ${b.attendance_meetings}/${b.total_meetings} meetings · ${b.service_meetings} service role meetings · ${b.wins} wins${b.leveled_up ? ' · Leveled up!' : ''}${b.mentor_avg_rating !== null ? ` · Mentor avg rating ${b.mentor_avg_rating}` : ''}`;
+            return `<tr title="${esc(tip)}">
+              <td>${i + 1}</td>
+              <td><strong>${esc(s.member_name)}</strong></td>
+              <td>${s.level}</td>
+              <td>${b.attendance_score.toFixed(1)}</td>
+              <td>${b.service_score.toFixed(1)}</td>
+              <td>${b.win_score.toFixed(1)}</td>
+              <td>${b.level_up_score > 0 ? '<span style="color:var(--tmp-teal)">+15</span>' : '—'}</td>
+              <td>${b.mentor_score > 0 ? b.mentor_score.toFixed(1) : '—'}</td>
+              <td><strong>${s.score.toFixed(1)}</strong></td>
+              <td>
+                <button class="tmp-small-button" style="white-space:nowrap;"
+                  data-recog-declare="${s.member_id}"
+                  data-recog-name="${esc(s.member_name)}"
+                  data-recog-score="${s.score}"
+                  data-recog-breakdown='${JSON.stringify(s.breakdown)}'
+                  data-recog-period-type="${periodType || 'month'}"
+                  data-recog-period-start="${pStart}"
+                  data-recog-period-end="${pEnd}"
+                  data-recog-label="${esc(periodLabel)}">
+                  Declare Winner
+                </button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+
+    container.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-recog-declare]');
+      if (!btn) return;
+
+      const memberName = btn.dataset.recogName;
+      const emailOpt   = confirm(`Declare ${memberName} as ${btn.dataset.recogPeriodType === 'quarter' ? 'TM of the Quarter' : 'TM of the Month'} for ${btn.dataset.recogLabel}?\n\nClick OK to send email to winner only, or Cancel to skip email.`);
+
+      const sendEmail = emailOpt ? confirm('Also send announcement to ALL members?') ? 'all' : 'winner' : false;
+
+      try {
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        await api('/recognition/awards', {
+          method: 'POST',
+          body: JSON.stringify({
+            member_id:   btn.dataset.recogDeclare,
+            member_name: memberName,
+            period_type: btn.dataset.recogPeriodType,
+            period_label: btn.dataset.recogLabel,
+            period_start: btn.dataset.recogPeriodStart,
+            period_end:   btn.dataset.recogPeriodEnd,
+            score:        parseFloat(btn.dataset.recogScore),
+            breakdown:    JSON.parse(btn.dataset.recogBreakdown),
+            display_on_homepage: true,
+            send_email:  sendEmail,
+          }),
+        });
+        btn.textContent = '✓ Declared';
+        btn.style.color = 'var(--tmp-teal)';
+
+        const awardsEl = qs('[data-tmp-recog-awards-list]');
+        if (awardsEl) loadPastAwards(awardsEl);
+      } catch (_) {
+        btn.disabled = false;
+        btn.textContent = 'Declare Winner';
+        alert('Error declaring award. Please try again.');
+      }
+    }, { once: true });
+  }
+
+  function buildPeriodLabel(periodType, pStart) {
+    const d = new Date(pStart + 'T00:00:00');
+    if (periodType === 'quarter') {
+      const q = Math.floor(d.getMonth() / 3) + 1;
+      return `Q${q} ${d.getFullYear()}`;
+    }
+    return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  }
+
+  async function loadPastAwards(container) {
+    if (!container) return;
+    try {
+      const awards = await api('/recognition/awards?limit=20');
+      if (!awards.length) {
+        container.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No awards declared yet.</p>';
+        return;
+      }
+      container.innerHTML = `
+        <table class="tmp-table" style="width:100%;font-size:0.85rem;">
+          <thead><tr><th>Period</th><th>Type</th><th>Winner</th><th>Score</th><th>Homepage</th><th></th></tr></thead>
+          <tbody>
+            ${awards.map((a) => `
+              <tr>
+                <td>${esc(a.period_label)}</td>
+                <td>${a.period_type === 'quarter' ? 'TM of Quarter' : 'TM of Month'}</td>
+                <td><strong>${esc(a.member_name)}</strong></td>
+                <td>${parseFloat(a.score).toFixed(1)}</td>
+                <td>
+                  <input type="checkbox" ${a.display_on_homepage == 1 ? 'checked' : ''}
+                    data-award-homepage="${a.id}" title="Show on homepage" />
+                </td>
+                <td>
+                  <button class="tmp-small-button tmp-danger" data-award-delete="${a.id}"
+                    title="Revoke award">Revoke</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+
+      container.addEventListener('change', async (e) => {
+        const cb = e.target.closest('[data-award-homepage]');
+        if (!cb) return;
+        await api(`/recognition/awards/${cb.dataset.awardHomepage}`, {
+          method: 'POST',
+          body: JSON.stringify({ display_on_homepage: cb.checked }),
+        }).catch(() => {});
+      });
+
+      container.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-award-delete]');
+        if (!btn) return;
+        if (!confirm('Revoke this award? This cannot be undone.')) return;
+        await api(`/recognition/awards/${btn.dataset.awardDelete}`, { method: 'DELETE' }).catch(() => {});
+        loadPastAwards(container);
+      });
+    } catch (_) {
+      container.innerHTML = '<p style="color:var(--tmp-muted)">Could not load past awards.</p>';
+    }
+  }
+
   initMemberDashboard();
   initSAAAttendance();
   initAdmin();
   initVPEducation();
+  initLevelUpQueue();
+  initLevelProgressPanel();
   initEnrolment();
   initVotingPanel();
   initWrapUpPanel();
+  initRecognitionPanel();
+  initMentorRating();
+  initMyRecognition();
 })();

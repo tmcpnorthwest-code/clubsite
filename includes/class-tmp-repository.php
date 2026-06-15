@@ -3577,4 +3577,710 @@ class TMP_Repository {
 
         return true;
     }
+
+    // -------------------------------------------------------------------------
+    // Pathways Level Progress (L1–L3 inference engine)
+    // -------------------------------------------------------------------------
+
+    private static function pathway_offsets_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_pathway_offsets';
+    }
+
+    private static function level_up_requests_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_level_up_requests';
+    }
+
+    /**
+     * Minimum speeches required per level (all 11 paths share the same counts for L1–L3).
+     * L4+ not tracked here — too complex for speech-count inference.
+     */
+    public static function get_pathways_speech_requirements(): array {
+        $default = [1 => 5, 2 => 3, 3 => 3];
+        return [
+            'Dynamic Leadership'      => $default,
+            'Effective Coaching'      => $default,
+            'Engaging Humor'          => $default,
+            'Innovative Planning'     => $default,
+            'Leadership Development'  => $default,
+            'Motivational Strategies' => $default,
+            'Persuasive Influence'    => $default,
+            'Presentation Mastery'    => $default,
+            'Strategic Relationships' => $default,
+            'Team Collaboration'      => $default,
+            'Visionary Communication' => $default,
+            '_default'                => $default,
+        ];
+    }
+
+    /**
+     * Counts speeches at a given level for a member and compares to the path requirement.
+     * Returns null for L4+ (not tracked by inference).
+     */
+    public static function get_member_level_speech_progress($member_id, $level): ?array {
+        if ($level < 1 || $level > 3) {
+            return null;
+        }
+
+        global $wpdb;
+        $history = self::participation_history_table();
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT role_name, meeting_date
+               FROM {$history}
+              WHERE member_id = %d
+                AND level_at_completion = %d
+                AND (role_name LIKE 'Speaker%%' OR role_name = 'Ice Breaker')
+              ORDER BY meeting_date ASC",
+            $member_id, $level
+        ), ARRAY_A);
+
+        $speeches = array_map(fn($r) => [
+            'meeting_date' => $r['meeting_date'],
+            'role_name'    => $r['role_name'],
+        ], $rows);
+
+        $done_from_history = count($speeches);
+
+        $offset = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT `offset` FROM " . self::pathway_offsets_table() . "
+              WHERE member_id = %d AND level = %d",
+            $member_id, $level
+        ));
+
+        $member = self::get_member((int) $member_id);
+        $reqs   = self::get_pathways_speech_requirements();
+        $path   = $member['pathway'] ?? '_default';
+        $needed = $reqs[$path][$level] ?? $reqs['_default'][$level];
+
+        $done = $done_from_history + $offset;
+
+        return [
+            'done'     => min($done, $needed),
+            'needed'   => $needed,
+            'met'      => $done >= $needed,
+            'offset'   => $offset,
+            'speeches' => $speeches,
+        ];
+    }
+
+    /**
+     * Combined level status: speech progress (L1–L3 only) + club role gaps.
+     */
+    public static function get_member_full_level_status($member_id): array {
+        $member = self::get_member((int) $member_id);
+        $level  = (int)($member['level'] ?? 1);
+
+        $speech_progress = self::get_member_level_speech_progress($member_id, $level);
+        $role_gaps       = self::get_member_level_gaps($member_id, $level);
+
+        $all_roles_met = empty(array_filter($role_gaps, fn($g) => !$g['met']));
+
+        if ($speech_progress === null) {
+            // L4+ — only role gaps tracked
+            $ready          = $all_roles_met;
+            $verdict        = $ready ? 'complete' : 'incomplete';
+            $verdict_detail = $ready ? [] : array_map(
+                fn($g) => $g['label'] . ' not completed',
+                array_filter($role_gaps, fn($g) => !$g['met'])
+            );
+        } else {
+            $ready   = $speech_progress['met'] && $all_roles_met;
+            $verdict = $ready ? 'complete' : 'incomplete';
+            $verdict_detail = [];
+            if (!$speech_progress['met']) {
+                $still = $speech_progress['needed'] - $speech_progress['done'];
+                $verdict_detail[] = "{$still} more speech" . ($still > 1 ? 'es' : '') . " needed at Level {$level}";
+            }
+            foreach (array_filter($role_gaps, fn($g) => !$g['met']) as $g) {
+                $verdict_detail[] = $g['label'] . ' not completed';
+            }
+        }
+
+        return [
+            'level'            => $level,
+            'pathway'          => $member['pathway'] ?? '',
+            'speech_progress'  => $speech_progress,
+            'role_gaps'        => $role_gaps,
+            'ready_to_advance' => $ready,
+            'system_verdict'   => $verdict,
+            'verdict_detail'   => array_values($verdict_detail),
+        ];
+    }
+
+    /**
+     * Returns mentee progress alerts for a mentor's dashboard.
+     */
+    public static function get_mentor_mentee_alerts($mentor_member_id): array {
+        global $wpdb;
+        $members = self::member_table();
+
+        $mentees = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, full_name, level, pathway
+               FROM {$members}
+              WHERE mentor_id = %d AND state != 'Resigned'
+              ORDER BY full_name ASC",
+            $mentor_member_id
+        ), ARRAY_A);
+
+        $result = [];
+        foreach ($mentees as $mentee) {
+            $m_id   = (int) $mentee['id'];
+            $status = self::get_member_full_level_status($m_id);
+            $alerts = [];
+
+            if ($status['speech_progress'] !== null && $status['speech_progress']['done'] === 0) {
+                $alerts[] = [
+                    'type'  => 'needs_first_speech',
+                    'label' => 'Has not delivered any speech at Level ' . $status['level'] . ' yet',
+                ];
+            }
+            foreach ($status['role_gaps'] as $gap) {
+                if (!$gap['met']) {
+                    $alerts[] = [
+                        'type'  => 'needs_role',
+                        'role'  => $gap['label'],
+                        'label' => $gap['label'] . ' role not completed at Level ' . $status['level'],
+                    ];
+                }
+            }
+            if ($status['ready_to_advance']) {
+                $alerts[] = [
+                    'type'  => 'ready_for_level_up',
+                    'label' => 'All Level ' . $status['level'] . ' requirements met — ready to advance!',
+                ];
+            }
+
+            $result[] = [
+                'member_id'       => $m_id,
+                'name'            => $mentee['full_name'],
+                'level'           => (int) $mentee['level'],
+                'pathway'         => $mentee['pathway'],
+                'alerts'          => $alerts,
+                'speech_progress' => $status['speech_progress'],
+                'ready_to_advance'=> $status['ready_to_advance'],
+            ];
+        }
+        return $result;
+    }
+
+    /**
+     * Member submits a formal level-up request. Returns new request ID or WP_Error.
+     */
+    public static function submit_level_up_request($member_id, $note = '') {
+        global $wpdb;
+        $table  = self::level_up_requests_table();
+        $member = self::get_member((int) $member_id);
+        $level  = (int)($member['level'] ?? 1);
+
+        if ($level >= 3) {
+            return new WP_Error('tmp_level_limit', 'Level-up requests are only supported for L1→L2 and L2→L3.');
+        }
+
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$table} WHERE member_id = %d AND status = 'pending'",
+            $member_id
+        ));
+        if ($existing) {
+            return new WP_Error('tmp_duplicate_request', 'A pending level-up request already exists.');
+        }
+
+        $status  = self::get_member_full_level_status((int) $member_id);
+        $verdict = $status['system_verdict'];
+
+        $wpdb->insert($table, [
+            'member_id'      => (int) $member_id,
+            'from_level'     => $level,
+            'to_level'       => $level + 1,
+            'status'         => 'pending',
+            'member_note'    => sanitize_textarea_field($note),
+            'evidence'       => wp_json_encode($status),
+            'system_verdict' => $verdict,
+            'created_at'     => current_time('mysql'),
+        ]);
+
+        return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * VPE approves a level-up request. Bumps the member's level.
+     */
+    public static function approve_level_up_request($request_id, $vpe_user_id, $note = ''): bool {
+        global $wpdb;
+        $table = self::level_up_requests_table();
+
+        $req = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE id = %d AND status = 'pending'",
+            $request_id
+        ), ARRAY_A);
+        if (!$req) {
+            return false;
+        }
+
+        $wpdb->update($table, [
+            'status'      => 'approved',
+            'vpe_note'    => sanitize_textarea_field($note),
+            'reviewed_at' => current_time('mysql'),
+            'reviewed_by' => (int) $vpe_user_id,
+        ], ['id' => (int) $request_id]);
+
+        self::upsert_member((int) $req['member_id'], ['level' => (int) $req['to_level']]);
+        return true;
+    }
+
+    /**
+     * VPE denies a level-up request.
+     */
+    public static function deny_level_up_request($request_id, $vpe_user_id, $note = ''): bool {
+        global $wpdb;
+        $table = self::level_up_requests_table();
+
+        $updated = $wpdb->update($table, [
+            'status'      => 'denied',
+            'vpe_note'    => sanitize_textarea_field($note),
+            'reviewed_at' => current_time('mysql'),
+            'reviewed_by' => (int) $vpe_user_id,
+        ], ['id' => (int) $request_id, 'status' => 'pending']);
+
+        return (bool) $updated;
+    }
+
+    /**
+     * VPE sets a pre-system speech offset for a member at a given level.
+     */
+    public static function set_pathway_offset($member_id, $level, $offset, $notes = ''): void {
+        global $wpdb;
+        $table = self::pathway_offsets_table();
+
+        $wpdb->replace($table, [
+            'member_id'  => (int) $member_id,
+            'level'      => (int) $level,
+            'offset'     => max(0, (int) $offset),
+            'notes'      => sanitize_text_field($notes),
+            'created_at' => current_time('mysql'),
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // New Member Spotlight
+    // -------------------------------------------------------------------------
+
+    public static function get_new_member_spotlight() {
+        $raw = get_option('tmp_new_member_spotlight', null);
+        if (!$raw) return null;
+        $data = json_decode($raw, true);
+        if (empty($data['active']) || empty($data['member_id'])) return null;
+        $member = self::get_member((int) $data['member_id']);
+        if (!$member) return null;
+        return [
+            'member'    => $member,
+            'blurb'     => $data['blurb']     ?? '',
+            'photo_url' => $data['photo_url'] ?? '',
+        ];
+    }
+
+    // =========================================================================
+    // Recognition — TM of Month / Quarter
+    // =========================================================================
+
+    public static function mentor_ratings_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_mentor_ratings';
+    }
+
+    public static function recognition_awards_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_recognition_awards';
+    }
+
+    /**
+     * Roles that count as "service roles" for the recognition scoring.
+     * Prepared speeches (Ice Breaker, project speeches) are personal development
+     * and are intentionally excluded — they don't count toward club service.
+     */
+    public static function is_service_role($role_name) {
+        $lower = strtolower(trim($role_name));
+        $service_patterns = [
+            'timer', 'grammarian', 'ah-counter', 'ah counter',
+            'sergeant at arms', 'toastmaster of the day',
+            'general evaluator', 'evaluator',
+            'table topics master', 'table topics speaker',
+            'introductory mentor', 'intro mentor',
+            'presiding officer', 'educational presentation',
+        ];
+        foreach ($service_patterns as $p) {
+            if (strpos($lower, $p) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Compute recognition scores for all active members over a date range.
+     *
+     * Scoring (100 pts total):
+     *   A. Club Service (60 pts — rate-based, capped at 1 per meeting)
+     *      A1. Attendance rate × 25
+     *      A2. Service role rate × 35  (service roles taken, max 1 per meeting / total meetings)
+     *   B. Achievements (35 pts)
+     *      B1. Win rate × 20           (wins / total meetings)
+     *      B2. Level up in period = 15 flat pts
+     *   C. Mentor bonus (5 pts)        (avg mentee rating / 5 × 5)
+     *
+     * Returns array of members sorted by score desc, each with score_breakdown.
+     */
+    public static function compute_recognition_scores($period_start, $period_end) {
+        global $wpdb;
+
+        $members_tbl    = self::member_table();
+        $attendance_tbl = self::attendance_table();
+        $history_tbl    = self::participation_history_table();
+        $wins_tbl       = self::win_history_table();
+        $level_ups_tbl  = $wpdb->prefix . 'tmp_level_up_history';
+        $ratings_tbl    = self::mentor_ratings_table();
+
+        // Total meetings held in the period
+        $total_meetings = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM " . self::meeting_table() . "
+             WHERE meeting_date BETWEEN %s AND %s AND wrapped_up = 1",
+            $period_start, $period_end
+        ));
+        if ($total_meetings === 0) {
+            return [];
+        }
+
+        // A1 — meetings each member attended
+        $attendance_rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT member_id, COUNT(DISTINCT meeting_id) as cnt
+             FROM {$attendance_tbl}
+             WHERE member_id IS NOT NULL
+               AND meeting_id IN (
+                   SELECT id FROM " . self::meeting_table() . "
+                   WHERE meeting_date BETWEEN %s AND %s AND wrapped_up = 1
+               )
+             GROUP BY member_id",
+            $period_start, $period_end
+        ), ARRAY_A);
+        $attendance_map = [];
+        foreach ($attendance_rows as $r) {
+            $attendance_map[(int) $r['member_id']] = (int) $r['cnt'];
+        }
+
+        // A2 — service roles taken, deduplicated to 1 per meeting per member
+        // We count distinct meeting_ids where at least one service role was performed.
+        $history_rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT member_id, meeting_id, role_name
+             FROM {$history_tbl}
+             WHERE meeting_date BETWEEN %s AND %s",
+            $period_start, $period_end
+        ), ARRAY_A);
+
+        $service_meetings_map = []; // member_id → set of meeting_ids with a service role
+        foreach ($history_rows as $r) {
+            if (self::is_service_role($r['role_name'])) {
+                $mid = (int) $r['member_id'];
+                $service_meetings_map[$mid][(int) $r['meeting_id']] = true;
+            }
+        }
+
+        // B1 — meeting wins in period
+        $win_rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT member_id, COUNT(*) as cnt
+             FROM {$wins_tbl}
+             WHERE member_id IS NOT NULL AND won_at BETWEEN %s AND %s
+             GROUP BY member_id",
+            $period_start, $period_end
+        ), ARRAY_A);
+        $wins_map = [];
+        foreach ($win_rows as $r) {
+            $wins_map[(int) $r['member_id']] = (int) $r['cnt'];
+        }
+
+        // B2 — level ups in period
+        $levelup_rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT member_id FROM {$level_ups_tbl}
+             WHERE leveled_up_at BETWEEN %s AND %s",
+            $period_start . ' 00:00:00', $period_end . ' 23:59:59'
+        ), ARRAY_A);
+        $levelup_set = [];
+        foreach ($levelup_rows as $r) {
+            $levelup_set[(int) $r['member_id']] = true;
+        }
+
+        // C — mentor ratings (avg per mentor over period)
+        $rating_rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT mentor_id, AVG(rating) as avg_rating, COUNT(*) as cnt
+             FROM {$ratings_tbl}
+             WHERE period_start >= %s AND period_end <= %s
+             GROUP BY mentor_id",
+            $period_start, $period_end
+        ), ARRAY_A);
+        $ratings_map = [];
+        foreach ($rating_rows as $r) {
+            $ratings_map[(int) $r['mentor_id']] = round((float) $r['avg_rating'], 2);
+        }
+
+        // Score all active members
+        $members = $wpdb->get_results(
+            "SELECT id, full_name, pathway, level, mentor_id
+             FROM {$members_tbl}
+             WHERE state = 'Active'
+             ORDER BY full_name ASC",
+            ARRAY_A
+        );
+
+        $results = [];
+        foreach ($members as $m) {
+            $mid = (int) $m['id'];
+
+            $attended       = $attendance_map[$mid] ?? 0;
+            $service_count  = isset($service_meetings_map[$mid]) ? count($service_meetings_map[$mid]) : 0;
+            $wins           = $wins_map[$mid] ?? 0;
+            $leveled_up     = isset($levelup_set[$mid]);
+            $avg_rating     = $ratings_map[$mid] ?? null;
+
+            $a1 = round(($attended       / $total_meetings) * 25, 2);
+            $a2 = round(($service_count  / $total_meetings) * 35, 2);
+            $b1 = round(($wins           / $total_meetings) * 20, 2);
+            $b2 = $leveled_up ? 15.0 : 0.0;
+            $c  = $avg_rating !== null ? round(($avg_rating / 5) * 5, 2) : 0.0;
+
+            $total = $a1 + $a2 + $b1 + $b2 + $c;
+
+            $results[] = [
+                'member_id'   => $mid,
+                'member_name' => $m['full_name'],
+                'pathway'     => $m['pathway'],
+                'level'       => (int) $m['level'],
+                'score'       => round($total, 2),
+                'breakdown'   => [
+                    'attendance_meetings' => $attended,
+                    'total_meetings'      => $total_meetings,
+                    'attendance_score'    => $a1,
+                    'service_meetings'    => $service_count,
+                    'service_score'       => $a2,
+                    'wins'                => $wins,
+                    'win_score'           => $b1,
+                    'leveled_up'          => $leveled_up,
+                    'level_up_score'      => $b2,
+                    'mentor_avg_rating'   => $avg_rating,
+                    'mentor_score'        => $c,
+                ],
+            ];
+        }
+
+        usort($results, fn($a, $b) => $b['score'] <=> $a['score']);
+        return $results;
+    }
+
+    // ── Mentor ratings ────────────────────────────────────────────────────────
+
+    public static function save_mentor_rating($data) {
+        global $wpdb;
+        $table = self::mentor_ratings_table();
+        $now   = current_time('mysql');
+
+        $mentee_id    = absint($data['mentee_id'] ?? 0);
+        $mentor_id    = absint($data['mentor_id']  ?? 0);
+        $rating       = max(1, min(5, absint($data['rating'] ?? 0)));
+        $feedback     = sanitize_textarea_field($data['feedback'] ?? '');
+        $period_start = sanitize_text_field($data['period_start'] ?? '');
+        $period_end   = sanitize_text_field($data['period_end']   ?? '');
+
+        if (!$mentee_id || !$mentor_id || !$period_start || !$period_end) {
+            return new WP_Error('tmp_invalid', 'Missing required fields.', ['status' => 400]);
+        }
+
+        // Upsert — one rating per mentee per period
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$table} WHERE mentee_id = %d AND period_start = %s AND period_end = %s",
+            $mentee_id, $period_start, $period_end
+        ));
+
+        if ($existing) {
+            $wpdb->update(
+                $table,
+                ['rating' => $rating, 'feedback' => $feedback, 'created_at' => $now],
+                ['id' => (int) $existing]
+            );
+        } else {
+            $wpdb->insert($table, [
+                'mentor_id'    => $mentor_id,
+                'mentee_id'    => $mentee_id,
+                'rating'       => $rating,
+                'feedback'     => $feedback,
+                'period_start' => $period_start,
+                'period_end'   => $period_end,
+                'created_at'   => $now,
+            ]);
+        }
+
+        return ['success' => true];
+    }
+
+    public static function get_mentor_rating_for_period($mentee_id, $period_start, $period_end) {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM " . self::mentor_ratings_table() . "
+             WHERE mentee_id = %d AND period_start = %s AND period_end = %s",
+            absint($mentee_id), $period_start, $period_end
+        ), ARRAY_A);
+    }
+
+    // ── Award CRUD ────────────────────────────────────────────────────────────
+
+    public static function declare_recognition_award($data) {
+        global $wpdb;
+        $table = self::recognition_awards_table();
+        $now   = current_time('mysql');
+
+        $member_id    = absint($data['member_id']    ?? 0);
+        $period_type  = sanitize_text_field($data['period_type']  ?? '');
+        $period_start = sanitize_text_field($data['period_start'] ?? '');
+        $period_end   = sanitize_text_field($data['period_end']   ?? '');
+
+        if (!$member_id || !in_array($period_type, ['month', 'quarter'], true) || !$period_start || !$period_end) {
+            return new WP_Error('tmp_invalid', 'Missing required fields.', ['status' => 400]);
+        }
+
+        $member = self::get_member($member_id);
+        if (!$member) {
+            return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
+        }
+
+        $breakdown  = $data['breakdown'] ?? [];
+        $score      = (float) ($data['score'] ?? 0);
+        $period_label = sanitize_text_field($data['period_label'] ?? '');
+        $show_home  = isset($data['display_on_homepage']) ? (int) (bool) $data['display_on_homepage'] : 1;
+        $send_email = !empty($data['send_email']);
+
+        $wpdb->insert($table, [
+            'member_id'           => $member_id,
+            'member_name'         => $member['full_name'],
+            'period_type'         => $period_type,
+            'period_label'        => $period_label,
+            'period_start'        => $period_start,
+            'period_end'          => $period_end,
+            'score'               => $score,
+            'score_breakdown'     => wp_json_encode($breakdown),
+            'declared_by'         => get_current_user_id(),
+            'declared_at'         => $now,
+            'display_on_homepage' => $show_home,
+            'email_sent'          => 0,
+        ]);
+
+        $award_id = (int) $wpdb->insert_id;
+        if (!$award_id) {
+            return new WP_Error('tmp_db_error', 'Failed to save award.', ['status' => 500]);
+        }
+
+        if ($send_email) {
+            self::send_recognition_email($award_id, $member, $period_type, $period_label, $send_email);
+        }
+
+        return ['success' => true, 'award_id' => $award_id];
+    }
+
+    public static function update_recognition_award_homepage($id, $show) {
+        global $wpdb;
+        return (bool) $wpdb->update(
+            self::recognition_awards_table(),
+            ['display_on_homepage' => (int) (bool) $show],
+            ['id' => absint($id)]
+        );
+    }
+
+    public static function delete_recognition_award($id) {
+        global $wpdb;
+        return (bool) $wpdb->delete(self::recognition_awards_table(), ['id' => absint($id)]);
+    }
+
+    public static function get_recognition_awards($period_type = null, $limit = 20) {
+        global $wpdb;
+        $table = self::recognition_awards_table();
+
+        $where = $period_type ? $wpdb->prepare("WHERE period_type = %s", $period_type) : '';
+        return $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM {$table} {$where} ORDER BY period_start DESC LIMIT %d",
+                absint($limit)
+            ),
+            ARRAY_A
+        ) ?: [];
+    }
+
+    public static function get_homepage_recognition_awards() {
+        global $wpdb;
+        $table = self::recognition_awards_table();
+
+        // Latest declared monthly and quarterly award that are marked for homepage display
+        $month   = $wpdb->get_row(
+            "SELECT * FROM {$table} WHERE period_type = 'month' AND display_on_homepage = 1 ORDER BY period_start DESC LIMIT 1",
+            ARRAY_A
+        );
+        $quarter = $wpdb->get_row(
+            "SELECT * FROM {$table} WHERE period_type = 'quarter' AND display_on_homepage = 1 ORDER BY period_start DESC LIMIT 1",
+            ARRAY_A
+        );
+
+        return [
+            'month'   => $month   ?: null,
+            'quarter' => $quarter ?: null,
+        ];
+    }
+
+    public static function get_member_recognition_history($member_id) {
+        global $wpdb;
+        $table = self::recognition_awards_table();
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT period_type, period_label, period_start, score, declared_at
+             FROM {$table}
+             WHERE member_id = %d
+             ORDER BY period_start DESC",
+            absint($member_id)
+        ), ARRAY_A) ?: [];
+    }
+
+    private static function send_recognition_email($award_id, $member, $period_type, $period_label, $broadcast) {
+        global $wpdb;
+
+        $club_name    = get_bloginfo('name');
+        $period_title = $period_type === 'quarter' ? 'Toastmaster of the Quarter' : 'Toastmaster of the Month';
+        $winner_name  = $member['full_name'];
+        $winner_email = $member['email'];
+
+        $subject = "{$club_name}: {$period_title} — Congratulations, {$winner_name}!";
+        $body    = "Dear {$winner_name},\n\n"
+            . "Congratulations! You have been named {$period_title} for {$period_label} "
+            . "at {$club_name}.\n\n"
+            . "Thank you for your dedication, participation, and service to the club. "
+            . "Your commitment inspires the whole team!\n\n"
+            . "Keep up the great work,\n{$club_name} Leadership";
+
+        wp_mail($winner_email, $subject, $body);
+
+        if ($broadcast === 'all') {
+            $members_tbl = self::member_table();
+            $emails = $wpdb->get_col(
+                "SELECT email FROM {$members_tbl} WHERE state = 'Active' AND email != ''"
+            );
+            foreach ($emails as $email) {
+                if ($email === $winner_email) continue;
+                $bcast_body = "Dear Club Member,\n\n"
+                    . "We are pleased to announce that {$winner_name} has been named "
+                    . "{$period_title} for {$period_label} at {$club_name}.\n\n"
+                    . "Please join us in congratulating {$winner_name} on this achievement!\n\n"
+                    . "Best regards,\n{$club_name} Leadership";
+                wp_mail($email, "{$club_name}: {$period_title} Announcement", $bcast_body);
+            }
+        }
+
+        $wpdb->update(
+            self::recognition_awards_table(),
+            ['email_sent' => 1],
+            ['id' => absint($award_id)]
+        );
+    }
 }

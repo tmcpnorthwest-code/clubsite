@@ -28,16 +28,47 @@
     return d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
   }
 
+  // ── TM of Month / Quarter award cards ────────────────────────────────────────
+
+  function renderTMAwards(container, awards) {
+    const month   = awards?.month;
+    const quarter = awards?.quarter;
+
+    if (!month && !quarter) {
+      container.innerHTML = '<p style="color:var(--tmp-muted)">No awards declared yet.</p>';
+      return;
+    }
+
+    const card = (label, a) => `
+      <div class="tmp-award-card" style="flex:1;min-width:220px;background:var(--tmp-bg,#fff);border:2px solid var(--tmp-teal,#0f766e);border-radius:10px;padding:20px;text-align:center;">
+        <p class="tmp-eyebrow" style="margin:0 0 6px;color:var(--tmp-teal);">${esc(label)}</p>
+        <div style="font-size:2rem;margin:8px 0;">&#127942;</div>
+        <strong style="font-size:1.1rem;display:block;">${esc(a.member_name)}</strong>
+        <span style="color:var(--tmp-muted);font-size:0.82rem;">${esc(a.period_label)}</span>
+      </div>`;
+
+    container.innerHTML = `<div style="display:flex;gap:16px;flex-wrap:wrap;">
+      ${month   ? card('Toastmaster of the Month',   month)   : ''}
+      ${quarter ? card('Toastmaster of the Quarter', quarter) : ''}
+    </div>`;
+  }
+
   // ── Recognition wall (standalone [tm_recognition_wall] shortcode) ────────────
 
   function initRecognitionWall(root) {
-    const list = qs('[data-tmp-level-ups-list]', root);
-    if (!list) return;
+    const awardsEl = qs('[data-tmp-tm-awards]', root);
+    const list     = qs('[data-tmp-level-ups-list]', root);
 
     fetch(`${API}/public/recognition`)
       .then((r) => r.json())
-      .then((data) => renderLevelUps(list, data.level_ups || []))
-      .catch(() => { list.innerHTML = '<p style="color:#999">Could not load recognition data.</p>'; });
+      .then((data) => {
+        if (awardsEl) renderTMAwards(awardsEl, data.awards || {});
+        if (list)     renderLevelUps(list, data.level_ups || []);
+      })
+      .catch(() => {
+        if (awardsEl) awardsEl.innerHTML = '<p style="color:#999">Could not load data.</p>';
+        if (list)     list.innerHTML     = '<p style="color:#999">Could not load recognition data.</p>';
+      });
   }
 
   function renderLevelUps(container, items) {
@@ -156,15 +187,17 @@
   // ── Full public dashboard (mounts on [data-tmp-public-dashboard]) ─────────────
 
   function initPublicDashboard(root) {
+    const tmAwardsEl  = qs('[data-tmp-public-tm-awards]', root);
     const levelUpsEl  = qs('[data-tmp-public-level-ups]', root);
     const meetingEl   = qs('[data-tmp-public-meeting]', root);
     const diversityEl = qs('[data-tmp-public-diversity]', root);
 
     Promise.all([
-      fetch(`${API}/public/recognition`).then((r) => r.json()).catch(() => ({ level_ups: [] })),
+      fetch(`${API}/public/recognition`).then((r) => r.json()).catch(() => ({ level_ups: [], awards: {} })),
       fetch(`${API}/public/meeting-summary`).then((r) => r.ok ? r.json() : null).catch(() => null),
       fetch(`${API}/public/role-diversity`).then((r) => r.json()).catch(() => ({ leaders: [] })),
     ]).then(([recog, meeting, diversity]) => {
+      if (tmAwardsEl)  renderTMAwards(tmAwardsEl, recog.awards || {});
       if (levelUpsEl)  renderLevelUps(levelUpsEl, recog.level_ups || []);
       if (meetingEl)   renderMeetingSummary(meetingEl, meeting);
       if (diversityEl) renderDiversityLeaders(diversityEl, diversity.leaders || []);

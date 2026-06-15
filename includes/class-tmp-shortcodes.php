@@ -200,6 +200,21 @@ class TMP_Shortcodes {
                             <div data-tmp-level-journey>Loading...</div>
                         </section>
 
+                        <section class="tmp-meeting-section" data-tmp-level-status-panel>
+                            <h4>Progress to Level <span data-tmp-next-level></span></h4>
+                            <div data-tmp-level-status>Loading...</div>
+                        </section>
+
+                        <section class="tmp-meeting-section" data-tmp-levelup-section style="display:none;">
+                            <div data-tmp-levelup-request-status></div>
+                            <button class="tmp-button tmp-primary" data-tmp-request-levelup style="margin-top:10px;">Request Level Up</button>
+                        </section>
+
+                        <section class="tmp-meeting-section" data-tmp-my-mentees-panel style="display:none;">
+                            <h4>My Mentees</h4>
+                            <div data-tmp-my-mentees>Loading...</div>
+                        </section>
+
                         <section class="tmp-meeting-section">
                             <h4>Smart Recommendations</h4>
                             <div class="tmp-rec-grid" data-tmp-recommendations>Loading suggestions...</div>
@@ -232,6 +247,39 @@ class TMP_Shortcodes {
                 </article>
 
             </div><!-- .tmp-grid -->
+
+            <!-- Rate Your Mentor — shown by JS when member has a mentor -->
+            <div class="tmp-panel" data-tmp-mentor-rating-panel style="display:none;">
+                <p class="tmp-eyebrow">Mentor feedback</p>
+                <h3>Rate Your Mentor</h3>
+                <p style="font-size:0.85rem;color:var(--tmp-muted);margin:0 0 14px;" data-tmp-mentor-rating-desc></p>
+                <div data-tmp-mentor-rating-submitted style="display:none;">
+                    <p style="color:var(--tmp-teal);font-weight:600;" data-tmp-mentor-rating-done-msg></p>
+                </div>
+                <form data-tmp-mentor-rating-form style="display:none;">
+                    <div style="display:flex;gap:6px;margin-bottom:12px;" data-tmp-star-picker>
+                        <?php for ($i = 1; $i <= 5; $i++): ?>
+                        <label style="cursor:pointer;font-size:1.6rem;color:#ccc;" data-star="<?php echo $i; ?>">
+                            <input type="radio" name="rating" value="<?php echo $i; ?>" style="display:none;" required />
+                            &#9733;
+                        </label>
+                        <?php endfor; ?>
+                    </div>
+                    <label style="display:block;margin-bottom:12px;">
+                        Comments (optional)
+                        <textarea name="feedback" rows="3" style="display:block;width:100%;margin-top:4px;padding:8px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" placeholder="What did your mentor do well? Any suggestions?"></textarea>
+                    </label>
+                    <button class="tmp-button tmp-primary" type="submit">Submit Rating</button>
+                    <span data-tmp-mentor-rating-status style="margin-left:10px;font-size:0.82rem;"></span>
+                </form>
+            </div>
+
+            <!-- Recognition history — shown by JS if member has any awards -->
+            <div class="tmp-panel" data-tmp-my-recognition style="display:none;">
+                <p class="tmp-eyebrow">Recognition</p>
+                <h3>My Awards</h3>
+                <div data-tmp-my-recognition-list></div>
+            </div>
 
             <!-- Mentor dashboard (visible only if current user is a mentor) -->
             <div class="tmp-panel" data-tmp-mentor-dashboard style="display:none;">
@@ -322,6 +370,36 @@ class TMP_Shortcodes {
                     </table>
                 </div>
             </section>
+            <section class="tmp-panel">
+                <p class="tmp-eyebrow">Homepage spotlight</p>
+                <h3>New Member Spotlight</h3>
+                <p>Select a member and add a welcome message. This card appears on the homepage after "Our Meetings in Action".</p>
+                <form class="tmp-form" data-tmp-spotlight-form>
+                    <label class="tmp-wide">
+                        Member
+                        <select data-tmp-spotlight-member required>
+                            <option value="">— pick a member —</option>
+                        </select>
+                    </label>
+                    <label class="tmp-wide">
+                        Welcome blurb
+                        <textarea data-tmp-spotlight-blurb rows="3" placeholder="e.g. Please join us in welcoming Priya — a software engineer with a passion for public speaking!"></textarea>
+                    </label>
+                    <label class="tmp-wide">
+                        Photo URL
+                        <input type="url" data-tmp-spotlight-photo placeholder="https://…">
+                        <small>Upload a photo via WP Admin &rarr; Media &rarr; Add New, then copy the file URL here.</small>
+                    </label>
+                    <label class="tmp-wide" style="flex-direction:row;align-items:center;gap:10px;">
+                        <input type="checkbox" data-tmp-spotlight-active>
+                        Show this spotlight on the homepage
+                    </label>
+                    <div class="tmp-form-actions tmp-wide">
+                        <button class="tmp-button tmp-primary" type="submit">Save Spotlight</button>
+                        <span class="tmp-inline-status" data-tmp-spotlight-status></span>
+                    </div>
+                </form>
+            </section>
         </div>
         <?php
         return ob_get_clean();
@@ -342,6 +420,14 @@ class TMP_Shortcodes {
                 <h2>Schedule roles, speeches, and meeting agendas</h2>
                 <p>Create meetings, assign roles, add speech titles, and publish a usable agenda view.</p>
             </div>
+
+            <section class="tmp-panel" data-tmp-vpe-levelup-queue>
+                <div class="tmp-card-head">
+                    <h3>Level Advancement Requests</h3>
+                    <span data-tmp-levelup-pending-count class="tmp-badge" style="display:none;"></span>
+                </div>
+                <div data-tmp-levelup-request-list><p style="color:var(--tmp-muted);font-size:0.88rem;">No pending requests.</p></div>
+            </section>
 
             <section class="tmp-panel">
                 <div class="tmp-card-head">
@@ -398,6 +484,54 @@ class TMP_Shortcodes {
                     <button class="tmp-small-button" type="button" data-tmp-vpe-members-toggle>Show Members</button>
                 </div>
                 <div data-tmp-vpe-member-list>Loading members...</div>
+            </section>
+
+            <section class="tmp-panel" data-tmp-vpe-level-panel>
+                <div class="tmp-card-head">
+                    <h3>Member Level Progress (L1–L3)</h3>
+                    <span data-tmp-vpe-ready-count style="color:var(--tmp-teal);font-weight:700;font-size:0.9rem;"></span>
+                </div>
+                <div class="tmp-admin-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;background:#f9f9f9;padding:10px;border-radius:4px;border:1px solid #eee;">
+                    <select data-tmp-vpe-lp-pathway style="flex:1;min-width:160px;">
+                        <option value="all">All Pathways</option>
+                        <option>Dynamic Leadership</option>
+                        <option>Effective Coaching</option>
+                        <option>Engaging Humor</option>
+                        <option>Innovative Planning</option>
+                        <option>Leadership Development</option>
+                        <option>Motivational Strategies</option>
+                        <option>Persuasive Influence</option>
+                        <option>Presentation Mastery</option>
+                        <option>Strategic Relationships</option>
+                        <option>Team Collaboration</option>
+                        <option>Visionary Communication</option>
+                    </select>
+                    <select data-tmp-vpe-lp-level>
+                        <option value="all">All Levels</option>
+                        <option value="1">Level 1</option>
+                        <option value="2">Level 2</option>
+                        <option value="3">Level 3</option>
+                    </select>
+                    <select data-tmp-vpe-lp-status>
+                        <option value="all">All statuses</option>
+                        <option value="ready">Ready to advance</option>
+                        <option value="in_progress">In progress</option>
+                        <option value="stuck">Stuck</option>
+                    </select>
+                </div>
+                <table class="tmp-table" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th>Member</th>
+                            <th>Level</th>
+                            <th>Speeches</th>
+                            <th>Club Roles</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody data-tmp-vpe-lp-rows></tbody>
+                </table>
             </section>
 
             <section class="tmp-panel">
@@ -645,6 +779,43 @@ class TMP_Shortcodes {
             </div><!-- /data-tmp-wrapup-content -->
         </section>
 
+        <!-- ── Recognition: TM of Month / Quarter ──────────────────────────── -->
+        <section class="tmp-panel" data-tmp-recognition-panel>
+            <div class="tmp-card-head" style="margin-bottom:16px;">
+                <h3 style="margin:0;">Member Recognition</h3>
+                <span class="tmp-eyebrow">Toastmaster of the Month / Quarter</span>
+            </div>
+
+            <!-- Period selector -->
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end;">
+                <label style="flex:0 0 auto;">
+                    Award type
+                    <select data-tmp-recog-type style="display:block;margin-top:4px;">
+                        <option value="month">Toastmaster of the Month</option>
+                        <option value="quarter">Toastmaster of the Quarter</option>
+                    </select>
+                </label>
+                <label style="flex:0 0 auto;">
+                    Period start
+                    <input type="date" data-tmp-recog-start style="display:block;margin-top:4px;" />
+                </label>
+                <label style="flex:0 0 auto;">
+                    Period end
+                    <input type="date" data-tmp-recog-end style="display:block;margin-top:4px;" />
+                </label>
+                <button class="tmp-button tmp-primary" data-tmp-recog-compute style="flex:0 0 auto;align-self:flex-end;">Compute Scores</button>
+            </div>
+
+            <!-- Score table -->
+            <div data-tmp-recog-scores style="overflow-x:auto;"></div>
+
+            <!-- Past awards list -->
+            <div style="margin-top:28px;">
+                <h4 style="margin:0 0 10px;">Past Awards</h4>
+                <div data-tmp-recog-awards-list></div>
+            </div>
+        </section>
+
         <!-- Mentor assignment modal (hidden, shown by JS) -->
         <div id="tmp-mentor-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
             <div style="background:#fff;border-radius:8px;padding:30px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.2);">
@@ -671,6 +842,11 @@ class TMP_Shortcodes {
         ?>
         <div class="tmp-portal" data-tmp-recognition-wall>
             <div class="tmp-panel">
+                <p class="tmp-eyebrow">Club Awards</p>
+                <h2>Toastmaster of the Month &amp; Quarter</h2>
+                <div data-tmp-tm-awards><p style="color:var(--tmp-muted)">Loading...</p></div>
+            </div>
+            <div class="tmp-panel">
                 <p class="tmp-eyebrow">Member recognition</p>
                 <h2>Recent Level-Ups</h2>
                 <div data-tmp-level-ups-list><p style="color:var(--tmp-muted)">Loading...</p></div>
@@ -685,6 +861,12 @@ class TMP_Shortcodes {
         ob_start();
         ?>
         <div class="tmp-portal" data-tmp-public-dashboard>
+
+            <div class="tmp-panel">
+                <p class="tmp-eyebrow">Club Awards</p>
+                <h2>Toastmaster of the Month &amp; Quarter</h2>
+                <div data-tmp-public-tm-awards><p style="color:var(--tmp-muted)">Loading...</p></div>
+            </div>
 
             <div class="tmp-panel">
                 <p class="tmp-eyebrow">Member recognition</p>
