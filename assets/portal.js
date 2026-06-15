@@ -17,6 +17,9 @@
   const qsa = (sel, root = document) => root ? Array.from(root.querySelectorAll(sel)) : [];
   const esc = (v) => String(v || "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 
+  // Returns YYYY-MM-DD in local time — avoids UTC-offset off-by-one from toISOString()
+  const localDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
   function roleSort(roleName) {
     const n = (roleName || "").replace(/\s*\(.*?\)\s*/g, "").trim().toLowerCase();
     const sm = n.match(/^speaker\s*(\d+)$/);
@@ -3414,11 +3417,28 @@
     const sFilter  = qs("[data-tmp-vpe-lp-status]", root);
     if (!rowsEl) return;
 
+    // Reset filter selects to "all" on every page load — prevent stale browser state
+    if (pFilter) pFilter.value = "all";
+    if (lFilter) lFilter.value = "all";
+    if (sFilter) sFilter.value = "all";
+
     let allData = null;
     let expandedId = null;
 
     const trafficLabel = (t) => t === "ready" ? "🟢 Ready" : t === "stuck" ? "🔴 Stuck" : "🟡 In Progress";
     const trafficColor = (t) => t === "ready" ? "#e8f5e9;color:#2e7d32" : t === "stuck" ? "#ffebee;color:#c62828" : "#fff3e0;color:#e65100";
+
+    const populatePathwayFilter = (data) => {
+      if (!pFilter) return;
+      const pathways = [...new Set(data.map((m) => m.pathway).filter(Boolean))].sort();
+      Array.from(pFilter.options).filter((o) => o.value !== "all").forEach((o) => o.remove());
+      pathways.forEach((p) => {
+        const opt = document.createElement("option");
+        opt.value = p;
+        opt.textContent = p;
+        pFilter.appendChild(opt);
+      });
+    };
 
     const render = () => {
       if (!allData) return;
@@ -3436,7 +3456,8 @@
       if (readyEl) readyEl.textContent = readyCount ? `${readyCount} ready to advance` : "";
 
       if (!filtered.length) {
-        rowsEl.innerHTML = `<tr><td colspan="6" style="color:var(--tmp-muted);text-align:center;padding:16px;">No members match this filter.</td></tr>`;
+        const totalMsg = allData.length > 0 ? ` — ${allData.length} member${allData.length !== 1 ? "s" : ""} total, try clearing filters` : "";
+        rowsEl.innerHTML = `<tr><td colspan="6" style="color:var(--tmp-muted);text-align:center;padding:16px;">No members match this filter${totalMsg}.</td></tr>`;
         return;
       }
 
@@ -3544,6 +3565,7 @@
           const fresh = await api("/vpe/members/level-summary").catch(() => null);
           if (fresh) {
             allData = fresh;
+            populatePathwayFilter(allData);
             render();
             await loadDetail(mId);
           }
@@ -3555,7 +3577,13 @@
 
     [pFilter, lFilter, sFilter].forEach((el) => el?.addEventListener("change", render));
 
-    allData = await api("/vpe/members/level-summary").catch(() => []);
+    try {
+      allData = await api("/vpe/members/level-summary");
+      populatePathwayFilter(allData);
+    } catch (err) {
+      rowsEl.innerHTML = `<tr><td colspan="6" style="color:var(--burgundy);text-align:center;padding:16px;">Could not load level data: ${esc(err.message)}</td></tr>`;
+      return;
+    }
     render();
   }
 
@@ -3684,10 +3712,10 @@
       const d = new Date(startEl.value + 'T00:00:00');
       if (typeEl.value === 'quarter') {
         const qEnd = new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3 + 3, 0);
-        if (endEl) endEl.value = qEnd.toISOString().slice(0, 10);
+        if (endEl) endEl.value = localDateStr(qEnd);
       } else {
         const mEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-        if (endEl) endEl.value = mEnd.toISOString().slice(0, 10);
+        if (endEl) endEl.value = localDateStr(mEnd);
       }
     });
 

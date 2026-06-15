@@ -1359,7 +1359,7 @@ class TMP_REST_API {
         $members = $wpdb->get_results(
             "SELECT id, full_name, pathway, level
                FROM {$members_table}
-              WHERE state = 'Active' AND level BETWEEN 1 AND 3
+              WHERE level BETWEEN 1 AND 3
               ORDER BY level ASC, full_name ASC",
             ARRAY_A
         );
