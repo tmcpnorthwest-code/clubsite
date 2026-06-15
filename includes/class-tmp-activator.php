@@ -37,6 +37,7 @@ class TMP_Activator {
         self::migrate_mentor_text_to_id();
         self::migrate_ah_counter_normalization();
         self::migrate_v060_voting_columns();
+        self::migrate_v070_wrap_up_tables();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -145,6 +146,7 @@ class TMP_Activator {
             agenda_notes TEXT NULL,
             poll_open TINYINT(1) NOT NULL DEFAULT 0,
             winners_declared TINYINT(1) NOT NULL DEFAULT 0,
+            wrapped_up TINYINT(1) NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY  (id),
@@ -258,6 +260,38 @@ class TMP_Activator {
             KEY nominee_id (nominee_id)
         ) $charset;");
 
+        $attendance  = $wpdb->prefix . 'tmp_attendance';
+        $win_history = $wpdb->prefix . 'tmp_win_history';
+
+        dbDelta("CREATE TABLE {$attendance} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            meeting_id BIGINT UNSIGNED NOT NULL,
+            member_id BIGINT UNSIGNED NULL,
+            guest_name VARCHAR(190) NULL,
+            marked_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY  (id),
+            KEY meeting_id (meeting_id),
+            KEY member_id (member_id)
+        ) $charset;");
+
+        dbDelta("CREATE TABLE {$win_history} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            meeting_id BIGINT UNSIGNED NOT NULL,
+            member_id BIGINT UNSIGNED NULL,
+            display_name VARCHAR(190) NOT NULL DEFAULT '',
+            category VARCHAR(20) NOT NULL,
+            role_name VARCHAR(120) NOT NULL DEFAULT '',
+            vote_count INT UNSIGNED NOT NULL DEFAULT 0,
+            is_tie TINYINT(1) NOT NULL DEFAULT 0,
+            won_at DATE NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY  (id),
+            KEY meeting_id (meeting_id),
+            KEY member_id (member_id),
+            KEY won_at (won_at)
+        ) $charset;");
+
         self::seed_data();
     }
 
@@ -304,6 +338,19 @@ class TMP_Activator {
         $ncols = $wpdb->get_col("DESCRIBE {$nominees}");
         if (!in_array('is_winner', $ncols, true)) {
             $wpdb->query("ALTER TABLE {$nominees} ADD COLUMN is_winner TINYINT(1) NOT NULL DEFAULT 0");
+        }
+    }
+
+    /**
+     * v0.7.0: Add wrapped_up to meetings; create tmp_attendance and tmp_win_history.
+     * New tables are created by create_tables() via dbDelta; only the column needs ALTER.
+     */
+    private static function migrate_v070_wrap_up_tables() {
+        global $wpdb;
+        $meetings = $wpdb->prefix . 'tmp_meetings';
+        $cols = $wpdb->get_col("DESCRIBE {$meetings}");
+        if (!in_array('wrapped_up', $cols, true)) {
+            $wpdb->query("ALTER TABLE {$meetings} ADD COLUMN wrapped_up TINYINT(1) NOT NULL DEFAULT 0");
         }
     }
 

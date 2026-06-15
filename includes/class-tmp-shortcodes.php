@@ -522,6 +522,68 @@ class TMP_Shortcodes {
             </div>
         </section>
 
+        <!-- ══ MEETING WRAP-UP ══ -->
+        <section class="tmp-panel" data-tmp-wrapup-panel>
+            <div class="tmp-card-head">
+                <div>
+                    <p class="tmp-eyebrow">After the Meeting</p>
+                    <h3 style="margin:0;">Meeting Wrap-Up</h3>
+                </div>
+                <span data-tmp-wrapup-badge style="display:none;background:#e8f5e9;color:#2e7d32;border:1px solid #4caf50;border-radius:20px;padding:3px 10px;font-size:0.78rem;font-weight:700;">✓ Completed</span>
+            </div>
+            <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
+                Record who attended, confirm roles performed, and finalise winners. The home page Meeting Pulse updates once you complete this.
+            </p>
+
+            <label style="display:block;margin-bottom:16px;">
+                Meeting
+                <select data-tmp-wrapup-meeting-select style="display:block;width:100%;margin-top:4px;">
+                    <option value="">— select meeting —</option>
+                </select>
+            </label>
+
+            <div data-tmp-wrapup-content style="display:none;">
+
+                <!-- ── Attendance ──────────────────────────────────── -->
+                <p class="tmp-eyebrow" style="margin-top:4px;">Attendance</p>
+                <p style="font-size:0.82rem;color:var(--tmp-muted);margin:4px 0 10px;">
+                    Tick each person who was present. "Role ✓" means they actually performed their assigned role.
+                </p>
+
+                <div class="tmp-wrapup-legend">
+                    <span>Name &amp; assigned role</span>
+                    <span class="tmp-wrapup-legend-role">Role ✓</span>
+                </div>
+
+                <div data-tmp-attendance-list></div>
+
+                <!-- Guest entry -->
+                <div class="tmp-wrapup-guest-entry">
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <input type="text" data-tmp-guest-name placeholder="Guest name" style="flex:1;min-width:140px;" />
+                        <button class="tmp-button tmp-primary" data-tmp-add-guest-btn style="flex-shrink:0;white-space:nowrap;padding:8px 14px;">+ Add Guest</button>
+                    </div>
+                    <div data-tmp-guests-list style="margin-top:8px;"></div>
+                </div>
+
+                <!-- ── Winners ──────────────────────────────────────── -->
+                <div data-tmp-winners-section style="margin-top:20px;">
+                    <p class="tmp-eyebrow">Winners</p>
+                    <p style="font-size:0.82rem;color:var(--tmp-muted);margin:4px 0 10px;">
+                        Pre-filled from voting. Uncheck to exclude.
+                    </p>
+                    <div data-tmp-winners-list></div>
+                </div>
+
+                <!-- ── Submit ──────────────────────────────────────── -->
+                <div class="tmp-wrapup-actions">
+                    <button class="tmp-button tmp-primary" data-tmp-complete-meeting-btn>✓ Complete Meeting</button>
+                    <span data-tmp-wrapup-save-status style="font-size:0.82rem;"></span>
+                </div>
+
+            </div><!-- /data-tmp-wrapup-content -->
+        </section>
+
         <!-- Mentor assignment modal (hidden, shown by JS) -->
         <div id="tmp-mentor-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
             <div style="background:#fff;border-radius:8px;padding:30px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.2);">

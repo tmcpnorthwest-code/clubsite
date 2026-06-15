@@ -30,6 +30,16 @@ class TMP_Repository {
         return $wpdb->prefix . 'tmp_member_requests';
     }
 
+    public static function attendance_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_attendance';
+    }
+
+    public static function win_history_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_win_history';
+    }
+
     // -------------------------------------------------------------------------
     // Standard roles & TI requirements
     // -------------------------------------------------------------------------
@@ -601,10 +611,12 @@ class TMP_Repository {
 
     public static function get_meeting_summary($meeting_id = null) {
         global $wpdb;
-        $history    = self::participation_history_table();
-        $members    = self::member_table();
-        $meetings   = self::meeting_table();
-        $level_ups  = $wpdb->prefix . 'tmp_level_up_history';
+        $history     = self::participation_history_table();
+        $members     = self::member_table();
+        $meetings    = self::meeting_table();
+        $level_ups   = $wpdb->prefix . 'tmp_level_up_history';
+        $attendance  = self::attendance_table();
+        $wins        = self::win_history_table();
 
         if ($meeting_id) {
             $mid = absint($meeting_id);
@@ -614,34 +626,44 @@ class TMP_Repository {
             );
         }
 
-        if (!$mid) {
-            return null;
-        }
+        if (!$mid) return null;
 
         $meeting = $wpdb->get_row(
-            $wpdb->prepare("SELECT meeting_date, theme FROM {$meetings} WHERE id = %d", $mid),
+            $wpdb->prepare("SELECT * FROM {$meetings} WHERE id = %d", $mid),
             ARRAY_A
         );
-        if (!$meeting) {
-            return null;
+        if (!$meeting) return null;
+
+        $wrapped_up = !empty($meeting['wrapped_up']);
+
+        // Attendance count: use tmp_attendance when wrapped_up, else fall back to participation_history
+        if ($wrapped_up) {
+            $participants = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$attendance} WHERE meeting_id = %d AND member_id IS NOT NULL",
+                $mid
+            ));
+            $guest_count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$attendance} WHERE meeting_id = %d AND member_id IS NULL",
+                $mid
+            ));
+        } else {
+            $participants = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(DISTINCT member_id) FROM {$history} WHERE meeting_id = %d",
+                $mid
+            ));
+            $guest_count = 0;
         }
 
-        $participants = (int) $wpdb->get_var(
-            $wpdb->prepare("SELECT COUNT(DISTINCT member_id) FROM {$history} WHERE meeting_id = %d", $mid)
-        );
+        $roles = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT role_name FROM {$history} WHERE meeting_id = %d ORDER BY role_name",
+            $mid
+        )) ?: [];
 
-        $roles = $wpdb->get_col(
-            $wpdb->prepare("SELECT DISTINCT role_name FROM {$history} WHERE meeting_id = %d ORDER BY role_name", $mid)
-        ) ?: [];
-
-        $level_up_rows = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT member_name, pathway, old_level, new_level, leveled_up_at
-                 FROM {$level_ups} WHERE meeting_id = %d ORDER BY leveled_up_at ASC",
-                $mid
-            ),
-            ARRAY_A
-        ) ?: [];
+        $level_up_rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT member_name, pathway, old_level, new_level, leveled_up_at
+               FROM {$level_ups} WHERE meeting_id = %d ORDER BY leveled_up_at ASC",
+            $mid
+        ), ARRAY_A) ?: [];
 
         $dist_rows = $wpdb->get_results(
             "SELECT level, COUNT(*) as cnt FROM {$members} WHERE state = 'Active' GROUP BY level ORDER BY level",
@@ -652,15 +674,25 @@ class TMP_Repository {
             $distribution[(string) $row['level']] = (int) $row['cnt'];
         }
 
-        return array(
+        $winners = $wpdb->get_results($wpdb->prepare(
+            "SELECT category, display_name, role_name, vote_count, is_tie
+               FROM {$wins} WHERE meeting_id = %d ORDER BY category",
+            $mid
+        ), ARRAY_A) ?: [];
+
+        return [
             'meeting_id'         => $mid,
             'meeting_date'       => $meeting['meeting_date'],
             'theme'              => $meeting['theme'],
+            'wrapped_up'         => $wrapped_up,
             'participants'       => $participants,
+            'attendance_count'   => $participants,
+            'guest_count'        => $guest_count,
             'roles_covered'      => $roles,
+            'winners'            => $winners,
             'level_ups'          => $level_up_rows,
             'level_distribution' => $distribution,
-        );
+        ];
     }
 
     public static function get_role_diversity_leaders($limit = 5) {
@@ -3031,5 +3063,227 @@ class TMP_Repository {
         $wpdb->update(self::meeting_table(), ['winners_declared' => 1], ['id' => (int) $meeting_id]);
 
         return self::get_vote_results($meeting_id);
+    }
+
+    // -------------------------------------------------------------------------
+    // Meeting Wrap-Up (Phase 1)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Load all data needed to render the VPE wrap-up panel for a meeting.
+     */
+    public static function get_wrap_up_data($meeting_id) {
+        global $wpdb;
+        $meeting_id      = (int) $meeting_id;
+        $meetings_tbl    = self::meeting_table();
+        $assignments_tbl = self::assignment_table();
+        $members_tbl     = self::member_table();
+        $attendance_tbl  = self::attendance_table();
+        $history_tbl     = self::participation_history_table();
+        $nominees_tbl    = self::vote_nominees_table();
+        $votes_tbl       = self::votes_table();
+        $wins_tbl        = self::win_history_table();
+
+        $meeting = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$meetings_tbl} WHERE id = %d", $meeting_id
+        ), ARRAY_A);
+        if (!$meeting) return null;
+
+        // All assigned member slots (non-break, has a member)
+        $assignments = $wpdb->get_results($wpdb->prepare(
+            "SELECT a.id as assignment_id, a.role_name, a.member_id, m.full_name
+               FROM {$assignments_tbl} a
+          LEFT JOIN {$members_tbl} m ON m.id = a.member_id
+              WHERE a.meeting_id = %d
+                AND a.member_id IS NOT NULL AND a.member_id > 0
+                AND a.role_name NOT LIKE 'Break%%'
+              ORDER BY a.sort_order",
+            $meeting_id
+        ), ARRAY_A);
+
+        // Who is already recorded as attended
+        $attended_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT member_id FROM {$attendance_tbl}
+              WHERE meeting_id = %d AND member_id IS NOT NULL",
+            $meeting_id
+        )));
+
+        // Which assignments already have a participation_history entry
+        $performed_aids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT assignment_id FROM {$history_tbl} WHERE meeting_id = %d",
+            $meeting_id
+        )));
+
+        $assigned_members = [];
+        foreach ($assignments as $a) {
+            if (!$a['member_id']) continue;
+            $assigned_members[] = [
+                'assignment_id'  => (int) $a['assignment_id'],
+                'member_id'      => (int) $a['member_id'],
+                'full_name'      => $a['full_name'] ?? 'Unknown',
+                'role_name'      => $a['role_name'],
+                'attended'       => in_array((int) $a['member_id'], $attended_ids),
+                'role_performed' => in_array((int) $a['assignment_id'], $performed_aids),
+            ];
+        }
+
+        // Existing guest attendance rows
+        $guests = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, guest_name FROM {$attendance_tbl}
+              WHERE meeting_id = %d AND member_id IS NULL",
+            $meeting_id
+        ), ARRAY_A) ?: [];
+
+        // Vote nominees marked as winners (for pre-populating the winners section)
+        $vote_winners = $wpdb->get_results($wpdb->prepare(
+            "SELECT n.id, n.category, n.member_id, n.display_name, n.role_name,
+                    COUNT(v.id) AS vote_count
+               FROM {$nominees_tbl} n
+          LEFT JOIN {$votes_tbl} v ON v.nominee_id = n.id
+              WHERE n.meeting_id = %d AND n.is_winner = 1
+           GROUP BY n.id
+           ORDER BY n.category, n.sort_order",
+            $meeting_id
+        ), ARRAY_A) ?: [];
+        foreach ($vote_winners as &$w) {
+            $w['vote_count'] = (int) $w['vote_count'];
+            $w['member_id']  = $w['member_id'] ? (int) $w['member_id'] : null;
+        }
+        unset($w);
+
+        // Already-saved win history entries
+        $existing_wins = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wins_tbl} WHERE meeting_id = %d ORDER BY category",
+            $meeting_id
+        ), ARRAY_A) ?: [];
+
+        return [
+            'meeting'          => $meeting,
+            'assigned_members' => $assigned_members,
+            'guests'           => $guests,
+            'vote_winners'     => $vote_winners,
+            'existing_wins'    => $existing_wins,
+            'wrapped_up'       => (bool) ($meeting['wrapped_up'] ?? false),
+        ];
+    }
+
+    /**
+     * Atomically record attendance, role completions, and winners for a meeting.
+     * Safe to re-run (clears and re-inserts attendance + win history; skips
+     * participation_history rows that already exist to avoid duplicates).
+     */
+    public static function save_wrap_up($meeting_id, $data) {
+        global $wpdb;
+        $meeting_id      = (int) $meeting_id;
+        $meetings_tbl    = self::meeting_table();
+        $attendance_tbl  = self::attendance_table();
+        $history_tbl     = self::participation_history_table();
+        $assignments_tbl = self::assignment_table();
+        $wins_tbl        = self::win_history_table();
+
+        $now         = current_time('mysql');
+        $current_uid = (int) get_current_user_id();
+
+        $meeting_date = $wpdb->get_var($wpdb->prepare(
+            "SELECT meeting_date FROM {$meetings_tbl} WHERE id = %d", $meeting_id
+        ));
+
+        // ── Attendance: clear + re-insert ────────────────────────────────────
+        $wpdb->delete($attendance_tbl, ['meeting_id' => $meeting_id]);
+
+        foreach ((array) ($data['attendance'] ?? []) as $item) {
+            $mid = (int) ($item['member_id'] ?? 0);
+            if (!$mid) continue;
+            $wpdb->insert($attendance_tbl, [
+                'meeting_id' => $meeting_id,
+                'member_id'  => $mid,
+                'guest_name' => null,
+                'marked_by'  => $current_uid,
+                'created_at' => $now,
+            ]);
+        }
+
+        foreach ((array) ($data['guests'] ?? []) as $guest) {
+            $name = sanitize_text_field($guest['name'] ?? '');
+            if (!$name) continue;
+            $wpdb->insert($attendance_tbl, [
+                'meeting_id' => $meeting_id,
+                'member_id'  => null,
+                'guest_name' => $name,
+                'marked_by'  => $current_uid,
+                'created_at' => $now,
+            ]);
+        }
+
+        // ── Participation history: add for roles performed (skip existing) ───
+        foreach ((array) ($data['attendance'] ?? []) as $item) {
+            if (empty($item['role_performed'])) continue;
+            $mid = (int) ($item['member_id'] ?? 0);
+            $aid = (int) ($item['assignment_id'] ?? 0);
+            if (!$mid || !$aid) continue;
+
+            $exists = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$history_tbl}
+                  WHERE member_id = %d AND assignment_id = %d",
+                $mid, $aid
+            ));
+            if ($exists) continue;
+
+            $member   = self::get_member($mid);
+            $role_row = $wpdb->get_row($wpdb->prepare(
+                "SELECT role_name, presentation_series FROM {$assignments_tbl} WHERE id = %d",
+                $aid
+            ), ARRAY_A);
+            if (!$role_row) continue;
+
+            $base_role = self::get_base_role_name($role_row['role_name']);
+            if (strtolower($base_role) === 'break') continue;
+
+            $wpdb->insert($history_tbl, [
+                'member_id'           => $mid,
+                'meeting_id'          => $meeting_id,
+                'assignment_id'       => $aid,
+                'role_name'           => $base_role,
+                'meeting_date'        => $meeting_date,
+                'level_at_completion' => max(1, (int) ($member['level'] ?? 1)),
+                'presentation_series' => !empty($role_row['presentation_series'])
+                    ? sanitize_text_field($role_row['presentation_series']) : null,
+                'created_at'          => $now,
+            ]);
+        }
+
+        // ── Win history: clear + re-insert ───────────────────────────────────
+        $wpdb->delete($wins_tbl, ['meeting_id' => $meeting_id]);
+
+        foreach ((array) ($data['winners'] ?? []) as $w) {
+            $cat = sanitize_text_field($w['category'] ?? '');
+            if (!$cat) continue;
+            $mid          = !empty($w['member_id']) ? (int) $w['member_id'] : null;
+            $display_name = sanitize_text_field($w['display_name'] ?? '');
+            if (!$display_name && $mid) {
+                $m = self::get_member($mid);
+                $display_name = $m['full_name'] ?? '';
+            }
+            $wpdb->insert($wins_tbl, [
+                'meeting_id'   => $meeting_id,
+                'member_id'    => $mid,
+                'display_name' => $display_name,
+                'category'     => $cat,
+                'role_name'    => sanitize_text_field($w['role_name'] ?? ''),
+                'vote_count'   => (int) ($w['vote_count'] ?? 0),
+                'is_tie'       => (int) ($w['is_tie'] ?? 0),
+                'won_at'       => $meeting_date,
+                'created_at'   => $now,
+            ]);
+        }
+
+        // ── Mark meeting complete ─────────────────────────────────────────────
+        $wpdb->update(
+            $meetings_tbl,
+            ['wrapped_up' => 1, 'poll_open' => 0],
+            ['id' => $meeting_id]
+        );
+
+        return true;
     }
 }

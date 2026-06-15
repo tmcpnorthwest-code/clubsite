@@ -396,7 +396,7 @@ if ($next_meeting) {
     $dist_total = array_sum($dist);
     $pulse_dt   = new DateTime($meeting_summary['meeting_date']);
   ?>
-  <section class="section meeting-pulse-section">
+  <section class="section meeting-pulse-section" data-tmc-pulse data-tmc-pulse-meeting-id="<?php echo (int) ($meeting_summary['meeting_id'] ?? 0); ?>">
     <div class="pulse-header">
       <div>
         <p class="eyebrow">Last Meeting</p>
@@ -413,11 +413,18 @@ if ($next_meeting) {
     <div class="pulse-grid">
 
       <div class="pulse-card">
-        <p class="eyebrow">Participation</p>
-        <div class="pulse-big-stat">
-          <?php echo (int) ($meeting_summary['participants'] ?? 0); ?>
+        <p class="eyebrow">Attendance</p>
+        <div class="pulse-big-stat" data-tmc-pulse-attendance>
+          <?php
+            $att_count = (int) ($meeting_summary['attendance_count'] ?? $meeting_summary['participants'] ?? 0);
+            echo $att_count;
+          ?>
           <span>members</span>
         </div>
+        <?php $guest_count = (int) ($meeting_summary['guest_count'] ?? 0); ?>
+        <p class="pulse-guests-line" data-tmc-pulse-guests style="font-size:0.82rem;color:var(--c-muted, #888);margin-top:4px;">
+          <?php echo $guest_count ? $guest_count . ' guest' . ($guest_count !== 1 ? 's' : '') : 'No guests'; ?>
+        </p>
 
         <?php if ($dist_total) : ?>
           <p class="eyebrow" style="margin-top:20px;margin-bottom:8px;">Club Level Distribution</p>
@@ -445,7 +452,7 @@ if ($next_meeting) {
 
       <div class="pulse-card">
         <p class="eyebrow">Roles Covered</p>
-        <div class="pulse-roles">
+        <div class="pulse-roles" data-tmc-pulse-roles>
           <?php if (!empty($meeting_summary['roles_covered'])) :
             foreach ($meeting_summary['roles_covered'] as $role) : ?>
               <span class="role-tag"><?php echo esc_html($role); ?></span>
@@ -467,6 +474,35 @@ if ($next_meeting) {
               </div>
             <?php endforeach; ?>
           </div>
+        <?php endif; ?>
+      </div>
+
+      <?php
+        $pulse_winners = $meeting_summary['winners'] ?? [];
+        $pw_labels = [
+          'main_role'   => 'Best Main Role',
+          'aux_role'    => 'Best Auxiliary Role',
+          'table_topics'=> 'Best Table Topics',
+          'speaker'     => 'Best Speaker',
+          'evaluator'   => 'Best Evaluator',
+        ];
+      ?>
+      <div class="pulse-card pulse-card--winners" data-tmc-pulse-winners>
+        <p class="eyebrow">&#127942; Meeting Winners</p>
+        <?php if (!empty($pulse_winners)) : ?>
+          <ul class="pulse-winners-list">
+            <?php foreach ($pulse_winners as $w) : ?>
+              <li class="pulse-winner-row">
+                <span class="pulse-winner-cat"><?php echo esc_html($pw_labels[$w['category']] ?? $w['category']); ?></span>
+                <span class="pulse-winner-name"><?php echo esc_html($w['display_name']); ?></span>
+                <?php if (!empty($w['role_name'])) : ?>
+                  <span class="pulse-winner-role"><?php echo esc_html($w['role_name']); ?></span>
+                <?php endif; ?>
+              </li>
+            <?php endforeach; ?>
+          </ul>
+        <?php else : ?>
+          <p style="color:#999;font-size:0.88rem;margin-top:8px;">Winners will appear after the meeting wrap-up.</p>
         <?php endif; ?>
       </div>
 

@@ -290,6 +290,27 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
+        // ── Meeting pulse (public) ─────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/meetings/pulse', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_meeting_pulse'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        // ── Meeting wrap-up ────────────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/wrap-up', [
+            [
+                'methods'             => WP_REST_Server::READABLE,
+                'callback'            => [__CLASS__, 'get_meeting_wrap_up'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+            [
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => [__CLASS__, 'save_meeting_wrap_up'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+        ]);
+
         register_rest_route('toastmasters/v1', '/voting/open-poll/(?P<meeting_id>\d+)', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [__CLASS__, 'open_poll'],
@@ -876,5 +897,37 @@ class TMP_REST_API {
         $meeting_id = (int) $req->get_param('meeting_id');
         $results    = TMP_Repository::declare_winners($meeting_id);
         return rest_ensure_response(['success' => true, 'results' => $results]);
+    }
+
+    // ── Wrap-up handlers ───────────────────────────────────────────────────────
+
+    public static function get_meeting_pulse() {
+        $summary = TMP_Repository::get_meeting_summary();
+        if (!$summary) {
+            return new WP_Error('no_meeting', 'No past meeting found', ['status' => 404]);
+        }
+        return rest_ensure_response($summary);
+    }
+
+    public static function get_meeting_wrap_up(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('id');
+        $data       = TMP_Repository::get_wrap_up_data($meeting_id);
+        if (!$data) {
+            return new WP_Error('not_found', 'Meeting not found', ['status' => 404]);
+        }
+        return rest_ensure_response($data);
+    }
+
+    public static function save_meeting_wrap_up(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('id');
+        $body       = $req->get_json_params();
+
+        if (!$meeting_id) {
+            return new WP_Error('missing_id', 'Meeting ID required', ['status' => 400]);
+        }
+
+        TMP_Repository::save_wrap_up($meeting_id, $body);
+        $summary = TMP_Repository::get_meeting_summary($meeting_id);
+        return rest_ensure_response(['success' => true, 'summary' => $summary]);
     }
 }

@@ -211,4 +211,92 @@
     pollNominees(); // immediate first poll to get latest TT speakers
     setInterval(pollNominees, 30000);
   }
+
+  // ── Meeting Pulse live refresh ────────────────────────────────────────────
+  (function pollPulse() {
+    const pulseSection = document.querySelector('[data-tmc-pulse]');
+    if (!pulseSection) return;
+
+    var cfg      = window.TMCPublic || window.TMPortal || {};
+    var REST_BASE = (cfg.restUrl || '').replace(/\/$/, '') + '/';
+    var nonce     = cfg.nonce || '';
+
+    function esc(v) {
+      return String(v || '').replace(/[&<>"']/g, function(c) {
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];
+      });
+    }
+
+    const CAT_LABELS = {
+      main_role:'Best Main Role', aux_role:'Best Auxiliary Role',
+      table_topics:'Best Table Topics', speaker:'Best Speaker', evaluator:'Best Evaluator'
+    };
+
+    function fetchPulse() {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', REST_BASE + 'meetings/pulse', true);
+      if (nonce) xhr.setRequestHeader('X-WP-Nonce', nonce);
+      xhr.onload = function() {
+        if (xhr.status !== 200) return;
+        try { applyPulse(JSON.parse(xhr.responseText)); } catch(e) {}
+      };
+      xhr.send();
+    }
+
+    function applyPulse(data) {
+      // Attendance
+      var attEl = pulseSection.querySelector('[data-tmc-pulse-attendance]');
+      if (attEl) {
+        var cnt = parseInt(data.attendance_count || data.participants || 0, 10);
+        attEl.innerHTML = cnt + '<span>members</span>';
+      }
+      // Guests
+      var gEl = pulseSection.querySelector('[data-tmc-pulse-guests]');
+      if (gEl) {
+        var gc = parseInt(data.guest_count || 0, 10);
+        gEl.textContent = gc ? gc + ' guest' + (gc !== 1 ? 's' : '') : 'No guests';
+      }
+      // Roles
+      var rEl = pulseSection.querySelector('[data-tmc-pulse-roles]');
+      if (rEl && Array.isArray(data.roles_covered)) {
+        if (data.roles_covered.length) {
+          rEl.innerHTML = data.roles_covered.map(function(r) {
+            return '<span class="role-tag">' + esc(r) + '</span>';
+          }).join('');
+        } else {
+          rEl.innerHTML = '<p style="color:#999;font-size:0.88rem;">No roles recorded yet.</p>';
+        }
+      }
+      // Winners
+      var wEl = pulseSection.querySelector('[data-tmc-pulse-winners]');
+      if (wEl && Array.isArray(data.winners)) {
+        var eyebrow = wEl.querySelector('.eyebrow');
+        wEl.innerHTML = '';
+        if (eyebrow) wEl.appendChild(eyebrow);
+        else { var ep = document.createElement('p'); ep.className='eyebrow'; ep.textContent='🏆 Meeting Winners'; wEl.appendChild(ep); }
+        if (data.winners.length) {
+          var ul = document.createElement('ul');
+          ul.className = 'pulse-winners-list';
+          data.winners.forEach(function(w) {
+            var li = document.createElement('li');
+            li.className = 'pulse-winner-row';
+            li.innerHTML = '<span class="pulse-winner-cat">' + esc(CAT_LABELS[w.category] || w.category) + '</span>' +
+              '<span class="pulse-winner-name">' + esc(w.display_name) + '</span>' +
+              (w.role_name ? '<span class="pulse-winner-role">' + esc(w.role_name) + '</span>' : '');
+            ul.appendChild(li);
+          });
+          wEl.appendChild(ul);
+        } else {
+          var ph = document.createElement('p');
+          ph.style.cssText = 'color:#999;font-size:0.88rem;margin-top:8px;';
+          ph.textContent = 'Winners will appear after the meeting wrap-up.';
+          wEl.appendChild(ph);
+        }
+      }
+    }
+
+    // Poll every 60 seconds; fire immediately too
+    fetchPulse();
+    setInterval(fetchPulse, 60000);
+  }());
 }());

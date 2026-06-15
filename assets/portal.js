@@ -2253,9 +2253,226 @@
     }
   }
 
+  // ── VPE Meeting Wrap-Up Panel ────────────────────────────────────────────────
+
+  function initWrapUpPanel() {
+    const panel = qs('[data-tmp-wrapup-panel]');
+    if (!panel) return;
+
+    const meetingSelect  = qs('[data-tmp-wrapup-meeting-select]', panel);
+    const wrapupContent  = qs('[data-tmp-wrapup-content]', panel);
+    const wrapupBadge    = qs('[data-tmp-wrapup-badge]', panel);
+    const attendanceList = qs('[data-tmp-attendance-list]', panel);
+    const guestNameInput = qs('[data-tmp-guest-name]', panel);
+    const addGuestBtn    = qs('[data-tmp-add-guest-btn]', panel);
+    const guestsList     = qs('[data-tmp-guests-list]', panel);
+    const winnersList    = qs('[data-tmp-winners-list]', panel);
+    const completeBtn    = qs('[data-tmp-complete-meeting-btn]', panel);
+    const saveStatus     = qs('[data-tmp-wrapup-save-status]', panel);
+
+    let currentMeetingId = null;
+
+    const CAT_LABELS = {
+      main_role: 'Best Main Role', aux_role: 'Best Auxiliary Role',
+      table_topics: 'Best Table Topics', speaker: 'Best Speaker', evaluator: 'Best Evaluator',
+    };
+
+    // Populate meeting select with past meetings (most recent first)
+    api('/meetings').then(meetings => {
+      if (!meetings || !meetings.length) return;
+      const today = new Date().toISOString().slice(0, 10);
+      meetings
+        .filter(m => m.meeting_date <= today)
+        .slice(0, 8)
+        .forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.meeting_date + (m.theme ? ' — ' + m.theme : '');
+          if (m.meeting_date === today) opt.selected = true;
+          meetingSelect.appendChild(opt);
+        });
+      if (meetingSelect.value) loadWrapUp(parseInt(meetingSelect.value, 10));
+    }).catch(() => {});
+
+    meetingSelect.addEventListener('change', () => {
+      const mid = parseInt(meetingSelect.value, 10);
+      if (mid) loadWrapUp(mid);
+      else { wrapupContent.style.display = 'none'; wrapupBadge.style.display = 'none'; }
+    });
+
+    function loadWrapUp(meetingId) {
+      currentMeetingId = meetingId;
+      api('/meetings/' + meetingId + '/wrap-up').then(renderWrapUp).catch(err => {
+        wrapupContent.style.display = 'none';
+        saveStatus.textContent = 'Failed to load: ' + err.message;
+        saveStatus.style.color = 'var(--tmp-burgundy)';
+      });
+    }
+
+    function renderWrapUp(data) {
+      wrapupContent.style.display = 'block';
+      const done = data.wrapped_up;
+      wrapupBadge.style.display = done ? '' : 'none';
+      completeBtn.textContent = done ? '↻ Update Records' : '✓ Complete Meeting';
+      saveStatus.textContent = '';
+
+      // ── Attendance list ───────────────────────────────────────────────────
+      attendanceList.innerHTML = '';
+      (data.assigned_members || []).forEach(m => {
+        const row = document.createElement('div');
+        row.className = 'tmp-wrapup-row';
+        row.dataset.memberId     = m.member_id;
+        row.dataset.assignmentId = m.assignment_id;
+
+        const attendCb  = m.attended;
+        const roleCb    = m.role_performed;
+
+        row.innerHTML = `
+          <label class="tmp-wrapup-attend-label">
+            <input type="checkbox" data-attended class="tmp-wrapup-cb"${attendCb ? ' checked' : ''} />
+            <span class="tmp-wrapup-member-name">${esc(m.full_name)}</span>
+            <span class="tmp-wrapup-role-tag">${esc(m.role_name)}</span>
+          </label>
+          <label class="tmp-wrapup-role-label">
+            <input type="checkbox" data-role-performed class="tmp-wrapup-cb"${roleCb ? ' checked' : (attendCb ? ' checked' : '')}${!attendCb ? ' disabled' : ''} />
+            <span class="tmp-wrapup-role-check-label">Role ✓</span>
+          </label>`;
+
+        const cb1 = row.querySelector('[data-attended]');
+        const cb2 = row.querySelector('[data-role-performed]');
+        cb1.addEventListener('change', () => {
+          if (!cb1.checked) { cb2.checked = false; }
+          cb2.disabled = !cb1.checked;
+        });
+
+        attendanceList.appendChild(row);
+      });
+
+      if (!data.assigned_members || !data.assigned_members.length) {
+        attendanceList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No assigned members found. Add role assignments first.</p>';
+      }
+
+      // ── Guests ─────────────────────────────────────────────────────────────
+      guestsList.innerHTML = '';
+      (data.guests || []).forEach(g => appendGuestRow(g.guest_name));
+
+      // ── Winners ─────────────────────────────────────────────────────────────
+      winnersList.innerHTML = '';
+      const winners = data.vote_winners && data.vote_winners.length
+        ? data.vote_winners
+        : data.existing_wins || [];
+
+      if (winners.length) {
+        winners.forEach(w => {
+          const row = document.createElement('div');
+          row.className = 'tmp-wrapup-winner-row';
+          row.dataset.category    = w.category;
+          row.dataset.memberId    = w.member_id || '';
+          row.dataset.roleName    = w.role_name;
+          row.dataset.voteCount   = w.vote_count || 0;
+          row.dataset.displayName = w.display_name || '';
+          row.innerHTML = `
+            <label class="tmp-wrapup-attend-label">
+              <input type="checkbox" data-winner-check class="tmp-wrapup-cb" checked />
+              <span>
+                <strong>${esc(CAT_LABELS[w.category] || w.category)}</strong>
+                <span class="tmp-wrapup-role-tag">${esc(w.display_name || '')} — ${esc(w.role_name)}${w.vote_count ? ' (' + w.vote_count + ' vote' + (w.vote_count !== 1 ? 's' : '') + ')' : ''}</span>
+              </span>
+            </label>`;
+          winnersList.appendChild(row);
+        });
+      } else {
+        winnersList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No voting was conducted for this meeting. Winners can be added here in future.</p>';
+      }
+    }
+
+    function appendGuestRow(name) {
+      const row = document.createElement('div');
+      row.className = 'tmp-wrapup-guest-row';
+      row.dataset.guestName = name;
+      row.innerHTML = `<span>👤 ${esc(name)}</span>
+        <button class="tmp-link-button tmp-wrapup-remove-guest" style="color:var(--tmp-burgundy);" aria-label="Remove">✕</button>`;
+      row.querySelector('.tmp-wrapup-remove-guest').addEventListener('click', () => row.remove());
+      guestsList.appendChild(row);
+    }
+
+    addGuestBtn.addEventListener('click', () => {
+      const name = guestNameInput.value.trim();
+      if (!name) { guestNameInput.focus(); return; }
+      appendGuestRow(name);
+      guestNameInput.value = '';
+      guestNameInput.focus();
+    });
+
+    guestNameInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); addGuestBtn.click(); }
+    });
+
+    completeBtn.addEventListener('click', async () => {
+      if (!currentMeetingId) return;
+
+      // Collect attendance
+      const attendance = [];
+      attendanceList.querySelectorAll('.tmp-wrapup-row').forEach(row => {
+        const attended     = row.querySelector('[data-attended]')?.checked;
+        const rolePerformed = row.querySelector('[data-role-performed]')?.checked;
+        if (attended) {
+          attendance.push({
+            member_id:      parseInt(row.dataset.memberId, 10),
+            assignment_id:  parseInt(row.dataset.assignmentId, 10),
+            role_performed: !!rolePerformed,
+          });
+        }
+      });
+
+      // Collect guests
+      const guests = [];
+      guestsList.querySelectorAll('.tmp-wrapup-guest-row').forEach(row => {
+        if (row.dataset.guestName) guests.push({ name: row.dataset.guestName });
+      });
+
+      // Collect winners
+      const winners = [];
+      winnersList.querySelectorAll('.tmp-wrapup-winner-row[data-category]').forEach(row => {
+        const cb = row.querySelector('[data-winner-check]');
+        if (cb && cb.checked) {
+          winners.push({
+            category:     row.dataset.category,
+            member_id:    row.dataset.memberId ? parseInt(row.dataset.memberId, 10) : null,
+            display_name: row.dataset.displayName,
+            role_name:    row.dataset.roleName,
+            vote_count:   parseInt(row.dataset.voteCount, 10) || 0,
+            is_tie:       0,
+          });
+        }
+      });
+
+      completeBtn.disabled = true;
+      saveStatus.textContent = 'Saving…';
+      saveStatus.style.color = 'var(--tmp-muted)';
+
+      try {
+        await api('/meetings/' + currentMeetingId + '/wrap-up', {
+          method: 'POST',
+          body: JSON.stringify({ attendance, guests, winners }),
+        });
+        saveStatus.textContent = '✓ Saved! Home page Meeting Pulse will reflect this within a minute.';
+        saveStatus.style.color = 'var(--tmp-teal)';
+        // Reload to show updated state
+        loadWrapUp(currentMeetingId);
+      } catch (err) {
+        saveStatus.textContent = 'Save failed: ' + err.message;
+        saveStatus.style.color = 'var(--tmp-burgundy)';
+      } finally {
+        completeBtn.disabled = false;
+      }
+    });
+  }
+
   initMemberDashboard();
   initAdmin();
   initVPEducation();
   initEnrolment();
   initVotingPanel();
+  initWrapUpPanel();
 })();
