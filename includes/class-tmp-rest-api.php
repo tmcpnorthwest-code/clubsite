@@ -290,6 +290,18 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
+        // ── SAA attendance ─────────────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/me/saa-meeting', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_saa_meeting'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/saa-attendance', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'save_saa_attendance'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
         // ── Meeting pulse (public) ─────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/meetings/pulse', [
             'methods'             => WP_REST_Server::READABLE,
@@ -897,6 +909,25 @@ class TMP_REST_API {
         $meeting_id = (int) $req->get_param('meeting_id');
         $results    = TMP_Repository::declare_winners($meeting_id);
         return rest_ensure_response(['success' => true, 'results' => $results]);
+    }
+
+    // ── SAA attendance handlers ────────────────────────────────────────────────
+
+    public static function get_saa_meeting() {
+        $data = TMP_Repository::get_saa_meeting();
+        if (!$data) {
+            return new WP_Error('no_saa_meeting', 'No SAA role found for today', ['status' => 404]);
+        }
+        return rest_ensure_response($data);
+    }
+
+    public static function save_saa_attendance(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('id');
+        if (!$meeting_id) {
+            return new WP_Error('missing_id', 'Meeting ID required', ['status' => 400]);
+        }
+        TMP_Repository::save_saa_attendance($meeting_id, $req->get_json_params());
+        return rest_ensure_response(['saved' => true]);
     }
 
     // ── Wrap-up handlers ───────────────────────────────────────────────────────

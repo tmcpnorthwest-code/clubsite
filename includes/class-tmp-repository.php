@@ -3114,17 +3114,50 @@ class TMP_Repository {
             $meeting_id
         )));
 
-        $assigned_members = [];
+        // Build deduplicated role-performer list (one row per member, strip sub-segment labels).
+        $assignment_by_member = [];
         foreach ($assignments as $a) {
-            if (!$a['member_id']) continue;
-            $assigned_members[] = [
-                'assignment_id'  => (int) $a['assignment_id'],
-                'member_id'      => (int) $a['member_id'],
-                'full_name'      => $a['full_name'] ?? 'Unknown',
-                'role_name'      => $a['role_name'],
-                'attended'       => in_array((int) $a['member_id'], $attended_ids),
-                'role_performed' => in_array((int) $a['assignment_id'], $performed_aids),
+            $mid = (int) $a['member_id'];
+            if (!$mid || isset($assignment_by_member[$mid])) continue;
+            $assignment_by_member[$mid] = [
+                'assignment_id' => (int) $a['assignment_id'],
+                'role_name'     => preg_replace('/\s*\(.*\)$/', '', $a['role_name']),
+                'full_name'     => $a['full_name'] ?? 'Unknown',
             ];
+        }
+
+        $role_performers = [];
+        foreach ($assignment_by_member as $mid => $asgn) {
+            $role_performers[] = [
+                'assignment_id'  => $asgn['assignment_id'],
+                'member_id'      => $mid,
+                'full_name'      => $asgn['full_name'],
+                'role_name'      => $asgn['role_name'],
+                'attended'       => in_array($mid, $attended_ids),
+                'role_performed' => in_array($asgn['assignment_id'], $performed_aids),
+            ];
+        }
+
+        // Walk-in members: attended but no assigned role (populated by SAA or previous save).
+        // other_members: everyone else — for the VPE search-to-add picker.
+        $all_others = $wpdb->get_results(
+            empty($assignment_by_member)
+                ? "SELECT id, full_name FROM {$members_tbl} ORDER BY full_name"
+                : "SELECT id, full_name FROM {$members_tbl}
+                    WHERE id NOT IN (" . implode(',', array_map('intval', array_keys($assignment_by_member))) . ")
+                    ORDER BY full_name",
+            ARRAY_A
+        ) ?: [];
+
+        $walk_ins      = [];
+        $other_members = [];
+        foreach ($all_others as $m) {
+            $mid = (int) $m['id'];
+            if (in_array($mid, $attended_ids)) {
+                $walk_ins[] = ['member_id' => $mid, 'full_name' => $m['full_name']];
+            } else {
+                $other_members[] = ['member_id' => $mid, 'full_name' => $m['full_name']];
+            }
         }
 
         // Existing guest attendance rows
@@ -3134,19 +3167,20 @@ class TMP_Repository {
             $meeting_id
         ), ARRAY_A) ?: [];
 
-        // Vote nominees marked as winners (for pre-populating the winners section)
+        // All nominees with vote counts. is_winner=1 rows are pre-checked; others let VPE decide.
         $vote_winners = $wpdb->get_results($wpdb->prepare(
-            "SELECT n.id, n.category, n.member_id, n.display_name, n.role_name,
+            "SELECT n.id, n.category, n.member_id, n.display_name, n.role_name, n.is_winner,
                     COUNT(v.id) AS vote_count
                FROM {$nominees_tbl} n
           LEFT JOIN {$votes_tbl} v ON v.nominee_id = n.id
-              WHERE n.meeting_id = %d AND n.is_winner = 1
+              WHERE n.meeting_id = %d
            GROUP BY n.id
-           ORDER BY n.category, n.sort_order",
+           ORDER BY n.category, vote_count DESC, n.sort_order",
             $meeting_id
         ), ARRAY_A) ?: [];
         foreach ($vote_winners as &$w) {
             $w['vote_count'] = (int) $w['vote_count'];
+            $w['is_winner']  = (bool) $w['is_winner'];
             $w['member_id']  = $w['member_id'] ? (int) $w['member_id'] : null;
         }
         unset($w);
@@ -3159,12 +3193,111 @@ class TMP_Repository {
 
         return [
             'meeting'          => $meeting,
-            'assigned_members' => $assigned_members,
+            'role_performers'  => $role_performers,
+            'walk_ins'         => $walk_ins,
+            'other_members'    => $other_members,
             'guests'           => $guests,
             'vote_winners'     => $vote_winners,
             'existing_wins'    => $existing_wins,
             'wrapped_up'       => (bool) ($meeting['wrapped_up'] ?? false),
         ];
+    }
+
+    /**
+     * Returns today's meeting + full member list if the current user is the SAA for it.
+     */
+    public static function get_saa_meeting() {
+        global $wpdb;
+        $me = self::current_member();
+        if (!$me) return null;
+
+        $meetings_tbl    = self::meeting_table();
+        $assignments_tbl = self::assignment_table();
+        $attendance_tbl  = self::attendance_table();
+        $members_tbl     = self::member_table();
+        $today           = current_time('Y-m-d');
+
+        $meeting = $wpdb->get_row($wpdb->prepare(
+            "SELECT m.* FROM {$meetings_tbl} m
+               JOIN {$assignments_tbl} a ON a.meeting_id = m.id
+              WHERE m.meeting_date = %s
+                AND a.member_id = %d
+                AND (a.role_name LIKE '%%Sergeant%%' OR a.role_name LIKE '%%SAA%%')
+              LIMIT 1",
+            $today, (int) $me['id']
+        ), ARRAY_A);
+        if (!$meeting) return null;
+
+        $mid = (int) $meeting['id'];
+
+        $attended_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT member_id FROM {$attendance_tbl} WHERE meeting_id = %d AND member_id IS NOT NULL",
+            $mid
+        )));
+
+        $guests = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, guest_name FROM {$attendance_tbl} WHERE meeting_id = %d AND member_id IS NULL",
+            $mid
+        ), ARRAY_A) ?: [];
+
+        $all_members = $wpdb->get_results(
+            "SELECT id, full_name FROM {$members_tbl} ORDER BY full_name",
+            ARRAY_A
+        ) ?: [];
+
+        $members = [];
+        foreach ($all_members as $m) {
+            $m_id = (int) $m['id'];
+            $members[] = [
+                'member_id' => $m_id,
+                'full_name' => $m['full_name'],
+                'attended'  => in_array($m_id, $attended_ids),
+            ];
+        }
+
+        return [
+            'meeting_id'   => $mid,
+            'meeting_date' => $meeting['meeting_date'],
+            'theme'        => $meeting['theme'],
+            'members'      => $members,
+            'guests'       => $guests,
+        ];
+    }
+
+    /**
+     * SAA marks attendance for a meeting (member list + guests). Idempotent.
+     */
+    public static function save_saa_attendance($meeting_id, $data) {
+        global $wpdb;
+        $meeting_id  = (int) $meeting_id;
+        $tbl         = self::attendance_table();
+        $now         = current_time('mysql');
+        $current_uid = (int) get_current_user_id();
+
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$tbl} WHERE meeting_id = %d AND member_id IS NOT NULL", $meeting_id
+        ));
+        foreach ((array) ($data['attended_member_ids'] ?? []) as $mid) {
+            $mid = (int) $mid;
+            if (!$mid) continue;
+            $wpdb->insert($tbl, [
+                'meeting_id' => $meeting_id, 'member_id' => $mid,
+                'guest_name' => null, 'marked_by' => $current_uid, 'created_at' => $now,
+            ]);
+        }
+
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$tbl} WHERE meeting_id = %d AND member_id IS NULL", $meeting_id
+        ));
+        foreach ((array) ($data['guests'] ?? []) as $guest) {
+            $name = sanitize_text_field($guest['name'] ?? '');
+            if (!$name) continue;
+            $wpdb->insert($tbl, [
+                'meeting_id' => $meeting_id, 'member_id' => null,
+                'guest_name' => $name, 'marked_by' => $current_uid, 'created_at' => $now,
+            ]);
+        }
+        return true;
     }
 
     /**

@@ -101,6 +101,42 @@ class TMP_Shortcodes {
                     </div>
                 </div>
             </div>
+
+            <!-- SAA Attendance panel — shown by JS only when logged-in member is today's SAA -->
+            <article class="tmp-panel tmp-wide" data-tmp-saa-panel style="display:none;border-left:4px solid var(--tmp-teal);">
+                <div class="tmp-card-head">
+                    <div>
+                        <p class="tmp-eyebrow" style="margin:0;color:var(--tmp-teal);">Your Role Today</p>
+                        <h3 style="margin:4px 0 0;">Mark Attendance</h3>
+                    </div>
+                    <span data-tmp-saa-meeting-label style="font-size:0.82rem;color:var(--tmp-muted);"></span>
+                </div>
+                <p style="font-size:0.82rem;color:var(--tmp-muted);margin:8px 0 14px;">
+                    As today's Sergeant at Arms, mark who attended. VPE will confirm roles and winners after the meeting.
+                </p>
+                <!-- Member search + chips -->
+                <div style="position:relative;">
+                    <input type="text" data-tmp-saa-search placeholder="Search and add member…" autocomplete="off"
+                           style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
+                    <div data-tmp-saa-dropdown style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid var(--tmp-line);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:100;max-height:220px;overflow-y:auto;"></div>
+                </div>
+                <div data-tmp-saa-attended-list style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+                <!-- Guests -->
+                <div style="margin-top:14px;">
+                    <p class="tmp-eyebrow" style="margin-bottom:6px;font-size:0.72rem;">Guests</p>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <input type="text" data-tmp-saa-guest-name placeholder="Guest name"
+                               style="flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
+                        <button class="tmp-button tmp-secondary" data-tmp-saa-add-guest style="flex-shrink:0;padding:8px 14px;white-space:nowrap;">+ Guest</button>
+                    </div>
+                    <div data-tmp-saa-guests-list style="margin-top:8px;"></div>
+                </div>
+                <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <button class="tmp-button tmp-primary" data-tmp-saa-save>Save Attendance</button>
+                    <span data-tmp-saa-status style="font-size:0.82rem;"></span>
+                </div>
+            </article>
+
             <div class="tmp-grid">
 
                 <article class="tmp-panel">
@@ -544,23 +580,32 @@ class TMP_Shortcodes {
 
             <div data-tmp-wrapup-content style="display:none;">
 
-                <!-- ── Attendance ──────────────────────────────────── -->
-                <p class="tmp-eyebrow" style="margin-top:4px;">Attendance</p>
+                <!-- ── Role Performers ────────────────────────────────────────── -->
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;flex-wrap:wrap;gap:6px;">
+                    <p class="tmp-eyebrow" style="margin:0;">Role Performers</p>
+                    <button class="tmp-link-button" data-tmp-mark-all-present style="font-size:0.82rem;color:var(--tmp-teal);">↺ Mark all present</button>
+                </div>
                 <p style="font-size:0.82rem;color:var(--tmp-muted);margin:4px 0 10px;">
-                    Tick each person who was present. "Role ✓" means they actually performed their assigned role.
+                    Everyone is present by default. Tap a row to mark absent.
                 </p>
+                <div data-tmp-role-performers-list></div>
 
-                <div class="tmp-wrapup-legend">
-                    <span>Name &amp; assigned role</span>
-                    <span class="tmp-wrapup-legend-role">Role ✓</span>
+                <!-- ── Walk-in Members (no role) ─────────────────────────────── -->
+                <div style="margin-top:20px;">
+                    <p class="tmp-eyebrow" style="margin-bottom:6px;">Also Attended <span style="font-weight:400;font-size:0.78rem;color:var(--tmp-muted);">(no assigned role)</span></p>
+                    <div style="position:relative;">
+                        <input type="text" data-tmp-walkin-search placeholder="Search member name…" autocomplete="off"
+                               style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
+                        <div data-tmp-walkin-dropdown style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid var(--tmp-line);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:100;max-height:220px;overflow-y:auto;"></div>
+                    </div>
+                    <div data-tmp-walkin-list style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
                 </div>
 
-                <div data-tmp-attendance-list></div>
-
-                <!-- Guest entry -->
-                <div class="tmp-wrapup-guest-entry">
+                <!-- ── Guests ─────────────────────────────────────────────────── -->
+                <div style="margin-top:16px;">
+                    <p class="tmp-eyebrow" style="margin-bottom:6px;">Guests</p>
                     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                        <input type="text" data-tmp-guest-name placeholder="Guest name" style="flex:1;min-width:140px;" />
+                        <input type="text" data-tmp-guest-name placeholder="Guest name" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
                         <button class="tmp-button tmp-primary" data-tmp-add-guest-btn style="flex-shrink:0;white-space:nowrap;padding:8px 14px;">+ Add Guest</button>
                     </div>
                     <div data-tmp-guests-list style="margin-top:8px;"></div>

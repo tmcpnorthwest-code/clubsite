@@ -1148,6 +1148,17 @@
   background: var(--tmp-surface);
 }
 
+.tmp-wrapup-cat-label {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--tmp-navy);
+  background: #eef2f7;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-right: 6px;
+}
+
 .tmp-wrapup-actions {
   display: flex;
   align-items: center;
@@ -1169,4 +1180,104 @@
   .tmp-wrapup-role-label   { width: 100%; }
   .tmp-wrapup-guest-entry  { flex-direction: column; }
   .tmp-wrapup-guest-entry input[type="text"] { width: 100%; }
+}
+
+/* ── Wrap-up: Role Performer rows (absent toggle UX) ─────────────────────── */
+
+.tmp-wrapup-performer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: var(--tmp-surface);
+  transition: background 0.15s, border-color 0.15s;
+  flex-wrap: wrap;
+}
+
+.tmp-wrapup-performer-row .tmp-wrapup-member-name { flex: 1 1 120px; font-weight: 600; font-size: 0.9rem; }
+.tmp-wrapup-performer-row .tmp-wrapup-role-tag    { flex-shrink: 0; }
+.tmp-role-cb-wrap { display: flex; align-items: center; flex-shrink: 0; }
+
+.tmp-role-check-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--tmp-muted);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tmp-role-check-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--tmp-teal);
+  flex-shrink: 0;
+}
+
+.tmp-absent-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--tmp-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+.tmp-absent-btn:hover { border-color: var(--tmp-burgundy); color: var(--tmp-burgundy); }
+
+.tmp-performer-absent {
+  background: #fff5f5;
+  border-color: #f5c2c7;
+  opacity: 0.7;
+}
+.tmp-performer-absent .tmp-wrapup-member-name { text-decoration: line-through; color: var(--tmp-muted); }
+.tmp-performer-absent .tmp-absent-btn         { border-color: var(--tmp-teal); color: var(--tmp-teal); }
+
+/* ── Walk-in member search ─────────────────────────────────────────────────── */
+
+.tmp-walkin-option {
+  padding: 9px 12px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--tmp-line);
+}
+.tmp-walkin-option:last-child { border-bottom: none; }
+.tmp-walkin-option:hover      { background: #f5f0e8; }
+
+.tmp-walkin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #eef6f4;
+  border: 1px solid #b2d8d0;
+  color: var(--tmp-teal);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+.tmp-walkin-chip button {
+  background: none;
+  border: none;
+  color: var(--tmp-teal);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+.tmp-walkin-chip button:hover { opacity: 1; }
+
+@media (max-width: 640px) {
+  .tmp-wrapup-performer-row { flex-wrap: wrap; }
+  .tmp-absent-btn { margin-left: 0; }
 }

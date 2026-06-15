@@ -2259,38 +2259,43 @@
     const panel = qs('[data-tmp-wrapup-panel]');
     if (!panel) return;
 
-    const meetingSelect  = qs('[data-tmp-wrapup-meeting-select]', panel);
-    const wrapupContent  = qs('[data-tmp-wrapup-content]', panel);
-    const wrapupBadge    = qs('[data-tmp-wrapup-badge]', panel);
-    const attendanceList = qs('[data-tmp-attendance-list]', panel);
-    const guestNameInput = qs('[data-tmp-guest-name]', panel);
-    const addGuestBtn    = qs('[data-tmp-add-guest-btn]', panel);
-    const guestsList     = qs('[data-tmp-guests-list]', panel);
-    const winnersList    = qs('[data-tmp-winners-list]', panel);
-    const completeBtn    = qs('[data-tmp-complete-meeting-btn]', panel);
-    const saveStatus     = qs('[data-tmp-wrapup-save-status]', panel);
+    const meetingSelect    = qs('[data-tmp-wrapup-meeting-select]', panel);
+    const wrapupContent    = qs('[data-tmp-wrapup-content]', panel);
+    const wrapupBadge      = qs('[data-tmp-wrapup-badge]', panel);
+    const performersList   = qs('[data-tmp-role-performers-list]', panel);
+    const markAllPresentBtn= qs('[data-tmp-mark-all-present]', panel);
+    const walkinSearch     = qs('[data-tmp-walkin-search]', panel);
+    const walkinDropdown   = qs('[data-tmp-walkin-dropdown]', panel);
+    const walkinList       = qs('[data-tmp-walkin-list]', panel);
+    const guestNameInput   = qs('[data-tmp-guest-name]', panel);
+    const addGuestBtn      = qs('[data-tmp-add-guest-btn]', panel);
+    const guestsList       = qs('[data-tmp-guests-list]', panel);
+    const winnersList      = qs('[data-tmp-winners-list]', panel);
+    const completeBtn      = qs('[data-tmp-complete-meeting-btn]', panel);
+    const saveStatus       = qs('[data-tmp-wrapup-save-status]', panel);
 
     let currentMeetingId = null;
+    let otherMembers     = []; // for walk-in search
 
     const CAT_LABELS = {
       main_role: 'Best Main Role', aux_role: 'Best Auxiliary Role',
       table_topics: 'Best Table Topics', speaker: 'Best Speaker', evaluator: 'Best Evaluator',
     };
 
-    // Populate meeting select with past meetings (most recent first)
+    // Populate meeting select with recent meetings (most recent first)
     api('/meetings').then(meetings => {
       if (!meetings || !meetings.length) return;
-      const today = new Date().toISOString().slice(0, 10);
-      meetings
-        .filter(m => m.meeting_date <= today)
-        .slice(0, 8)
-        .forEach(m => {
-          const opt = document.createElement('option');
-          opt.value = m.id;
-          opt.textContent = m.meeting_date + (m.theme ? ' — ' + m.theme : '');
-          if (m.meeting_date === today) opt.selected = true;
-          meetingSelect.appendChild(opt);
-        });
+      const now = new Date();
+      const today = now.getFullYear() + '-' +
+        String(now.getMonth() + 1).padStart(2, '0') + '-' +
+        String(now.getDate()).padStart(2, '0');
+      meetings.slice(0, 8).forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.meeting_date + (m.theme ? ' — ' + m.theme : '');
+        if (m.meeting_date === today) opt.selected = true;
+        meetingSelect.appendChild(opt);
+      });
       if (meetingSelect.value) loadWrapUp(parseInt(meetingSelect.value, 10));
     }).catch(() => {});
 
@@ -2309,6 +2314,21 @@
       });
     }
 
+    function setPerformerAbsent(row, absent) {
+      const roleCheck = row.querySelector('[data-role-cb]');
+      if (absent) {
+        row.classList.add('tmp-performer-absent');
+        row.dataset.absent = '1';
+        if (roleCheck) { roleCheck.checked = false; roleCheck.closest('.tmp-role-cb-wrap').style.visibility = 'hidden'; }
+        row.querySelector('[data-absent-btn]').textContent = '↩ Restore';
+      } else {
+        row.classList.remove('tmp-performer-absent');
+        row.dataset.absent = '0';
+        if (roleCheck) { roleCheck.checked = true; roleCheck.closest('.tmp-role-cb-wrap').style.visibility = ''; }
+        row.querySelector('[data-absent-btn]').textContent = 'Mark Absent';
+      }
+    }
+
     function renderWrapUp(data) {
       wrapupContent.style.display = 'block';
       const done = data.wrapped_up;
@@ -2316,41 +2336,42 @@
       completeBtn.textContent = done ? '↻ Update Records' : '✓ Complete Meeting';
       saveStatus.textContent = '';
 
-      // ── Attendance list ───────────────────────────────────────────────────
-      attendanceList.innerHTML = '';
-      (data.assigned_members || []).forEach(m => {
-        const row = document.createElement('div');
-        row.className = 'tmp-wrapup-row';
-        row.dataset.memberId     = m.member_id;
-        row.dataset.assignmentId = m.assignment_id;
-
-        const attendCb  = m.attended;
-        const roleCb    = m.role_performed;
-
-        row.innerHTML = `
-          <label class="tmp-wrapup-attend-label">
-            <input type="checkbox" data-attended class="tmp-wrapup-cb"${attendCb ? ' checked' : ''} />
+      // ── Role Performers (present by default, tap to mark absent) ─────────
+      otherMembers = data.other_members || [];
+      performersList.innerHTML = '';
+      const performers = data.role_performers || [];
+      if (performers.length) {
+        performers.forEach(m => {
+          const isAbsent   = done ? !m.attended : false;
+          const roleChecked = done ? m.role_performed : true;
+          const row = document.createElement('div');
+          row.className = 'tmp-wrapup-performer-row' + (isAbsent ? ' tmp-performer-absent' : '');
+          row.dataset.memberId     = m.member_id;
+          row.dataset.assignmentId = m.assignment_id;
+          row.dataset.absent       = isAbsent ? '1' : '0';
+          row.innerHTML = `
             <span class="tmp-wrapup-member-name">${esc(m.full_name)}</span>
             <span class="tmp-wrapup-role-tag">${esc(m.role_name)}</span>
-          </label>
-          <label class="tmp-wrapup-role-label">
-            <input type="checkbox" data-role-performed class="tmp-wrapup-cb"${roleCb ? ' checked' : (attendCb ? ' checked' : '')}${!attendCb ? ' disabled' : ''} />
-            <span class="tmp-wrapup-role-check-label">Role ✓</span>
-          </label>`;
-
-        const cb1 = row.querySelector('[data-attended]');
-        const cb2 = row.querySelector('[data-role-performed]');
-        cb1.addEventListener('change', () => {
-          if (!cb1.checked) { cb2.checked = false; }
-          cb2.disabled = !cb1.checked;
+            <span class="tmp-role-cb-wrap"${isAbsent ? ' style="visibility:hidden"' : ''}>
+              <label class="tmp-role-check-label">
+                <input type="checkbox" data-role-cb${roleChecked && !isAbsent ? ' checked' : ''} />
+                Role ✓
+              </label>
+            </span>
+            <button type="button" class="tmp-absent-btn" data-absent-btn>${isAbsent ? '↩ Restore' : 'Mark Absent'}</button>`;
+          row.querySelector('[data-absent-btn]').addEventListener('click', () => {
+            setPerformerAbsent(row, row.dataset.absent !== '1');
+          });
+          performersList.appendChild(row);
         });
-
-        attendanceList.appendChild(row);
-      });
-
-      if (!data.assigned_members || !data.assigned_members.length) {
-        attendanceList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No assigned members found. Add role assignments first.</p>';
+      } else {
+        performersList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No role assignments found for this meeting.</p>';
       }
+
+      // ── Walk-in members (already attended, picked by search) ─────────────
+      walkinList.innerHTML = '';
+      (data.walk_ins || []).forEach(m => addWalkinChip(m.member_id, m.full_name));
+      refreshWalkinSearch();
 
       // ── Guests ─────────────────────────────────────────────────────────────
       guestsList.innerHTML = '';
@@ -2358,12 +2379,44 @@
 
       // ── Winners ─────────────────────────────────────────────────────────────
       winnersList.innerHTML = '';
-      const winners = data.vote_winners && data.vote_winners.length
-        ? data.vote_winners
-        : data.existing_wins || [];
+      const nominees  = data.vote_winners || [];
+      const savedWins = data.existing_wins || [];
 
-      if (winners.length) {
-        winners.forEach(w => {
+      if (nominees.length) {
+        // Pre-check is_winner=1 nominees; if none declared yet, pre-check top vote-getter per category.
+        const declaredAny = nominees.some(n => n.is_winner);
+        const topPerCat   = {};
+        if (!declaredAny) {
+          nominees.forEach(n => {
+            if (!(n.category in topPerCat) || n.vote_count > topPerCat[n.category]) {
+              topPerCat[n.category] = n.vote_count;
+            }
+          });
+        }
+        nominees.forEach(n => {
+          const preChecked = declaredAny
+            ? n.is_winner
+            : (n.vote_count > 0 && n.vote_count === topPerCat[n.category]);
+          const voteLabel = n.vote_count ? ` (${n.vote_count} vote${n.vote_count !== 1 ? 's' : ''})` : '';
+          const row = document.createElement('div');
+          row.className = 'tmp-wrapup-winner-row';
+          row.dataset.category    = n.category;
+          row.dataset.memberId    = n.member_id || '';
+          row.dataset.roleName    = n.role_name;
+          row.dataset.voteCount   = n.vote_count || 0;
+          row.dataset.displayName = n.display_name || '';
+          row.innerHTML = `
+            <label class="tmp-wrapup-attend-label">
+              <input type="checkbox" data-winner-check class="tmp-wrapup-cb"${preChecked ? ' checked' : ''} />
+              <span>
+                <span class="tmp-wrapup-cat-label">${esc(CAT_LABELS[n.category] || n.category)}</span>
+                <span class="tmp-wrapup-role-tag">${esc(n.display_name || '')} — ${esc(n.role_name)}${voteLabel}</span>
+              </span>
+            </label>`;
+          winnersList.appendChild(row);
+        });
+      } else if (savedWins.length) {
+        savedWins.forEach(w => {
           const row = document.createElement('div');
           row.className = 'tmp-wrapup-winner-row';
           row.dataset.category    = w.category;
@@ -2375,17 +2428,70 @@
             <label class="tmp-wrapup-attend-label">
               <input type="checkbox" data-winner-check class="tmp-wrapup-cb" checked />
               <span>
-                <strong>${esc(CAT_LABELS[w.category] || w.category)}</strong>
-                <span class="tmp-wrapup-role-tag">${esc(w.display_name || '')} — ${esc(w.role_name)}${w.vote_count ? ' (' + w.vote_count + ' vote' + (w.vote_count !== 1 ? 's' : '') + ')' : ''}</span>
+                <span class="tmp-wrapup-cat-label">${esc(CAT_LABELS[w.category] || w.category)}</span>
+                <span class="tmp-wrapup-role-tag">${esc(w.display_name || '')} — ${esc(w.role_name)}</span>
               </span>
             </label>`;
           winnersList.appendChild(row);
         });
       } else {
-        winnersList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No voting was conducted for this meeting. Winners can be added here in future.</p>';
+        winnersList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No voting conducted for this meeting.</p>';
       }
     }
 
+    // ── Walk-in member search ─────────────────────────────────────────────────
+    function walkinMemberIds() {
+      return Array.from(walkinList.querySelectorAll('[data-walkin-id]')).map(el => parseInt(el.dataset.walkinId, 10));
+    }
+
+    function addWalkinChip(memberId, fullName) {
+      if (walkinList.querySelector('[data-walkin-id="' + memberId + '"]')) return;
+      const chip = document.createElement('span');
+      chip.className = 'tmp-walkin-chip';
+      chip.dataset.walkinId = memberId;
+      chip.innerHTML = `${esc(fullName)} <button type="button" aria-label="Remove">✕</button>`;
+      chip.querySelector('button').addEventListener('click', () => {
+        chip.remove();
+        refreshWalkinSearch();
+      });
+      walkinList.appendChild(chip);
+    }
+
+    function refreshWalkinSearch() {
+      const added = walkinMemberIds();
+      walkinSearch._filtered = otherMembers.filter(m => !added.includes(m.member_id));
+      walkinDropdown.style.display = 'none';
+    }
+
+    if (walkinSearch) {
+      walkinSearch.addEventListener('input', () => {
+        const q = walkinSearch.value.trim().toLowerCase();
+        const added = walkinMemberIds();
+        const matches = otherMembers.filter(m => !added.includes(m.member_id) && m.full_name.toLowerCase().includes(q));
+        if (!q || !matches.length) { walkinDropdown.style.display = 'none'; return; }
+        walkinDropdown.innerHTML = matches.slice(0, 8).map(m =>
+          `<div class="tmp-walkin-option" data-mid="${m.member_id}">${esc(m.full_name)}</div>`
+        ).join('');
+        walkinDropdown.style.display = 'block';
+        walkinDropdown.querySelectorAll('.tmp-walkin-option').forEach(opt => {
+          opt.addEventListener('mousedown', e => {
+            e.preventDefault();
+            addWalkinChip(parseInt(opt.dataset.mid, 10), opt.textContent.trim());
+            walkinSearch.value = '';
+            walkinDropdown.style.display = 'none';
+          });
+        });
+      });
+      walkinSearch.addEventListener('blur', () => setTimeout(() => { walkinDropdown.style.display = 'none'; }, 150));
+    }
+
+    if (markAllPresentBtn) {
+      markAllPresentBtn.addEventListener('click', () => {
+        performersList.querySelectorAll('.tmp-wrapup-performer-row').forEach(row => setPerformerAbsent(row, false));
+      });
+    }
+
+    // ── Guests ────────────────────────────────────────────────────────────────
     function appendGuestRow(name) {
       const row = document.createElement('div');
       row.className = 'tmp-wrapup-guest-row';
@@ -2403,62 +2509,47 @@
       guestNameInput.value = '';
       guestNameInput.focus();
     });
+    guestNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addGuestBtn.click(); } });
 
-    guestNameInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); addGuestBtn.click(); }
-    });
-
+    // ── Save ─────────────────────────────────────────────────────────────────
     completeBtn.addEventListener('click', async () => {
       if (!currentMeetingId) return;
 
-      // Collect attendance
+      // Role performers: absent ones excluded, present ones get role_performed state
       const attendance = [];
-      attendanceList.querySelectorAll('.tmp-wrapup-row').forEach(row => {
-        const attended     = row.querySelector('[data-attended]')?.checked;
-        const rolePerformed = row.querySelector('[data-role-performed]')?.checked;
-        if (attended) {
-          attendance.push({
-            member_id:      parseInt(row.dataset.memberId, 10),
-            assignment_id:  parseInt(row.dataset.assignmentId, 10),
-            role_performed: !!rolePerformed,
-          });
-        }
+      performersList.querySelectorAll('.tmp-wrapup-performer-row').forEach(row => {
+        if (row.dataset.absent === '1') return;
+        const aid = parseInt(row.dataset.assignmentId, 10) || 0;
+        const rolePerformed = row.querySelector('[data-role-cb]')?.checked ?? true;
+        attendance.push({ member_id: parseInt(row.dataset.memberId, 10), assignment_id: aid, role_performed: aid > 0 && rolePerformed });
+      });
+      // Walk-ins: attended only
+      walkinList.querySelectorAll('[data-walkin-id]').forEach(chip => {
+        attendance.push({ member_id: parseInt(chip.dataset.walkinId, 10), assignment_id: 0, role_performed: false });
       });
 
-      // Collect guests
       const guests = [];
       guestsList.querySelectorAll('.tmp-wrapup-guest-row').forEach(row => {
         if (row.dataset.guestName) guests.push({ name: row.dataset.guestName });
       });
 
-      // Collect winners
       const winners = [];
       winnersList.querySelectorAll('.tmp-wrapup-winner-row[data-category]').forEach(row => {
         const cb = row.querySelector('[data-winner-check]');
-        if (cb && cb.checked) {
-          winners.push({
-            category:     row.dataset.category,
-            member_id:    row.dataset.memberId ? parseInt(row.dataset.memberId, 10) : null,
-            display_name: row.dataset.displayName,
-            role_name:    row.dataset.roleName,
-            vote_count:   parseInt(row.dataset.voteCount, 10) || 0,
-            is_tie:       0,
-          });
-        }
+        if (cb && cb.checked) winners.push({
+          category: row.dataset.category, member_id: row.dataset.memberId ? parseInt(row.dataset.memberId, 10) : null,
+          display_name: row.dataset.displayName, role_name: row.dataset.roleName,
+          vote_count: parseInt(row.dataset.voteCount, 10) || 0, is_tie: 0,
+        });
       });
 
       completeBtn.disabled = true;
       saveStatus.textContent = 'Saving…';
       saveStatus.style.color = 'var(--tmp-muted)';
-
       try {
-        await api('/meetings/' + currentMeetingId + '/wrap-up', {
-          method: 'POST',
-          body: JSON.stringify({ attendance, guests, winners }),
-        });
-        saveStatus.textContent = '✓ Saved! Home page Meeting Pulse will reflect this within a minute.';
+        await api('/meetings/' + currentMeetingId + '/wrap-up', { method: 'POST', body: JSON.stringify({ attendance, guests, winners }) });
+        saveStatus.textContent = '✓ Saved! Pulse card updates within a minute.';
         saveStatus.style.color = 'var(--tmp-teal)';
-        // Reload to show updated state
         loadWrapUp(currentMeetingId);
       } catch (err) {
         saveStatus.textContent = 'Save failed: ' + err.message;
@@ -2469,7 +2560,114 @@
     });
   }
 
+  // ── SAA Attendance (member dashboard) ────────────────────────────────────────
+
+  function initSAAAttendance() {
+    const panel = qs('[data-tmp-saa-panel]');
+    if (!panel) return;
+
+    const searchInput  = qs('[data-tmp-saa-search]', panel);
+    const dropdown     = qs('[data-tmp-saa-dropdown]', panel);
+    const attendedList = qs('[data-tmp-saa-attended-list]', panel);
+    const guestName    = qs('[data-tmp-saa-guest-name]', panel);
+    const addGuestBtn  = qs('[data-tmp-saa-add-guest]', panel);
+    const guestsList   = qs('[data-tmp-saa-guests-list]', panel);
+    const saveBtn      = qs('[data-tmp-saa-save]', panel);
+    const statusEl     = qs('[data-tmp-saa-status]', panel);
+    const meetingLabel = qs('[data-tmp-saa-meeting-label]', panel);
+
+    let meetingId   = null;
+    let allMembers  = [];
+
+    api('/me/saa-meeting').then(data => {
+      meetingId = data.meeting_id;
+      allMembers = data.members || [];
+      meetingLabel.textContent = data.meeting_date + (data.theme ? ' — ' + data.theme : '');
+      panel.style.display = '';
+
+      // Pre-fill attended members as chips
+      allMembers.filter(m => m.attended).forEach(m => addChip(m.member_id, m.full_name));
+
+      // Pre-fill guests
+      (data.guests || []).forEach(g => addGuestChip(g.guest_name));
+    }).catch(() => {}); // Not SAA — panel stays hidden
+
+    function attendedIds() {
+      return Array.from(attendedList.querySelectorAll('[data-saa-mid]')).map(el => parseInt(el.dataset.saaMid, 10));
+    }
+
+    function addChip(memberId, fullName) {
+      if (attendedList.querySelector('[data-saa-mid="' + memberId + '"]')) return;
+      const chip = document.createElement('span');
+      chip.className = 'tmp-walkin-chip';
+      chip.dataset.saaMid = memberId;
+      chip.innerHTML = `${esc(fullName)} <button type="button" aria-label="Remove">✕</button>`;
+      chip.querySelector('button').addEventListener('click', () => chip.remove());
+      attendedList.appendChild(chip);
+    }
+
+    function addGuestChip(name) {
+      const row = document.createElement('div');
+      row.className = 'tmp-wrapup-guest-row';
+      row.dataset.guestName = name;
+      row.innerHTML = `<span>👤 ${esc(name)}</span>
+        <button class="tmp-link-button" style="color:var(--tmp-burgundy);" aria-label="Remove">✕</button>`;
+      row.querySelector('button').addEventListener('click', () => row.remove());
+      guestsList.appendChild(row);
+    }
+
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim().toLowerCase();
+      const added = attendedIds();
+      const matches = allMembers.filter(m => !added.includes(m.member_id) && m.full_name.toLowerCase().includes(q));
+      if (!q || !matches.length) { dropdown.style.display = 'none'; return; }
+      dropdown.innerHTML = matches.slice(0, 8).map(m =>
+        `<div class="tmp-walkin-option" data-mid="${m.member_id}">${esc(m.full_name)}</div>`
+      ).join('');
+      dropdown.style.display = 'block';
+      dropdown.querySelectorAll('.tmp-walkin-option').forEach(opt => {
+        opt.addEventListener('mousedown', e => {
+          e.preventDefault();
+          addChip(parseInt(opt.dataset.mid, 10), opt.textContent.trim());
+          searchInput.value = '';
+          dropdown.style.display = 'none';
+        });
+      });
+    });
+    searchInput.addEventListener('blur', () => setTimeout(() => { dropdown.style.display = 'none'; }, 150));
+
+    addGuestBtn.addEventListener('click', () => {
+      const name = guestName.value.trim();
+      if (!name) { guestName.focus(); return; }
+      addGuestChip(name);
+      guestName.value = '';
+      guestName.focus();
+    });
+    guestName.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addGuestBtn.click(); } });
+
+    saveBtn.addEventListener('click', async () => {
+      if (!meetingId) return;
+      const attended_member_ids = attendedIds();
+      const guests = Array.from(guestsList.querySelectorAll('.tmp-wrapup-guest-row'))
+        .map(r => ({ name: r.dataset.guestName })).filter(g => g.name);
+      saveBtn.disabled = true;
+      statusEl.textContent = 'Saving…';
+      statusEl.style.color = 'var(--tmp-muted)';
+      try {
+        await api('/meetings/' + meetingId + '/saa-attendance', { method: 'POST', body: JSON.stringify({ attended_member_ids, guests }) });
+        statusEl.textContent = '✓ Saved! VPE will see this when closing the meeting.';
+        statusEl.style.color = 'var(--tmp-teal)';
+      } catch (err) {
+        statusEl.textContent = 'Save failed: ' + err.message;
+        statusEl.style.color = 'var(--tmp-burgundy)';
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+  }
+
   initMemberDashboard();
+  initSAAAttendance();
   initAdmin();
   initVPEducation();
   initEnrolment();
