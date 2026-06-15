@@ -62,29 +62,171 @@
   function generatePrintView(meeting) {
     const w = window.open("", "_blank");
     if (!w) { alert("Please allow pop-ups for this site to print the agenda."); return; }
-    const [h, m] = (meeting.start_time || "18:30:00").split(":").map(Number);
-    let t = h * 60 + m;
-    const rows = (meeting.assignments || []).map((a) => {
-      const start   = formatTime(t);
-      const dur     = Number(a.duration || 0);
-      t += dur;
-      const isBreak = a.role_name.toLowerCase().startsWith("break");
-      const timing  = (!isBreak && (a.time_green || a.time_yellow || a.time_red))
-        ? `<span style="font-size:10px;color:#555;"> (Timer: <span style="color:#2e7d32;">●${fmtSecs(a.time_green)}</span> <span style="color:#f9a825;">●${fmtSecs(a.time_yellow)}</span> <span style="color:#c62828;">●${fmtSecs(a.time_red)}</span>)</span>`
-        : "";
-      return `<tr><td>${start}</td><td>${dur}m</td><td>${formatTime(t)}</td><td><strong>${esc(a.role_name)}</strong>${timing}</td><td>${esc(a.member_name || "Unassigned")}</td><td>${esc(a.speech_title || "")}</td></tr>`;
-    }).join("");
 
-    w.document.write(`<html><head><title>Agenda - ${esc(meeting.meeting_date)}</title>
-      <style>body{font-family:Segoe UI,sans-serif;padding:50px;color:#333}h1{color:#004165;border-bottom:2px solid #004165;padding-bottom:10px}
-      .d{margin-bottom:30px;background:#f9f9f9;padding:20px;border-radius:5px;border-left:5px solid #004165}
-      table{width:100%;border-collapse:collapse}th{background:#004165;color:#fff;padding:12px;text-align:left}
-      td{border-bottom:1px solid #ddd;padding:12px;vertical-align:top}</style></head>
-      <body><h1>Toastmasters Meeting Agenda</h1>
-      <div class="d"><strong>Date:</strong> ${esc(meeting.meeting_date)} | <strong>Theme:</strong> ${esc(meeting.theme)} | <strong>Venue:</strong> ${esc(meeting.venue || "TBD")}</div>
-      <table><thead><tr><th>Start</th><th>Dur</th><th>End</th><th>Role</th><th>Member</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>
-      <p style="margin-top:40px;white-space:pre-wrap;color:#555;font-style:italic">${esc(meeting.agenda_notes || "")}</p>
-      <script>setTimeout(()=>{window.focus();window.print();window.onafterprint=()=>window.close();},500)<\/script></body></html>`);
+    const [startH, startMin] = (meeting.start_time || "18:30:00").split(":").map(Number);
+    const startTotal = startH * 60 + startMin;
+    const totalDur   = Number(meeting.total_duration || 120);
+    const endTotal   = startTotal + totalDur;
+    const timeRange  = `${formatTime(startTotal)} - ${formatTime(endTotal)}`;
+
+    // Extract TMOD name from assignments
+    const tmodAsgn  = (meeting.assignments || []).find((a) =>
+      /toastmaster of the day|tmod/i.test(a.role_name) && a.member_name
+    );
+    const tmodName  = tmodAsgn ? tmodAsgn.member_name : "";
+
+    // Pretty date
+    const meetDate  = new Date(meeting.meeting_date + "T00:00:00");
+    const dateStr   = meetDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+
+    const venue    = meeting.venue || TMPortal.clubVenue || "";
+    const clubName = TMPortal.clubName || "Toastmasters Club";
+    const logoUrl  = TMPortal.logoUrl || "";
+
+    // Format seconds as M or M:SS (omit seconds when :00)
+    const fmtT = (secs) => {
+      const n = Number(secs);
+      if (!n) return "";
+      const mm = Math.floor(n / 60);
+      const ss = n % 60;
+      return ss === 0 ? String(mm) : `${mm}:${String(ss).padStart(2, "0")}`;
+    };
+
+    // Section header auto-detection flags
+    const shown = {};
+    const sectionRow = (label) => `<tr class="pv-section"><td colspan="6">${label}</td></tr>`;
+
+    let t = startTotal;
+    let bodyRows = "";
+
+    // Pre-meeting gathering row (20 min before start)
+    bodyRows += `<tr class="pv-gather"><td>${formatTime(startTotal - 20)}</td><td></td><td></td><td></td><td>Gathering &amp; Networking</td><td>All Participants</td></tr>`;
+
+    const assignments = meeting.assignments || [];
+    for (let i = 0; i < assignments.length; i++) {
+      const a      = assignments[i];
+      const start  = formatTime(t);
+      const dur    = Number(a.duration || 0);
+      t += dur;
+      const rLow   = a.role_name.toLowerCase();
+      const isBreak = rLow.startsWith("break");
+
+      // ── Section header injection ──
+      if (!shown.speeches && /\bspeaker\b/i.test(a.role_name) && !/table.?topics|feedback/i.test(rLow)) {
+        bodyRows += sectionRow("Prepared Speeches");
+        shown.speeches = true;
+      } else if (!shown.tabletopics && rLow.includes("table topics master")) {
+        bodyRows += sectionRow("Table Topics Session");
+        shown.tabletopics = true;
+      } else if (!shown.evaluation && /\bevaluator\b/i.test(a.role_name) && !rLow.includes("general") && !rLow.includes("intro") && !rLow.includes("introduces") && dur >= 2) {
+        bodyRows += sectionRow("Evaluation Session");
+        shown.evaluation = true;
+      } else if (!shown.reports && (rLow.includes("timer") || rLow.includes("ah-counter") || rLow.includes("grammarian")) && rLow.includes("report")) {
+        bodyRows += sectionRow("Role-player’s Report");
+        shown.reports = true;
+      } else if (!shown.conclusion && /presiding/i.test(rLow) && (rLow.includes("closing") || rLow.includes("guest feedback"))) {
+        bodyRows += sectionRow("Conclusion");
+        shown.conclusion = true;
+      }
+
+      if (isBreak) {
+        bodyRows += `<tr class="pv-break"><td>${start}</td><td></td><td></td><td></td><td colspan="2" style="text-align:center;font-weight:bold;letter-spacing:0.05em;">— Break —</td></tr>`;
+        continue;
+      }
+
+      const tg  = fmtT(a.time_green);
+      const ty  = fmtT(a.time_yellow);
+      const tr_ = fmtT(a.time_red);
+      const activity = esc(a.role_name) + (a.speech_title ? `<br><span class="pv-subtitle">${esc(a.speech_title)}</span>` : "");
+      const presenter = esc(a.member_name || "");
+
+      bodyRows += `<tr>
+        <td class="pv-time">${start}</td>
+        <td class="pv-g">${tg}</td>
+        <td class="pv-y">${ty}</td>
+        <td class="pv-r">${tr_}</td>
+        <td>${activity}</td>
+        <td class="pv-presenter">${presenter}</td>
+      </tr>`;
+    }
+
+    const logoHtml = logoUrl
+      ? `<img src="${esc(logoUrl)}" alt="Logo" style="width:64px;height:64px;object-fit:contain;">`
+      : `<div style="width:64px;height:64px;background:#8f1737;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:22px;letter-spacing:-1px;">TM</div>`;
+
+    const notesHtml = meeting.agenda_notes
+      ? `<p style="margin-top:20px;font-size:11px;color:#666;font-style:italic;white-space:pre-wrap;">${esc(meeting.agenda_notes)}</p>`
+      : "";
+
+    w.document.write(`<!DOCTYPE html><html><head>
+      <meta charset="UTF-8">
+      <title>Meeting Agenda – ${esc(meeting.meeting_date)}</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: "Segoe UI", Arial, sans-serif; font-size: 12px; color: #111; background: #fff; padding: 28px 32px; }
+
+        /* ── Header ── */
+        .pv-header { display: flex; align-items: flex-start; gap: 18px; padding-bottom: 14px; border-bottom: 2px solid #8f1737; margin-bottom: 14px; }
+        .pv-header-logo { flex-shrink: 0; }
+        .pv-header-meta { flex: 1; }
+        .pv-club-name { font-size: 15px; font-weight: 700; color: #8f1737; line-height: 1.2; }
+        .pv-meta-line { font-size: 11px; color: #444; margin-top: 3px; }
+        .pv-header-title { text-align: center; }
+        .pv-agenda-title { font-size: 22px; font-weight: 900; color: #18324a; letter-spacing: 0.02em; }
+
+        /* ── Table ── */
+        table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        thead tr { background: #18324a; color: #fff; }
+        thead th { padding: 7px 8px; font-size: 11px; font-weight: 600; text-align: center; letter-spacing: 0.04em; text-transform: uppercase; }
+        thead th:nth-child(5) { text-align: left; }
+        thead th:nth-child(6) { text-align: left; }
+        tbody tr { border-bottom: 1px solid #e0e0e0; }
+        tbody tr:nth-child(even):not(.pv-section):not(.pv-break):not(.pv-gather) { background: #f9f9f9; }
+        td { padding: 6px 8px; vertical-align: middle; }
+        .pv-time { white-space: nowrap; font-weight: 600; font-size: 11px; color: #444; }
+        .pv-g { color: #2e7d32; font-weight: 700; text-align: center; }
+        .pv-y { color: #b8860b; font-weight: 700; text-align: center; }
+        .pv-r { color: #c62828; font-weight: 700; text-align: center; }
+        .pv-presenter { font-style: italic; color: #333; }
+        .pv-subtitle { font-size: 10px; color: #666; }
+
+        /* ── Special rows ── */
+        .pv-section td { background: #18324a; color: #fff; font-weight: 700; text-align: center; padding: 5px 8px; letter-spacing: 0.06em; text-transform: uppercase; font-size: 10.5px; }
+        .pv-break td { background: #f0f0f0; color: #666; font-style: italic; }
+        .pv-gather td { color: #666; font-style: italic; font-size: 11px; }
+
+        @media print {
+          body { padding: 14px 18px; }
+          @page { margin: 12mm; }
+        }
+      </style>
+    </head><body>
+      <div class="pv-header">
+        <div class="pv-header-logo">${logoHtml}</div>
+        <div class="pv-header-meta">
+          <div class="pv-club-name">${esc(clubName)}</div>
+          <div class="pv-meta-line">${esc(dateStr)}</div>
+          <div class="pv-meta-line">${esc(timeRange)}${venue ? " &nbsp;·&nbsp; " + esc(venue) : ""}</div>
+          <div class="pv-meta-line">Theme: <strong>${esc(meeting.theme || "")}</strong>${tmodName ? " &nbsp;·&nbsp; TMOD: <strong>" + esc(tmodName) + "</strong>" : ""}</div>
+        </div>
+        <div class="pv-header-title">
+          <div class="pv-agenda-title">Meeting Agenda</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Time</th>
+          <th style="color:#90ee90;">Green</th>
+          <th style="color:#ffff99;">Yellow</th>
+          <th style="color:#ff9999;">Red</th>
+          <th style="text-align:left;">Activity</th>
+          <th style="text-align:left;">Presenter</th>
+        </tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+      ${notesHtml}
+      <script>setTimeout(()=>{window.focus();window.print();window.onafterprint=()=>window.close();},400)<\/script>
+    </body></html>`);
     w.document.close();
   }
 
@@ -2000,14 +2142,25 @@
     async function renderTimingSettings() {
       const body = qs("[data-tmp-timing-settings-body]", root);
       if (!body) return;
-      let rules;
+      let rules, clubSettings;
       try {
-        rules = await api("/settings/timing-rules");
+        [rules, clubSettings] = await Promise.all([
+          api("/settings/timing-rules"),
+          api("/settings/club"),
+        ]);
       } catch (err) {
-        body.innerHTML = `<p style="color:var(--tmp-burgundy)">Could not load timer settings: ${esc(err.message)}</p>`;
+        body.innerHTML = `<p style="color:var(--tmp-burgundy)">Could not load settings: ${esc(err.message)}</p>`;
         return;
       }
       body.innerHTML = `
+        <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--tmp-line);">
+          <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:600;">Default Venue (shown on print agenda when meeting has no venue set)</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input id="tmp-default-venue" type="text" value="${esc(clubSettings.default_venue || "")}" placeholder="Room, address, or meeting link" style="flex:1;padding:5px 8px;" />
+            <button class="tmp-small-button tmp-primary" id="tmp-venue-save">Save</button>
+            <span id="tmp-venue-status" style="font-size:12px;color:var(--tmp-muted);"></span>
+          </div>
+        </div>
         <p style="font-size:12px;color:var(--tmp-muted);margin-bottom:10px;">
           Enter times as M:SS (e.g. <strong>5:00</strong>). These defaults auto-fill when you create a new meeting.
           You can override per slot in the Role Assignment form.
@@ -2027,6 +2180,23 @@
           <button class="tmp-small-button tmp-primary" id="tmp-timing-save">Save Timer Defaults</button>
           <span id="tmp-timing-status" style="margin-left:10px;font-size:12px;color:var(--tmp-muted);"></span>
         </div>`;
+
+      qs("#tmp-venue-save", root)?.addEventListener("click", async () => {
+        const btn    = qs("#tmp-venue-save", root);
+        const status = qs("#tmp-venue-status", root);
+        const val    = qs("#tmp-default-venue", root)?.value || "";
+        btn.disabled = true;
+        try {
+          await api("/settings/club", { method: "POST", body: JSON.stringify({ default_venue: val }) });
+          TMPortal.clubVenue = val;
+          if (status) { status.textContent = "Saved!"; status.style.color = "#2e7d32"; }
+          setTimeout(() => { if (status) status.textContent = ""; }, 2000);
+        } catch (err) {
+          if (status) { status.textContent = "Error: " + err.message; status.style.color = "#c62828"; }
+        } finally {
+          btn.disabled = false;
+        }
+      });
 
       qs("#tmp-timing-save", root)?.addEventListener("click", async () => {
         const saveBtn    = qs("#tmp-timing-save", root);

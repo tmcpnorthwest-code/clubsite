@@ -39,6 +39,9 @@ class TMP_Shortcodes {
             'roleGateLevels' => TMP_Repository::get_current_gate_levels(),
             'loginUrl'       => wp_login_url(get_permalink()),
             'logoutUrl'      => wp_logout_url(home_url('/')),
+            'clubName'       => get_bloginfo('name'),
+            'clubVenue'      => get_option('tmp_default_venue', ''),
+            'logoUrl'        => get_site_icon_url(80) ?: '',
             'currentUser'    => is_user_logged_in() ? [
                 'id'               => get_current_user_id(),
                 'name'             => wp_get_current_user()->display_name,

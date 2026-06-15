@@ -228,6 +228,20 @@ class TMP_REST_API {
             ],
         ]);
 
+        // ── Club defaults (venue, etc.) ────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/settings/club', [
+            [
+                'methods'             => WP_REST_Server::READABLE,
+                'callback'            => [__CLASS__, 'get_club_settings'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+            [
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => [__CLASS__, 'save_club_settings'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+        ]);
+
         // ── Role gate settings ─────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/settings/role-gates', [
             [
@@ -1037,6 +1051,20 @@ class TMP_REST_API {
             return new WP_Error('invalid_order', 'order must be a non-empty array', ['status' => 400]);
         }
         TMP_Repository::reorder_agenda($meeting_id, $ordered_ids);
+        return rest_ensure_response(['success' => true]);
+    }
+
+    public static function get_club_settings() {
+        return rest_ensure_response([
+            'default_venue' => get_option('tmp_default_venue', ''),
+        ]);
+    }
+
+    public static function save_club_settings(WP_REST_Request $request) {
+        $body = $request->get_json_params();
+        if (isset($body['default_venue'])) {
+            update_option('tmp_default_venue', sanitize_text_field($body['default_venue']));
+        }
         return rest_ensure_response(['success' => true]);
     }
 
