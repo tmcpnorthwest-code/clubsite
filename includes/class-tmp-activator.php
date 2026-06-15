@@ -10,6 +10,7 @@ class TMP_Activator {
         self::create_roles();
         self::create_tables();
         self::create_pages();
+        self::migrate_v080_timing_and_publish();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -38,6 +39,7 @@ class TMP_Activator {
         self::migrate_ah_counter_normalization();
         self::migrate_v060_voting_columns();
         self::migrate_v070_wrap_up_tables();
+        self::migrate_v080_timing_and_publish();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -147,6 +149,7 @@ class TMP_Activator {
             poll_open TINYINT(1) NOT NULL DEFAULT 0,
             winners_declared TINYINT(1) NOT NULL DEFAULT 0,
             wrapped_up TINYINT(1) NOT NULL DEFAULT 0,
+            is_published TINYINT(1) NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY  (id),
@@ -165,6 +168,9 @@ class TMP_Activator {
             presentation_series VARCHAR(100) NULL,
             cooloff_override TINYINT(1) NOT NULL DEFAULT 0,
             override_reason VARCHAR(255) NULL,
+            time_green SMALLINT UNSIGNED NULL,
+            time_yellow SMALLINT UNSIGNED NULL,
+            time_red SMALLINT UNSIGNED NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY  (id),
@@ -351,6 +357,36 @@ class TMP_Activator {
         $cols = $wpdb->get_col("DESCRIBE {$meetings}");
         if (!in_array('wrapped_up', $cols, true)) {
             $wpdb->query("ALTER TABLE {$meetings} ADD COLUMN wrapped_up TINYINT(1) NOT NULL DEFAULT 0");
+        }
+    }
+
+    /**
+     * v0.8.0: Add is_published to meetings; backfill timing columns on existing assignment rows.
+     */
+    private static function migrate_v080_timing_and_publish() {
+        global $wpdb;
+        $meetings    = $wpdb->prefix . 'tmp_meetings';
+        $assignments = $wpdb->prefix . 'tmp_role_assignments';
+
+        $mcols = $wpdb->get_col("DESCRIBE {$meetings}");
+        if (!in_array('is_published', $mcols, true)) {
+            $wpdb->query("ALTER TABLE {$meetings} ADD COLUMN is_published TINYINT(1) NOT NULL DEFAULT 0 AFTER wrapped_up");
+        }
+
+        // Backfill timing for existing rows created before v0.8.0
+        $rows = $wpdb->get_results(
+            "SELECT id, role_name, duration FROM {$assignments} WHERE time_green IS NULL AND duration > 0",
+            ARRAY_A
+        );
+        foreach ($rows as $row) {
+            [$tg, $ty, $tr] = TMP_Repository::get_timing_for_role($row['role_name'], (int) $row['duration']);
+            if ($tg !== null) {
+                $wpdb->update($assignments, [
+                    'time_green'  => $tg,
+                    'time_yellow' => $ty,
+                    'time_red'    => $tr,
+                ], ['id' => (int) $row['id']]);
+            }
         }
     }
 

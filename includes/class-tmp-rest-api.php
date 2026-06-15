@@ -194,6 +194,40 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_view_all_members'],
         ]);
 
+        // ── Agenda reorder ────────────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/agenda-order', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'reorder_agenda'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        // ── Publish agenda ────────────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/publish', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'toggle_publish_agenda'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/meetings/published-agenda', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_published_agenda'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        // ── Timer defaults ────────────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/settings/timing-rules', [
+            [
+                'methods'             => WP_REST_Server::READABLE,
+                'callback'            => [__CLASS__, 'get_timing_rules'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+            [
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => [__CLASS__, 'save_timing_rules'],
+                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            ],
+        ]);
+
         // ── Role gate settings ─────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/settings/role-gates', [
             [
@@ -968,5 +1002,65 @@ class TMP_REST_API {
         delete_transient('tmp_meeting_pulse'); // bust cache so home page reflects updated data immediately
         $summary = TMP_Repository::get_meeting_summary($meeting_id);
         return rest_ensure_response(['success' => true, 'summary' => $summary]);
+    }
+
+    public static function toggle_publish_agenda(WP_REST_Request $request) {
+        global $wpdb;
+        $id       = (int) $request['id'];
+        $meetings = $wpdb->prefix . 'tmp_meetings';
+
+        $meeting = $wpdb->get_row($wpdb->prepare(
+            "SELECT id, is_published FROM {$meetings} WHERE id = %d", $id
+        ), ARRAY_A);
+        if (!$meeting) {
+            return new WP_Error('not_found', 'Meeting not found', ['status' => 404]);
+        }
+
+        $new_state = ((int) $meeting['is_published']) ? 0 : 1;
+        if ($new_state === 1) {
+            // Only one meeting can be published at a time
+            $wpdb->query("UPDATE {$meetings} SET is_published = 0");
+        }
+        $wpdb->update($meetings, ['is_published' => $new_state], ['id' => $id]);
+        return rest_ensure_response(['is_published' => $new_state]);
+    }
+
+    public static function get_published_agenda(WP_REST_Request $request) {
+        return rest_ensure_response(TMP_Repository::get_published_agenda());
+    }
+
+    public static function reorder_agenda(WP_REST_Request $request) {
+        $meeting_id  = (int) $request->get_param('id');
+        $body        = $request->get_json_params();
+        $ordered_ids = $body['order'] ?? [];
+        if (empty($ordered_ids) || !is_array($ordered_ids)) {
+            return new WP_Error('invalid_order', 'order must be a non-empty array', ['status' => 400]);
+        }
+        TMP_Repository::reorder_agenda($meeting_id, $ordered_ids);
+        return rest_ensure_response(['success' => true]);
+    }
+
+    public static function get_timing_rules() {
+        return rest_ensure_response(TMP_Repository::get_timing_defaults());
+    }
+
+    public static function save_timing_rules(WP_REST_Request $request) {
+        $body = $request->get_json_params();
+        if (!is_array($body)) {
+            return new WP_Error('invalid_data', 'Expected array of timing rules', ['status' => 400]);
+        }
+        $sanitized = [];
+        foreach ($body as $rule) {
+            if (empty($rule['key'])) continue;
+            $sanitized[] = [
+                'key'    => sanitize_key($rule['key']),
+                'label'  => sanitize_text_field($rule['label'] ?? ''),
+                'green'  => absint($rule['green']  ?? 0),
+                'yellow' => absint($rule['yellow'] ?? 0),
+                'red'    => absint($rule['red']    ?? 0),
+            ];
+        }
+        update_option('tmp_timing_rules', wp_json_encode($sanitized));
+        return rest_ensure_response(['success' => true]);
     }
 }

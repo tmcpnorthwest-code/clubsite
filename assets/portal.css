@@ -1281,3 +1281,50 @@
   .tmp-wrapup-performer-row { flex-wrap: wrap; }
   .tmp-absent-btn { margin-left: 0; }
 }
+
+/* ── Agenda reorder buttons ─────────────────────────────────────────── */
+.tmp-move-cell {
+  padding: 2px 4px !important;
+  white-space: nowrap;
+}
+.tmp-move-btn {
+  display: block;
+  width: 26px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--tmp-line);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--tmp-muted);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  touch-action: manipulation;
+}
+.tmp-move-btn:hover:not(:disabled) {
+  background: var(--tmp-teal);
+  color: #fff;
+  border-color: var(--tmp-teal);
+}
+.tmp-move-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.tmp-move-btn + .tmp-move-btn { margin-top: 2px; }
+
+/* ── Timer guidance rows ────────────────────────────────────────────── */
+.tmp-timing-row td { padding-top: 0 !important; padding-bottom: 6px !important; }
+.tmp-timing-hint {
+  font-size: 0.78rem;
+  color: var(--tmp-muted);
+  letter-spacing: 0.01em;
+}
+.tmp-dot-green  { color: #2e7d32; font-size: 0.9em; }
+.tmp-dot-yellow { color: #f9a825; font-size: 0.9em; }
+.tmp-dot-red    { color: #c62828; font-size: 0.9em; }
+
+/* ── Print: hide reorder column ─────────────────────────────────────── */
+@media print {
+  .tmp-no-print { display: none !important; }
+}

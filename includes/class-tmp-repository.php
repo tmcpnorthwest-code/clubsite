@@ -900,10 +900,51 @@ class TMP_Repository {
                 if (!empty($assignment['member_id'])) {
                     $assignment['suitability'] = self::check_suitability($assignment['role_name'], $assignment['member_id']);
                 }
+
+                // Fallback: compute timing for rows created before v0.8.0 timing columns
+                if ($assignment['time_green'] === null) {
+                    [$tg, $ty, $tr] = self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0));
+                    $assignment['time_green']  = $tg;
+                    $assignment['time_yellow'] = $ty;
+                    $assignment['time_red']    = $tr;
+                }
             }
         }
 
         return $rows;
+    }
+
+    public static function get_published_agenda() {
+        global $wpdb;
+        $meetings    = self::meeting_table();
+        $assignments = self::assignment_table();
+        $members     = self::member_table();
+
+        $meeting = $wpdb->get_row(
+            "SELECT * FROM {$meetings} WHERE is_published = 1 ORDER BY meeting_date ASC LIMIT 1",
+            ARRAY_A
+        );
+        if (!$meeting) return null;
+
+        $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
+            "SELECT a.*, m.full_name AS member_name
+             FROM {$assignments} a
+             LEFT JOIN {$members} m ON m.id = a.member_id
+             WHERE a.meeting_id = %d
+             ORDER BY a.sort_order ASC, a.id ASC",
+            $meeting['id']
+        ), ARRAY_A) ?: [];
+
+        foreach ($meeting['assignments'] as &$assignment) {
+            if ($assignment['time_green'] === null) {
+                [$tg, $ty, $tr] = self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0));
+                $assignment['time_green']  = $tg;
+                $assignment['time_yellow'] = $ty;
+                $assignment['time_red']    = $tr;
+            }
+        }
+
+        return $meeting;
     }
 
     // -------------------------------------------------------------------------
@@ -1995,23 +2036,19 @@ class TMP_Repository {
             $intro_roles = ['Grammarian', 'Timer', 'Ah-Counter', 'General Evaluator'];
             foreach ($intro_roles as $r) {
                 if (in_array($r, $selected_roles)) {
-                    $agenda[] = ['role' => $r, 'note' => 'Intro', 'dur' => 2];
+                    $agenda[] = ['role' => $r, 'note' => 'Introduction of role', 'dur' => 2];
                 }
             }
             if (in_array('Toastmaster of the Day', $selected_roles)) {
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Intro segments', 'dur' => 3];
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduce segments of the meeting', 'dur' => 3];
             }
 
-            // Table Topics section — TTM is a role; speakers are called live and managed via voting panel
-            if (in_array('Table Topics Master', $selected_roles)) {
-                $agenda[] = ['role' => 'Table Topics Master', 'note' => 'Runs Table Topics', 'dur' => 15];
-            }
-
+            
             $speech_slots = absint($data['speech_slots'] ?? 0);
             for ($i = 1; $i <= $speech_slots; $i++) {
-                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Intro speaker', 'dur' => 1];
+                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Introduces speaker', 'dur' => 1];
                 $agenda[] = ['role' => "Speaker $i",   'note' => 'Speech',        'dur' => 8];
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Rate the speaker', 'dur' => 1];
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Speaker Feedback', 'dur' => 1];
             }
 
             $agenda[] = ['role' => 'Break', 'note' => 'Networking', 'dur' => 5];
@@ -2019,6 +2056,13 @@ class TMP_Repository {
             if (in_array('Toastmaster of the Day', $selected_roles)) {
                 $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Discuss theme', 'dur' => 3];
             }
+            
+            // Table Topics section — TTM is a role; speakers are called live and managed via voting panel
+            if (in_array('Table Topics Master', $selected_roles)) {
+                $agenda[] = ['role' => 'Table Topics Master', 'note' => 'Runs Table Topics', 'dur' => 15];
+            }
+
+            
             for ($i = 1; $i <= $speech_slots; $i++) {
                 $agenda[] = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
             }
@@ -2026,23 +2070,107 @@ class TMP_Repository {
             if (in_array('Ah-Counter', $selected_roles)) $agenda[] = ['role' => 'Ah-Counter',        'note' => 'Report',       'dur' => 3];
             if (in_array('Grammarian', $selected_roles)) $agenda[] = ['role' => 'Grammarian',        'note' => 'Report',       'dur' => 3];
             if (in_array('General Evaluator', $selected_roles)) $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 5];
-            if (in_array('Toastmaster of the Day', $selected_roles)) $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Role Player voting', 'dur' => 1];
-            if (in_array('Presiding Officer', $selected_roles)) $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Closing address', 'dur' => 4];
+            if (in_array('Toastmaster of the Day', $selected_roles)) $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Audience Feedback for Moment of Glory', 'dur' => 1];
+            if (in_array('Presiding Officer', $selected_roles)) $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Closing address and Guest feedback', 'dur' => 4];
 
             $order = 10;
             foreach ($agenda as $item) {
+                $full_role_name = sanitize_text_field($item['role'] . ($item['note'] ? " ({$item['note']})" : ""));
+                [$tg, $ty, $tr] = self::get_timing_for_role($full_role_name, $item['dur']);
                 self::save_assignment([
-                    'meeting_id' => $id,
-                    'role_name'  => sanitize_text_field($item['role'] . ($item['note'] ? " ({$item['note']})" : "")),
-                    'duration'   => $item['dur'],
-                    'status'     => 'Planned',
-                    'sort_order' => $order,
+                    'meeting_id'  => $id,
+                    'role_name'   => $full_role_name,
+                    'duration'    => $item['dur'],
+                    'status'      => 'Planned',
+                    'sort_order'  => $order,
+                    'time_green'  => $tg,
+                    'time_yellow' => $ty,
+                    'time_red'    => $tr,
                 ]);
                 $order += 10;
             }
         }
 
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id), ARRAY_A);
+    }
+
+    // -------------------------------------------------------------------------
+    // Timer guidance defaults
+    // -------------------------------------------------------------------------
+
+    public static function get_timing_defaults() {
+        $saved = get_option('tmp_timing_rules', null);
+        if ($saved) {
+            $decoded = json_decode($saved, true);
+            if (is_array($decoded) && !empty($decoded)) return $decoded;
+        }
+        return [
+            ['key' => 'saa',            'label' => 'SAA / Sergeant at Arms',                   'green' => 60,  'yellow' => 90,  'red' => 120],
+            ['key' => 'intro',          'label' => 'Role Introductions (short intro slots)',    'green' => 60,  'yellow' => 90,  'red' => 120],
+            ['key' => 'tmod_intro',     'label' => 'TMOD – Intro of Theme',                    'green' => 120, 'yellow' => 180, 'red' => 240],
+            ['key' => 'ttm',            'label' => 'Table Topics Master',                       'green' => 600, 'yellow' => 720, 'red' => 840],
+            ['key' => 'presiding',      'label' => 'Presiding Officer',                         'green' => 180, 'yellow' => 240, 'red' => 300],
+            ['key' => 'speaker',        'label' => 'Prepared Speech',                           'green' => 300, 'yellow' => 360, 'red' => 420],
+            ['key' => 'evaluator_eval', 'label' => 'Evaluator (Evaluation speech)',             'green' => 180, 'yellow' => 240, 'red' => 300],
+            ['key' => 'timer_report',   'label' => 'Timer Report',                              'green' => 60,  'yellow' => 90,  'red' => 120],
+            ['key' => 'ah_counter',     'label' => 'Ah-Counter Report',                         'green' => 60,  'yellow' => 120, 'red' => 180],
+            ['key' => 'grammarian',     'label' => 'Grammarian Report',                         'green' => 60,  'yellow' => 120, 'red' => 180],
+            ['key' => 'gen_evaluator',  'label' => 'General Evaluator',                         'green' => 180, 'yellow' => 240, 'red' => 300],
+        ];
+    }
+
+    public static function get_timing_for_role($role_name, $duration = 0) {
+        $defaults = self::get_timing_defaults();
+        $map      = [];
+        foreach ($defaults as $d) { $map[$d['key']] = $d; }
+        $pick = function($key) use ($map) {
+            $d = $map[$key] ?? null;
+            return $d ? [$d['green'], $d['yellow'], $d['red']] : [null, null, null];
+        };
+        $lower = strtolower($role_name);
+        $dur   = (int) $duration;
+        if (str_contains($lower, 'break'))                                                    return [null, null, null];
+        if (str_contains($lower, 'sergeant') || str_contains($lower, 'saa'))                 return $pick('saa');
+        if (str_contains($lower, 'presiding officer'))                                        return $pick('presiding');
+        if (str_contains($lower, 'table topics master'))                                      return $pick('ttm');
+        if (str_contains($lower, 'table topics'))                                             return [null, null, null];
+        if (str_contains($lower, 'toastmaster of the day') || str_contains($lower, 'tmod')) {
+            if (str_contains($lower, 'intro of theme')) return $pick('tmod_intro');
+            return [null, null, null];
+        }
+        if (preg_match('/\bspeaker\b/i', $role_name))                                        return $pick('speaker');
+        if (str_contains($lower, 'general evaluator'))                                        return $pick('gen_evaluator');
+        if (preg_match('/\bevaluator\b/i', $role_name)) {
+            if (str_contains($lower, 'intro') || $dur <= 2) return $pick('intro');
+            return $pick('evaluator_eval');
+        }
+        if (preg_match('/\btimer\b/i', $role_name)) {
+            return str_contains($lower, 'report') ? $pick('timer_report') : $pick('intro');
+        }
+        if (str_contains($lower, 'ah-counter') || str_contains($lower, 'ah counter')) {
+            return str_contains($lower, 'report') ? $pick('ah_counter') : $pick('intro');
+        }
+        if (str_contains($lower, 'grammarian')) {
+            return str_contains($lower, 'report') ? $pick('grammarian') : $pick('intro');
+        }
+        return [null, null, null];
+    }
+
+    // -------------------------------------------------------------------------
+    // Reorder agenda items
+    // -------------------------------------------------------------------------
+
+    public static function reorder_agenda($meeting_id, $ordered_ids) {
+        global $wpdb;
+        $table = self::assignment_table();
+        $now   = current_time('mysql');
+        $mid   = absint($meeting_id);
+        foreach (array_values($ordered_ids) as $pos => $raw_id) {
+            $id = absint($raw_id);
+            if (!$id) continue;
+            $wpdb->update($table, ['sort_order' => $pos * 10, 'updated_at' => $now], ['id' => $id, 'meeting_id' => $mid]);
+        }
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -2065,6 +2193,20 @@ class TMP_Repository {
         if (isset($data['presentation_series'])) $record['presentation_series']= sanitize_text_field($data['presentation_series']);
         if (isset($data['cooloff_override']))    $record['cooloff_override']   = (int) (bool) $data['cooloff_override'];
         if (isset($data['override_reason']))     $record['override_reason']    = sanitize_text_field($data['override_reason']);
+
+        // Timer guidance — accept seconds (int) or "M:SS" string
+        $parse_time = function($v) {
+            if ($v === null || $v === '') return null;
+            if (is_numeric($v) && (int) $v >= 0) return (int) $v;
+            if (is_string($v) && str_contains($v, ':')) {
+                [$m, $s] = array_map('intval', explode(':', $v, 2));
+                return $m * 60 + $s;
+            }
+            return null;
+        };
+        if (array_key_exists('time_green',  $data)) $record['time_green']  = $parse_time($data['time_green']);
+        if (array_key_exists('time_yellow', $data)) $record['time_yellow'] = $parse_time($data['time_yellow']);
+        if (array_key_exists('time_red',    $data)) $record['time_red']    = $parse_time($data['time_red']);
 
         $record['updated_at'] = $now;
 

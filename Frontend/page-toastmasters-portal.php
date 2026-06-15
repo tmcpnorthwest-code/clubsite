@@ -63,6 +63,11 @@ if (class_exists('TMP_Repository')) {
     if (method_exists('TMP_Repository', 'get_recent_level_ups')) {
         $level_ups = TMP_Repository::get_recent_level_ups(12);
     }
+
+    $published_agenda = null;
+    if (method_exists('TMP_Repository', 'get_published_agenda')) {
+        $published_agenda = TMP_Repository::get_published_agenda();
+    }
     if (method_exists('TMP_Repository', 'get_meeting_summary')) {
         $meeting_summary = TMP_Repository::get_meeting_summary();
     }
@@ -294,6 +299,56 @@ if ($next_meeting) {
       </div>
     <?php endif; ?>
   </div>
+
+  <!-- ═══════════════════════════════════════════ UPCOMING MEETING AGENDA -->
+  <?php if ($published_agenda) :
+    $pa_dt = new DateTime($published_agenda['meeting_date']);
+    $pa_assignments = array_filter($published_agenda['assignments'] ?? [], function($a) {
+        return strtolower($a['role_name']) !== 'break';
+    });
+    // De-duplicate multi-segment roles (TMOD, Evaluator intro vs eval shown once each)
+    $seen_bases = [];
+    $pa_rows = [];
+    foreach ($pa_assignments as $a) {
+        $base = preg_replace('/\s*\(.*?\)\s*/u', '', $a['role_name']);
+        $base = trim(preg_replace('/\s+\d+$/', '', $base));
+        if (in_array($base, $seen_bases, true)) continue;
+        $seen_bases[] = $base;
+        $pa_rows[] = $a;
+    }
+  ?>
+  <section class="section upcoming-agenda-section" id="tmc-upcoming">
+    <p class="eyebrow">Coming Up Next</p>
+    <h2>Meeting Agenda</h2>
+    <div class="upcoming-meta">
+      <span class="upcoming-date"><?php echo esc_html($pa_dt->format('l, F j')); ?></span>
+      <?php if (!empty($published_agenda['theme'])) : ?>
+        <span class="upcoming-theme">&ldquo;<?php echo esc_html($published_agenda['theme']); ?>&rdquo;</span>
+      <?php endif; ?>
+      <?php if (!empty($published_agenda['venue'])) : ?>
+        <span class="upcoming-venue"><?php echo esc_html($published_agenda['venue']); ?></span>
+      <?php endif; ?>
+      <?php if (!empty($published_agenda['start_time'])) : ?>
+        <span class="upcoming-time"><?php echo esc_html(substr($published_agenda['start_time'], 0, 5)); ?></span>
+      <?php endif; ?>
+    </div>
+    <?php if (!empty($pa_rows)) : ?>
+    <div class="upcoming-agenda-wrap">
+      <table class="upcoming-agenda-table">
+        <thead><tr><th>Agenda Item</th><th>Member</th></tr></thead>
+        <tbody>
+          <?php foreach ($pa_rows as $a) : ?>
+          <tr>
+            <td><?php echo esc_html($a['role_name']); ?></td>
+            <td><?php echo !empty($a['member_name']) ? esc_html($a['member_name']) : '<em class="upcoming-tba">TBA</em>'; ?></td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+    <?php endif; ?>
+  </section>
+  <?php endif; ?>
 
   <!-- ═══════════════════════════════════════════════════════ VOTE NOW -->
   <?php if ($today_meeting && !empty($today_meeting['poll_open'])) : ?>

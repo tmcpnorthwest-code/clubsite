@@ -398,6 +398,10 @@ class TMP_Shortcodes {
             </section>
 
             <section class="tmp-panel">
+                <div class="tmp-card-head" style="margin-bottom:10px;">
+                    <h3 style="margin:0;">Manage Meetings</h3>
+                </div>
+                <div data-tmp-meetings-compact-list style="margin-bottom:14px;"></div>
                 <button class="tmp-collapsible-toggle" data-tmp-meeting-form-toggle aria-expanded="false" style="width:100%;text-align:left;">
                     <span data-tmp-meeting-form-label>Schedule New Meeting</span>
                     <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
@@ -458,6 +462,15 @@ class TMP_Shortcodes {
                     </select>
                 </label>
                 <label>Duration (mins) <input type="number" name="duration" min="0" placeholder="e.g. 7" /></label>
+                <!-- Timer guidance — shown when a slot is selected; hidden for breaks -->
+                <div data-tmp-timing-wrap class="tmp-wide" style="display:none;padding:10px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:4px;">
+                    <p class="tmp-eyebrow" style="margin:0 0 8px;">Timer Guidance (M:SS)</p>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                        <label><span style="color:#2e7d32;font-weight:700;">● Green</span><input type="text" name="time_green"  placeholder="5:00" style="display:block;width:100%;margin-top:4px;" /></label>
+                        <label><span style="color:#f9a825;font-weight:700;">● Yellow</span><input type="text" name="time_yellow" placeholder="6:00" style="display:block;width:100%;margin-top:4px;" /></label>
+                        <label><span style="color:#c62828;font-weight:700;">● Red</span><input type="text" name="time_red"    placeholder="7:00" style="display:block;width:100%;margin-top:4px;" /></label>
+                    </div>
+                </div>
                 <label style="display:none;">Status
                     <select name="status">
                         <option>Planned</option>

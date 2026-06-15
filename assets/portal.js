@@ -35,6 +35,24 @@
     return 50;
   }
 
+  function fmtSecs(s) {
+    if (!s && s !== 0) return '';
+    s = Number(s);
+    const m   = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${String(sec).padStart(2, '0')}`;
+  }
+
+  function parseMSS(str) {
+    if (!str || !String(str).trim()) return null;
+    const t = String(str).trim();
+    if (t.includes(':')) {
+      const [m, s] = t.split(':').map(Number);
+      return (m * 60) + (s || 0);
+    }
+    return Math.round(Number(t) * 60); // bare number treated as minutes
+  }
+
   function formatTime(totalMinutes) {
     const h = Math.floor(totalMinutes / 60) % 24;
     const m = totalMinutes % 60;
@@ -47,10 +65,14 @@
     const [h, m] = (meeting.start_time || "18:30:00").split(":").map(Number);
     let t = h * 60 + m;
     const rows = (meeting.assignments || []).map((a) => {
-      const start = formatTime(t);
-      const dur   = Number(a.duration || 0);
+      const start   = formatTime(t);
+      const dur     = Number(a.duration || 0);
       t += dur;
-      return `<tr><td>${start}</td><td>${dur}m</td><td>${formatTime(t)}</td><td><strong>${esc(a.role_name)}</strong></td><td>${esc(a.member_name || "Unassigned")}</td><td>${esc(a.speech_title || "")}</td></tr>`;
+      const isBreak = a.role_name.toLowerCase().startsWith("break");
+      const timing  = (!isBreak && (a.time_green || a.time_yellow || a.time_red))
+        ? `<span style="font-size:10px;color:#555;"> (Timer: <span style="color:#2e7d32;">●${fmtSecs(a.time_green)}</span> <span style="color:#f9a825;">●${fmtSecs(a.time_yellow)}</span> <span style="color:#c62828;">●${fmtSecs(a.time_red)}</span>)</span>`
+        : "";
+      return `<tr><td>${start}</td><td>${dur}m</td><td>${formatTime(t)}</td><td><strong>${esc(a.role_name)}</strong>${timing}</td><td>${esc(a.member_name || "Unassigned")}</td><td>${esc(a.speech_title || "")}</td></tr>`;
     }).join("");
 
     w.document.write(`<html><head><title>Agenda - ${esc(meeting.meeting_date)}</title>
@@ -902,6 +924,7 @@
     const roleSelect     = qs("[data-tmp-role-select]", root);
     const memberSelect   = qs("[data-tmp-member-select]", root);
     const meetingList    = qs("[data-tmp-meeting-list]", root);
+    const compactList    = qs("[data-tmp-meetings-compact-list]", root);
     const meetingCount   = qs("[data-tmp-meeting-count]", root);
     const vpeSearch      = qs("[data-tmp-vpe-search]", root);
     const vpePathway     = qs("[data-tmp-vpe-pathway]", root);
@@ -1042,20 +1065,57 @@
       if (selectedId) meetingSelect.value = selectedId;
       updateRoles();
 
+      if (compactList) {
+        compactList.innerHTML = meetings.length
+          ? `<div class="tmp-table-wrap"><table class="tmp-table" style="font-size:0.88rem;">
+              <thead><tr><th>Date</th><th>Theme</th><th class="tmp-no-print"></th></tr></thead>
+              <tbody>${meetings.map((m) => `<tr>
+                <td style="white-space:nowrap;">${esc(m.meeting_date)}${String(m.is_published) === "1" ? ' <span class="tmp-tag" style="background:#2e7d32;color:#fff;font-size:10px;padding:1px 5px;vertical-align:middle;">Live</span>' : ""}</td>
+                <td>${esc(m.theme)}</td>
+                <td class="tmp-no-print" style="white-space:nowrap;text-align:right;padding-right:6px;">
+                  <button class="tmp-small-button" data-compact-edit="${esc(m.id)}">Edit</button>
+                  <button class="tmp-small-button tmp-danger" data-compact-delete="${esc(m.id)}">Delete</button>
+                </td>
+              </tr>`).join("")}</tbody>
+            </table></div>`
+          : `<p style="color:var(--tmp-muted);font-size:0.88rem;">No meetings yet. Schedule your first meeting below.</p>`;
+      }
+
       meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting, idx) => {
         const [h, min] = (meeting.start_time || "18:30:00").split(":").map(Number);
         let t = h * 60 + (min || 0);
 
         // Pure timeline rows — no operational data (status/cooloff/suitability live in Role Status panel)
-        const agendaRows = (meeting.assignments || []).map((a) => {
+        const assignments = meeting.assignments || [];
+        const agendaRows = assignments.map((a, aIdx) => {
           const start   = formatTime(t);
           const dur     = Number(a.duration || 0);
           t += dur;
           const end     = formatTime(t);
           const isBreak = a.role_name.toLowerCase().startsWith("break");
+          const isFirst = aIdx === 0;
+          const isLast  = aIdx === assignments.length - 1;
+
+          const moveCell = `<td class="tmp-no-print tmp-move-cell">
+            <button class="tmp-move-btn" data-move-up="${a.id}" data-move-mid="${meeting.id}" ${isFirst ? "disabled" : ""} title="Move up">▲</button>
+            <button class="tmp-move-btn" data-move-down="${a.id}" data-move-mid="${meeting.id}" ${isLast ? "disabled" : ""} title="Move down">▼</button>
+          </td>`;
+
+          const tg = a.time_green, ty = a.time_yellow, tr_t = a.time_red;
+          const timingHint = (!isBreak && (tg || ty || tr_t))
+            ? `<tr class="tmp-timing-row">
+                <td class="tmp-no-print"></td>
+                <td colspan="5" class="tmp-timing-hint">
+                  Timer: <span class="tmp-dot-green">●</span> ${fmtSecs(tg)}
+                  &nbsp;<span class="tmp-dot-yellow">●</span> ${fmtSecs(ty)}
+                  &nbsp;<span class="tmp-dot-red">●</span> ${fmtSecs(tr_t)}
+                </td>
+              </tr>`
+            : "";
 
           if (isBreak) {
             return `<tr style="background:#f5f5f5;">
+              ${moveCell}
               <td style="color:var(--tmp-muted);">${start}</td>
               <td style="color:var(--tmp-muted);">${dur}m</td>
               <td style="color:var(--tmp-muted);">${end}</td>
@@ -1064,12 +1124,13 @@
           }
 
           return `<tr>
+            ${moveCell}
             <td>${start}</td>
             <td>${dur}m</td>
             <td>${end}</td>
             <td>${esc(a.role_name)}${a.speech_title ? `<br><small style="color:var(--tmp-muted);">${esc(a.speech_title)}</small>` : ""}</td>
             <td>${a.member_name ? esc(a.member_name) : '<em style="color:#ef6c00;">TBA</em>'}</td>
-          </tr>`;
+          </tr>${timingHint}`;
         }).join("");
 
         const totalUsed = t - (h * 60 + (min || 0));
@@ -1081,22 +1142,11 @@
         const agendaTable = agendaRows
           ? `<div class="tmp-table-wrap" style="margin-top:12px;">
               <table class="tmp-table">
-                <thead><tr><th>Start</th><th>Dur</th><th>End</th><th>Agenda Item</th><th>Member</th></tr></thead>
+                <thead><tr><th class="tmp-no-print" style="width:54px;padding:4px;"></th><th>Start</th><th>Dur</th><th>End</th><th>Agenda Item</th><th>Member</th></tr></thead>
                 <tbody>${agendaRows}</tbody>
               </table>
             </div>`
           : `<p style="color:var(--tmp-muted);margin-top:12px;">No agenda items yet.</p>`;
-
-        // Assignment-readiness badge (role-count, not agenda-item count)
-        const assignments = meeting.assignments || [];
-        const roleSlots   = assignments.filter((a) => !a.role_name.toLowerCase().startsWith("break"));
-        const unassigned  = roleSlots.filter((a) => !a.member_id).length;
-        const statusBg    = roleSlots.length === 0 ? "#9e9e9e" : unassigned === 0 ? "#2e7d32" : "#ef6c00";
-        const statusLabel = roleSlots.length === 0
-          ? "No roles yet"
-          : unassigned === 0
-            ? "All roles assigned ✓"
-            : `${unassigned} role${unassigned > 1 ? "s" : ""} need${unassigned === 1 ? "s" : ""} a member`;
 
         const defaultOpen = idx === 0;
         const bodyDisplay = defaultOpen ? "block" : "none";
@@ -1108,7 +1158,6 @@
             <div class="tmp-card-head" style="pointer-events:none;">
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <h4 style="margin:0;">${esc(meeting.meeting_date)} — ${esc(meeting.theme)}</h4>
-                <span class="tmp-tag" style="background:${statusBg};color:#fff;font-size:11px;">${esc(statusLabel)}</span>
               </div>
               <div style="display:flex;align-items:center;gap:6px;">
                 <span class="tmp-tag">${esc((meeting.start_time || "18:30").substring(0, 5))}</span>
@@ -1121,10 +1170,10 @@
             <p style="margin:6px 0 0;color:var(--tmp-muted);font-size:13px;">${esc(meeting.venue || "Venue not set")}${meeting.agenda_notes ? ` · ${esc(meeting.agenda_notes)}` : ""}</p>
             ${warning}
             ${agendaTable}
-            <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;">
+            <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;align-items:center;">
               <button class="tmp-button tmp-secondary tmp-small" data-print-agenda="${meeting.id}">Print Agenda</button>
-              <button class="tmp-button tmp-secondary tmp-small" data-edit-meeting="${meeting.id}">Edit Meeting</button>
-              <button class="tmp-button tmp-danger tmp-small" data-delete-meeting="${meeting.id}">Delete Meeting</button>
+              <button class="tmp-button ${String(meeting.is_published) === "1" ? "tmp-primary" : "tmp-secondary"} tmp-small" data-publish-agenda="${meeting.id}">${String(meeting.is_published) === "1" ? "Unpublish" : "Publish to Website"}</button>
+              ${String(meeting.is_published) === "1" ? '<span class="tmp-tag" style="background:#2e7d32;color:#fff;padding:3px 8px;font-size:11px;">● Live on website</span>' : ""}
             </div>
           </div>
         </article>`;
@@ -1209,6 +1258,8 @@
       // Speech title: only for Speaker slots (Speaker, Speaker 1, etc.)
       if (speechWrapper) speechWrapper.style.display = rLower.startsWith("speaker") ? "block" : "none";
       if (presSeries) presSeries.style.display = rLower.includes("educational presentation") ? "block" : "none";
+      const timingWrap = qs("[data-tmp-timing-wrap]", root);
+      if (timingWrap) timingWrap.style.display = (roleName && !rLower.startsWith("break")) ? "block" : "none";
     }
 
     function isCooloffRole(roleName) {
@@ -1311,11 +1362,21 @@
         </tr>`;
       }).join("");
 
+      const totalGroups      = Object.keys(roleGroups).length;
+      const unassignedGroups = Object.values(roleGroups).filter((g) => !g[0].member_id).length;
+      const badgeBg    = totalGroups === 0 ? "#9e9e9e" : unassignedGroups === 0 ? "#2e7d32" : "#ef6c00";
+      const badgeLabel = totalGroups === 0
+        ? "No roles yet"
+        : unassignedGroups === 0
+          ? "All roles assigned ✓"
+          : `${unassignedGroups} role${unassignedGroups > 1 ? "s" : ""} need${unassignedGroups === 1 ? "s" : ""} a member`;
+
       panel.innerHTML = `
-        <div style="margin-bottom:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
           <strong style="font-size:13px;">${esc(meeting.meeting_date)} — ${esc(meeting.theme)}</strong>
-          <span style="font-size:12px;color:var(--tmp-muted);margin-left:8px;">Select a member in any row to assign. Use the form above only for new slots, durations, or speech titles.</span>
+          <span class="tmp-tag" style="background:${badgeBg};color:#fff;">${esc(badgeLabel)}</span>
         </div>
+        <div style="font-size:12px;color:var(--tmp-muted);margin-bottom:10px;">Select a member in any row to assign. Use the form above only for new slots, durations, or speech titles.</div>
         <div class="tmp-table-wrap">
           <table class="tmp-table" style="font-size:0.88rem;">
             <thead><tr><th>Role</th><th>Member</th><th>Notes</th><th>Action</th></tr></thead>
@@ -1442,6 +1503,11 @@
           roleName = asgn.role_name;
           updateMemberDropdown(roleName);
           if (asgn.member_id) assignmentForm.elements.member_id.value = asgn.member_id;
+          // Convert seconds to M:SS for timing inputs
+          ["time_green", "time_yellow", "time_red"].forEach((f) => {
+            const el = assignmentForm.elements[f];
+            if (el) el.value = asgn[f] != null ? fmtSecs(Number(asgn[f])) : "";
+          });
         }
       } else if (val.startsWith("name:")) {
         const name = val.split(":")[1];
@@ -1601,11 +1667,45 @@
         return;
       }
 
-      const print        = e.target.closest("[data-print-agenda]");
-      const viewConflicts= e.target.closest("[data-view-conflicts]");
-      const delMeeting   = e.target.closest("[data-delete-meeting]");
-      const editMeeting  = e.target.closest("[data-edit-meeting]");
-      const approveReq   = e.target.closest("[data-vpe-approve-req]");
+      const moveBtn      = e.target.closest("[data-move-up],[data-move-down]");
+      if (moveBtn) {
+        const mid      = moveBtn.dataset.moveMid;
+        const aid      = parseInt(moveBtn.dataset.moveUp || moveBtn.dataset.moveDown, 10);
+        const isUp     = !!moveBtn.dataset.moveUp;
+        const meeting  = (root._meetings || []).find((m) => String(m.id) === String(mid));
+        if (!meeting) return;
+        const arr      = meeting.assignments;
+        const idx      = arr.findIndex((a) => Number(a.id) === aid);
+        if (idx < 0) return;
+        const swapIdx  = isUp ? idx - 1 : idx + 1;
+        if (swapIdx < 0 || swapIdx >= arr.length) return;
+        [arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]];
+        try {
+          await api(`/meetings/${mid}/agenda-order`, { method: "POST", body: JSON.stringify({ order: arr.map((a) => a.id) }) });
+        } catch (err) {
+          console.error("Reorder failed", err);
+        }
+        await renderMeetings(meetingSelect.value);
+        return;
+      }
+
+      const print          = e.target.closest("[data-print-agenda]");
+      const viewConflicts  = e.target.closest("[data-view-conflicts]");
+      const delMeeting     = e.target.closest("[data-delete-meeting]");
+      const editMeeting    = e.target.closest("[data-edit-meeting]");
+      const approveReq     = e.target.closest("[data-vpe-approve-req]");
+      const publishAgenda  = e.target.closest("[data-publish-agenda]");
+
+      if (publishAgenda) {
+        const mid = publishAgenda.dataset.publishAgenda;
+        try {
+          await api(`/meetings/${mid}/publish`, { method: "POST" });
+          await renderMeetings(meetingSelect.value);
+        } catch (err) {
+          alert("Could not update publish status: " + err.message);
+        }
+        return;
+      }
 
       if (editMeeting) {
         const mid = editMeeting.dataset.editMeeting;
@@ -1664,6 +1764,49 @@
         if (m) generatePrintView(m);
       }
     });
+
+    // Compact list (Edit / Delete)
+    if (compactList) {
+      compactList.addEventListener("click", async (e) => {
+        const editBtn   = e.target.closest("[data-compact-edit]");
+        const deleteBtn = e.target.closest("[data-compact-delete]");
+
+        if (editBtn) {
+          const mid = editBtn.dataset.compactEdit;
+          const m   = root._meetings.find((x) => String(x.id) === mid);
+          if (!m) return;
+          fillForm(meetingForm, m);
+          const rolesSetup = qs(".tmp-roles-setup", root);
+          if (rolesSetup) rolesSetup.style.display = "none";
+          const formLabel  = qs("[data-tmp-meeting-form-label]", root);
+          if (formLabel) formLabel.textContent = "Edit Meeting";
+          const submitBtn  = meetingForm.querySelector("button[type=submit]");
+          if (submitBtn) submitBtn.textContent = "Update Meeting";
+          const formToggle = qs("[data-tmp-meeting-form-toggle]", root);
+          const formBody   = qs("[data-tmp-meeting-form-body]", root);
+          if (formToggle) {
+            formToggle.setAttribute("aria-expanded", "true");
+            const ch = qs(".tmp-chevron", formToggle);
+            if (ch) ch.style.transform = "rotate(90deg)";
+          }
+          if (formBody) formBody.style.display = "block";
+          formToggle?.scrollIntoView({ behavior: "smooth", block: "start" });
+          return;
+        }
+
+        if (deleteBtn) {
+          if (confirm("Delete this meeting? This removes all role assignments, requests, votes, and attendance records permanently.")) {
+            const mid = deleteBtn.dataset.compactDelete;
+            deleteBtn.closest("tr")?.remove();
+            await api(`/meetings/${mid}`, { method: "DELETE" });
+            meetingSelect.value = "";
+            updateRoles();
+            await renderMeetings();
+            updateMemberDashboard().catch(() => {});
+          }
+        }
+      });
+    }
 
     // Mentor assignment modal logic
     const modal       = document.getElementById("tmp-mentor-modal");
@@ -1830,6 +1973,7 @@
     }
 
     // Inject gate settings panel HTML before first use
+    const agendaSection = qs("[data-tmp-meeting-list]", root)?.closest("section") || null;
     const gateSection = document.createElement("section");
     gateSection.className = "tmp-panel";
     gateSection.innerHTML = `
@@ -1839,7 +1983,7 @@
       </button>
       <div data-tmp-gate-settings-body style="display:none;margin-top:14px;"></div>`;
     gateSection.setAttribute("data-tmp-gate-settings-panel", "");
-    root.appendChild(gateSection);
+    root.insertBefore(gateSection, agendaSection);
 
     qs("[data-tmp-gate-settings-toggle]", root)?.addEventListener("click", async (e) => {
       const btn  = e.currentTarget;
@@ -1850,6 +1994,84 @@
       const chevron = qs(".tmp-chevron", btn);
       if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
       if (!open) await renderRoleGateSettings();
+    });
+
+    // -- Timer defaults settings panel ----------------------------------------
+    async function renderTimingSettings() {
+      const body = qs("[data-tmp-timing-settings-body]", root);
+      if (!body) return;
+      let rules;
+      try {
+        rules = await api("/settings/timing-rules");
+      } catch (err) {
+        body.innerHTML = `<p style="color:var(--tmp-burgundy)">Could not load timer settings: ${esc(err.message)}</p>`;
+        return;
+      }
+      body.innerHTML = `
+        <p style="font-size:12px;color:var(--tmp-muted);margin-bottom:10px;">
+          Enter times as M:SS (e.g. <strong>5:00</strong>). These defaults auto-fill when you create a new meeting.
+          You can override per slot in the Role Assignment form.
+        </p>
+        <table class="tmp-table" style="font-size:0.88rem;">
+          <thead><tr><th>Agenda Slot Type</th><th style="color:#2e7d32;">● Green</th><th style="color:#f9a825;">● Yellow</th><th style="color:#c62828;">● Red</th></tr></thead>
+          <tbody>${rules.map((r) => `
+            <tr>
+              <td>${esc(r.label)}</td>
+              <td><input type="text" data-timing-key="${esc(r.key)}" data-timing-field="green"  value="${esc(fmtSecs(r.green))}"  style="width:70px;padding:3px 6px;" /></td>
+              <td><input type="text" data-timing-key="${esc(r.key)}" data-timing-field="yellow" value="${esc(fmtSecs(r.yellow))}" style="width:70px;padding:3px 6px;" /></td>
+              <td><input type="text" data-timing-key="${esc(r.key)}" data-timing-field="red"    value="${esc(fmtSecs(r.red))}"    style="width:70px;padding:3px 6px;" /></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+        <div style="margin-top:12px;">
+          <button class="tmp-small-button tmp-primary" id="tmp-timing-save">Save Timer Defaults</button>
+          <span id="tmp-timing-status" style="margin-left:10px;font-size:12px;color:var(--tmp-muted);"></span>
+        </div>`;
+
+      qs("#tmp-timing-save", root)?.addEventListener("click", async () => {
+        const saveBtn    = qs("#tmp-timing-save", root);
+        const statusSpan = qs("#tmp-timing-status", root);
+        saveBtn.disabled = true;
+        if (statusSpan) statusSpan.textContent = "Saving…";
+        const updated = rules.map((r) => ({
+          key:    r.key,
+          label:  r.label,
+          green:  parseMSS(body.querySelector(`[data-timing-key="${r.key}"][data-timing-field="green"]`)?.value)  ?? r.green,
+          yellow: parseMSS(body.querySelector(`[data-timing-key="${r.key}"][data-timing-field="yellow"]`)?.value) ?? r.yellow,
+          red:    parseMSS(body.querySelector(`[data-timing-key="${r.key}"][data-timing-field="red"]`)?.value)    ?? r.red,
+        }));
+        try {
+          await api("/settings/timing-rules", { method: "POST", body: JSON.stringify(updated) });
+          rules = updated;
+          if (statusSpan) { statusSpan.textContent = "Saved!"; statusSpan.style.color = "#2e7d32"; }
+          setTimeout(() => { if (statusSpan) statusSpan.textContent = ""; }, 2000);
+        } catch (err) {
+          if (statusSpan) { statusSpan.textContent = "Error: " + err.message; statusSpan.style.color = "#c62828"; }
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    }
+
+    const timingSection = document.createElement("section");
+    timingSection.className = "tmp-panel";
+    timingSection.innerHTML = `
+      <button class="tmp-collapsible-toggle" data-tmp-timing-settings-toggle aria-expanded="false" style="width:100%;text-align:left;">
+        Timer Defaults
+        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+      </button>
+      <div data-tmp-timing-settings-body style="display:none;margin-top:14px;"></div>`;
+    root.insertBefore(timingSection, agendaSection);
+
+    qs("[data-tmp-timing-settings-toggle]", root)?.addEventListener("click", async (e) => {
+      const btn  = e.currentTarget;
+      const open = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!open));
+      const body = qs("[data-tmp-timing-settings-body]", root);
+      if (body) body.style.display = open ? "none" : "block";
+      const chevron = qs(".tmp-chevron", btn);
+      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+      if (!open) await renderTimingSettings();
     });
 
     // Approve All Recommended button
