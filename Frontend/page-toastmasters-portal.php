@@ -335,12 +335,27 @@ if ($next_meeting) {
     <?php if (!empty($pa_rows)) : ?>
     <div class="upcoming-agenda-wrap">
       <table class="upcoming-agenda-table">
-        <thead><tr><th>Agenda Item</th><th>Member</th></tr></thead>
+        <thead><tr><th>Agenda Item</th><th>Member</th><th>Duration</th></tr></thead>
         <tbody>
-          <?php foreach ($pa_rows as $a) : ?>
+          <?php foreach ($pa_rows as $a) :
+            $dur_display = '';
+            if (!empty($a['time_green']) && (int) $a['time_green'] > 0) {
+                $g = (int) round($a['time_green'] / 60);
+                $r = (int) round($a['time_red']   / 60);
+                $dur_display = $g === $r ? "{$g} min" : "{$g}–{$r} min";
+            } elseif (!empty($a['duration']) && (int) $a['duration'] > 0) {
+                $dur_display = (int) $a['duration'] . ' min';
+            }
+          ?>
           <tr>
-            <td><?php echo esc_html($a['role_name']); ?></td>
+            <td>
+              <?php echo esc_html($a['role_name']); ?>
+              <?php if (!empty($a['speech_title'])) : ?>
+                <span class="upcoming-speech-title"><?php echo esc_html($a['speech_title']); ?></span>
+              <?php endif; ?>
+            </td>
             <td><?php echo !empty($a['member_name']) ? esc_html($a['member_name']) : '<em class="upcoming-tba">TBA</em>'; ?></td>
+            <td class="upcoming-dur"><?php echo esc_html($dur_display); ?></td>
           </tr>
           <?php endforeach; ?>
         </tbody>
