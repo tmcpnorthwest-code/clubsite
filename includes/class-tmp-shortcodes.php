@@ -10,12 +10,23 @@ class TMP_Shortcodes {
         add_shortcode('tm_member_dashboard',[__CLASS__, 'member_dashboard']);
         add_shortcode('tm_admin_portal',    [__CLASS__, 'admin_portal']);
         add_shortcode('tm_vp_education',    [__CLASS__, 'vp_education']);
+        add_shortcode('tm_recognition_wall',[__CLASS__, 'recognition_wall']);
+        add_shortcode('tm_public_dashboard',[__CLASS__, 'public_dashboard']);
         add_action('wp_enqueue_scripts',    [__CLASS__, 'register_assets']);
     }
 
     public static function register_assets() {
-        wp_register_style( 'tmp-portal', TMP_PLUGIN_URL . 'assets/portal.css', [], TMP_VERSION);
-        wp_register_script('tmp-portal', TMP_PLUGIN_URL . 'assets/portal.js',  [], TMP_VERSION, true);
+        wp_register_style( 'tmp-portal',    TMP_PLUGIN_URL . 'assets/portal.css',           [], TMP_VERSION);
+        wp_register_script('tmp-portal',    TMP_PLUGIN_URL . 'assets/portal.js',            [], TMP_VERSION, true);
+        wp_register_script('tmp-public-dashboard', TMP_PLUGIN_URL . 'assets/public-dashboard.js', [], TMP_VERSION, true);
+    }
+
+    private static function enqueue_public() {
+        wp_enqueue_style('tmp-portal');
+        wp_enqueue_script('tmp-public-dashboard');
+        wp_localize_script('tmp-public-dashboard', 'TMPublic', [
+            'restUrl' => esc_url_raw(rest_url('toastmasters/v1')),
+        ]);
     }
 
     private static function enqueue() {
@@ -67,6 +78,7 @@ class TMP_Shortcodes {
         ob_start();
         ?>
         <div class="tmp-portal" data-tmp-member-dashboard>
+            <?php echo self::portal_topbar(); ?>
             <div class="tmp-panel">
                 <p class="tmp-eyebrow">Member dashboard</p>
                 <div class="tmp-member-header">
@@ -202,6 +214,7 @@ class TMP_Shortcodes {
         ob_start();
         ?>
         <div class="tmp-portal" data-tmp-admin>
+            <?php echo self::portal_topbar(); ?>
             <div class="tmp-panel">
                 <p class="tmp-eyebrow">Club admin</p>
                 <h2>Manage members, Pathways, levels, and state</h2>
@@ -284,6 +297,7 @@ class TMP_Shortcodes {
         ob_start();
         ?>
         <div class="tmp-portal" data-tmp-vpe>
+            <?php echo self::portal_topbar(); ?>
             <div class="tmp-panel">
                 <p class="tmp-eyebrow">VP Education</p>
                 <h2>Schedule roles, speeches, and meeting agendas</h2>
@@ -462,6 +476,69 @@ class TMP_Shortcodes {
                     <button class="tmp-button tmp-primary" id="tmp-mentor-modal-save">Save Mentor</button>
                 </div>
             </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    public static function recognition_wall() {
+        self::enqueue_public();
+        ob_start();
+        ?>
+        <div class="tmp-portal" data-tmp-recognition-wall>
+            <div class="tmp-panel">
+                <p class="tmp-eyebrow">Member recognition</p>
+                <h2>Recent Level-Ups</h2>
+                <div data-tmp-level-ups-list><p style="color:var(--tmp-muted)">Loading...</p></div>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    public static function public_dashboard() {
+        self::enqueue_public();
+        ob_start();
+        ?>
+        <div class="tmp-portal" data-tmp-public-dashboard>
+
+            <div class="tmp-panel">
+                <p class="tmp-eyebrow">Member recognition</p>
+                <h2>Recent Level-Ups</h2>
+                <div data-tmp-public-level-ups><p style="color:var(--tmp-muted)">Loading...</p></div>
+            </div>
+
+            <div class="tmp-panel">
+                <p class="tmp-eyebrow">Last meeting</p>
+                <h2>Meeting Report</h2>
+                <div data-tmp-public-meeting><p style="color:var(--tmp-muted)">Loading...</p></div>
+            </div>
+
+            <div class="tmp-panel">
+                <p class="tmp-eyebrow">Breadth award</p>
+                <h2>Role Diversity Leaders</h2>
+                <div data-tmp-public-diversity><p style="color:var(--tmp-muted)">Loading...</p></div>
+            </div>
+
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    private static function portal_topbar() {
+        $user       = wp_get_current_user();
+        $logout_url = wp_logout_url(home_url('/'));
+        $home_url   = home_url('/');
+        ob_start();
+        ?>
+        <div class="tmp-portal-topbar">
+            <div style="display:flex;align-items:center;gap:14px;">
+                <span class="tmp-portal-topbar__user"><?php echo esc_html($user->display_name); ?></span>
+                <a class="tmp-portal-topbar__home" href="<?php echo esc_url($home_url); ?>">&#8592; Club Home</a>
+            </div>
+            <a class="tmp-signout-btn" href="<?php echo esc_url($logout_url); ?>">
+                &#10148; Sign out
+            </a>
         </div>
         <?php
         return ob_get_clean();

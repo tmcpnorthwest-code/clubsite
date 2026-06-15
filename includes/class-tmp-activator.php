@@ -95,7 +95,8 @@ class TMP_Activator {
         $assignments = $wpdb->prefix . 'tmp_role_assignments';
         $requests = $wpdb->prefix . 'tmp_member_requests';
         $participation = $wpdb->prefix . 'tmp_participation_history';
-        $overrides = $wpdb->prefix . 'tmp_req_overrides';
+        $overrides   = $wpdb->prefix . 'tmp_req_overrides';
+        $level_ups   = $wpdb->prefix . 'tmp_level_up_history';
 
         // mentor VARCHAR kept for legacy data; mentor_id is the FK used by all new code
         dbDelta("CREATE TABLE {$members} (
@@ -207,6 +208,21 @@ class TMP_Activator {
             KEY member_level (member_id, level)
         ) $charset;");
 
+        dbDelta("CREATE TABLE {$level_ups} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id BIGINT UNSIGNED NOT NULL,
+            member_name VARCHAR(190) NOT NULL,
+            pathway VARCHAR(120) NOT NULL,
+            old_level TINYINT UNSIGNED NOT NULL,
+            new_level TINYINT UNSIGNED NOT NULL,
+            leveled_up_at DATETIME NOT NULL,
+            meeting_id BIGINT UNSIGNED NULL,
+            PRIMARY KEY  (id),
+            KEY member_id (member_id),
+            KEY new_level (new_level),
+            KEY leveled_up_at (leveled_up_at)
+        ) $charset;");
+
         self::seed_data();
     }
 
@@ -280,6 +296,7 @@ class TMP_Activator {
         self::maybe_create_page('member-dashboard', 'Member Dashboard', '[tm_member_dashboard]');
         self::maybe_create_page('club-admin', 'Club Admin', '[tm_admin_portal]');
         self::maybe_create_page('vp-education', 'VP Education', '[tm_vp_education]');
+        self::maybe_create_page('club-home', 'Club Home', '[tm_public_dashboard]');
     }
 
     private static function maybe_create_page($slug, $title, $content) {

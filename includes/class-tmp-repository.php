@@ -505,7 +505,18 @@ class TMP_Repository {
         }
 
         if (!empty($data['id'])) {
+            $old_level = isset($existing['level']) ? (int) $existing['level'] : null;
+            $new_level = (int) $record['level'];
             $wpdb->update($table, $record, array('id' => absint($data['id'])));
+            if ($old_level !== null && $new_level > $old_level) {
+                self::record_level_up(
+                    absint($data['id']),
+                    $record['full_name'],
+                    $record['pathway'],
+                    $old_level,
+                    $new_level
+                );
+            }
             return self::get_member(absint($data['id']));
         }
 
@@ -555,6 +566,123 @@ class TMP_Repository {
     public static function delete_member($id) {
         global $wpdb;
         return (bool) $wpdb->delete(self::member_table(), array('id' => absint($id)));
+    }
+
+    private static function record_level_up($member_id, $member_name, $pathway, $old_level, $new_level) {
+        global $wpdb;
+        $wpdb->insert(
+            $wpdb->prefix . 'tmp_level_up_history',
+            array(
+                'member_id'    => $member_id,
+                'member_name'  => $member_name,
+                'pathway'      => $pathway,
+                'old_level'    => $old_level,
+                'new_level'    => $new_level,
+                'leveled_up_at'=> current_time('mysql'),
+                'meeting_id'   => null,
+            )
+        );
+    }
+
+    public static function get_recent_level_ups($limit = 20) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmp_level_up_history';
+        return $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT member_name, pathway, old_level, new_level, leveled_up_at
+                 FROM {$table}
+                 ORDER BY leveled_up_at DESC
+                 LIMIT %d",
+                absint($limit)
+            ),
+            ARRAY_A
+        ) ?: [];
+    }
+
+    public static function get_meeting_summary($meeting_id = null) {
+        global $wpdb;
+        $history    = self::participation_history_table();
+        $members    = self::member_table();
+        $meetings   = self::meeting_table();
+        $level_ups  = $wpdb->prefix . 'tmp_level_up_history';
+
+        if ($meeting_id) {
+            $mid = absint($meeting_id);
+        } else {
+            $mid = (int) $wpdb->get_var(
+                "SELECT id FROM {$meetings} WHERE meeting_date <= CURDATE() ORDER BY meeting_date DESC LIMIT 1"
+            );
+        }
+
+        if (!$mid) {
+            return null;
+        }
+
+        $meeting = $wpdb->get_row(
+            $wpdb->prepare("SELECT meeting_date, theme FROM {$meetings} WHERE id = %d", $mid),
+            ARRAY_A
+        );
+        if (!$meeting) {
+            return null;
+        }
+
+        $participants = (int) $wpdb->get_var(
+            $wpdb->prepare("SELECT COUNT(DISTINCT member_id) FROM {$history} WHERE meeting_id = %d", $mid)
+        );
+
+        $roles = $wpdb->get_col(
+            $wpdb->prepare("SELECT DISTINCT role_name FROM {$history} WHERE meeting_id = %d ORDER BY role_name", $mid)
+        ) ?: [];
+
+        $level_up_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT member_name, pathway, old_level, new_level, leveled_up_at
+                 FROM {$level_ups} WHERE meeting_id = %d ORDER BY leveled_up_at ASC",
+                $mid
+            ),
+            ARRAY_A
+        ) ?: [];
+
+        $dist_rows = $wpdb->get_results(
+            "SELECT level, COUNT(*) as cnt FROM {$members} WHERE state = 'Active' GROUP BY level ORDER BY level",
+            ARRAY_A
+        ) ?: [];
+        $distribution = [];
+        foreach ($dist_rows as $row) {
+            $distribution[(string) $row['level']] = (int) $row['cnt'];
+        }
+
+        return array(
+            'meeting_id'         => $mid,
+            'meeting_date'       => $meeting['meeting_date'],
+            'theme'              => $meeting['theme'],
+            'participants'       => $participants,
+            'roles_covered'      => $roles,
+            'level_ups'          => $level_up_rows,
+            'level_distribution' => $distribution,
+        );
+    }
+
+    public static function get_role_diversity_leaders($limit = 5) {
+        global $wpdb;
+        $history = self::participation_history_table();
+        $members = self::member_table();
+
+        return $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT m.full_name, m.pathway, m.level,
+                        COUNT(DISTINCT h.role_name) AS distinct_roles,
+                        GROUP_CONCAT(DISTINCT h.role_name ORDER BY h.role_name SEPARATOR ', ') AS roles_played
+                 FROM {$members} m
+                 JOIN {$history} h ON h.member_id = m.id
+                 WHERE m.state = 'Active'
+                 GROUP BY m.id
+                 ORDER BY distinct_roles DESC, m.full_name ASC
+                 LIMIT %d",
+                absint($limit)
+            ),
+            ARRAY_A
+        ) ?: [];
     }
 
     public static function delete_meeting($id) {

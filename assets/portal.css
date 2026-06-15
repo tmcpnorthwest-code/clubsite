@@ -95,6 +95,72 @@
   font-weight: 900;
 }
 
+/* ── Portal top bar (signed-in user + sign-out) ─────────────────────────── */
+
+.tmp-portal-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(1120px, 100%);
+  margin: 0 auto 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 8px;
+  background: var(--tmp-surface);
+  font-size: 0.88rem;
+}
+
+.tmp-portal-topbar__user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--tmp-ink);
+}
+
+.tmp-portal-topbar__user::before {
+  content: "";
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--tmp-navy);
+  flex-shrink: 0;
+}
+
+.tmp-portal-topbar__home {
+  color: var(--tmp-muted);
+  text-decoration: none;
+  font-size: 0.82rem;
+}
+
+.tmp-portal-topbar__home:hover {
+  color: var(--tmp-ink);
+}
+
+.tmp-signout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 6px;
+  background: white;
+  color: var(--tmp-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.tmp-signout-btn:hover {
+  border-color: var(--tmp-burgundy);
+  color: var(--tmp-burgundy);
+}
+
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 
 .tmp-button {
@@ -683,5 +749,225 @@
 
   #tmp-mentor-modal .tmp-button {
     width: 100%;
+  }
+}
+
+/* ── Public dashboard ────────────────────────────────────────────────────── */
+
+/* Level badges */
+.tmp-level-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.03em;
+}
+.tmp-level-badge--0 { background: #90a4ae; }
+.tmp-level-badge--1 { background: #0f766e; }
+.tmp-level-badge--2 { background: #18324a; }
+.tmp-level-badge--3 { background: #8f1737; }
+.tmp-level-badge--4 { background: #d69b24; color: #17171b; }
+.tmp-level-badge--5 { background: #5c2d91; }
+
+/* Recognition wall grid */
+.tmp-recognition-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.tmp-recognition-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 8px;
+  background: #fafaf9;
+  box-shadow: 0 2px 8px rgba(23, 23, 27, 0.04);
+}
+
+.tmp-recognition-card__badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tmp-recognition-arrow {
+  color: var(--tmp-teal);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.tmp-recognition-card__name {
+  font-size: 1rem;
+  color: var(--tmp-ink);
+}
+
+.tmp-recognition-card__pathway {
+  color: var(--tmp-muted);
+  font-size: 0.8rem;
+}
+
+.tmp-recognition-card__date {
+  font-size: 0.75rem;
+  color: var(--tmp-gold);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: auto;
+}
+
+/* Level distribution bar */
+.tmp-level-dist {
+  display: flex;
+  height: 32px;
+  border-radius: 6px;
+  overflow: hidden;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.tmp-level-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  transition: width 0.3s ease;
+}
+
+.tmp-level-bar__label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #fff;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,.35);
+  overflow: hidden;
+}
+
+.tmp-level-dist-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.8rem;
+  color: var(--tmp-muted);
+}
+
+/* Meeting report */
+.tmp-meeting-report {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.tmp-meeting-report__meta { grid-column: 1 / -1; }
+
+.tmp-meeting-report__roles {
+  grid-column: 1 / -1;
+}
+
+.tmp-meeting-levelups {
+  grid-column: 1 / -1;
+  padding: 12px 14px;
+  background: #e8f5e9;
+  border-left: 4px solid #0f766e;
+  border-radius: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.tmp-meeting-levelup-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.88rem;
+}
+
+/* Role diversity leaderboard */
+.tmp-diversity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tmp-diversity-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 8px;
+  background: #fafaf9;
+}
+
+.tmp-diversity-rank {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--tmp-navy);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.tmp-diversity-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tmp-diversity-info small {
+  color: var(--tmp-muted);
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tmp-diversity-roles {
+  margin-left: auto;
+  text-align: right;
+  min-width: 0;
+}
+
+.tmp-diversity-count {
+  display: block;
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--tmp-teal);
+}
+
+.tmp-diversity-role-list {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--tmp-muted);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 600px) {
+  .tmp-recognition-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .tmp-meeting-report {
+    grid-template-columns: 1fr;
+  }
+  .tmp-diversity-role-list {
+    display: none;
   }
 }

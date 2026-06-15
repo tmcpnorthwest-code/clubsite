@@ -233,6 +233,25 @@ class TMP_REST_API {
             'callback'            => [__CLASS__, 'enrol'],
             'permission_callback' => '__return_true',
         ]);
+
+        // ── Public dashboard (unauthenticated) ─────────────────────────────────
+        register_rest_route('toastmasters/v1', '/public/recognition', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_public_recognition'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/public/meeting-summary', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_public_meeting_summary'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/public/role-diversity', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_public_role_diversity'],
+            'permission_callback' => '__return_true',
+        ]);
     }
 
     // ── Permission helpers ─────────────────────────────────────────────────────
@@ -599,6 +618,31 @@ class TMP_REST_API {
             (int) $request['id']
         ), ARRAY_A);
         return rest_ensure_response($rows);
+    }
+
+    // ── Public dashboard handlers ─────────────────────────────────────────────────
+
+    public static function get_public_recognition(WP_REST_Request $request) {
+        $limit = min(50, max(1, (int) ($request->get_param('limit') ?: 20)));
+        return rest_ensure_response([
+            'level_ups' => TMP_Repository::get_recent_level_ups($limit),
+        ]);
+    }
+
+    public static function get_public_meeting_summary(WP_REST_Request $request) {
+        $meeting_id = $request->get_param('meeting_id') ? absint($request->get_param('meeting_id')) : null;
+        $summary    = TMP_Repository::get_meeting_summary($meeting_id);
+        if (!$summary) {
+            return new WP_Error('tmp_no_meeting', 'No completed meeting found.', ['status' => 404]);
+        }
+        return rest_ensure_response($summary);
+    }
+
+    public static function get_public_role_diversity(WP_REST_Request $request) {
+        $limit = min(20, max(1, (int) ($request->get_param('limit') ?: 5)));
+        return rest_ensure_response([
+            'leaders' => TMP_Repository::get_role_diversity_leaders($limit),
+        ]);
     }
 
     // ── CSV helpers ───────────────────────────────────────────────────────────────
