@@ -23,8 +23,11 @@ define('TMC_YT_CHANNEL_ID_OVERRIDE', 'UCC-9rVEwrTuDV4oQpjTyybw');
 
 $template_dir = get_stylesheet_directory_uri();
 
-wp_enqueue_style('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.css', [], '2.0.0');
-wp_enqueue_script('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.js', [], '2.0.0', true);
+wp_enqueue_style('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.css', [], '2.1.0');
+wp_enqueue_script('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.js', [], '2.1.0', true);
+wp_localize_script('toastmasters-portal', 'TMCPublic', [
+    'restUrl' => esc_url_raw(rest_url('toastmasters/v1')),
+]);
 
 // ── Live data from plugin ─────────────────────────────────────────────────────
 $next_meeting      = null;
@@ -65,6 +68,22 @@ if (class_exists('TMP_Repository')) {
     }
     if (method_exists('TMP_Repository', 'get_role_diversity_leaders')) {
         $diversity_leaders = TMP_Repository::get_role_diversity_leaders(5);
+    }
+}
+
+// Voting: find today's meeting (if any) and its nominees
+$today_meeting    = null;
+$voting_nominees  = null;
+if (class_exists('TMP_Repository')) {
+    $today_str = gmdate('Y-m-d');
+    foreach (TMP_Repository::meetings() as $mtg) {
+        if ($mtg['meeting_date'] === $today_str) {
+            $today_meeting = $mtg;
+            break;
+        }
+    }
+    if ($today_meeting && method_exists('TMP_Repository', 'get_vote_nominees')) {
+        $voting_nominees = TMP_Repository::get_vote_nominees($today_meeting['id']);
     }
 }
 
@@ -275,6 +294,78 @@ if ($next_meeting) {
       </div>
     <?php endif; ?>
   </div>
+
+  <!-- ═══════════════════════════════════════════════════════ VOTE NOW -->
+  <?php if ($today_meeting && !empty($today_meeting['poll_open'])) : ?>
+  <section class="section vote-section" id="tmc-vote"
+           data-tmc-vote-meeting="<?php echo (int) $today_meeting['id']; ?>"
+           data-tmc-rest="<?php echo esc_url(rest_url('toastmasters/v1')); ?>">
+    <p class="eyebrow">Meeting Day</p>
+    <h2>Vote for Today&rsquo;s Best Performers</h2>
+    <p class="section-sub">
+      <?php
+        $vd = new DateTime($today_meeting['meeting_date']);
+        echo esc_html($vd->format('l, F j'));
+        if (!empty($today_meeting['theme'])) echo ' &mdash; <em>' . esc_html($today_meeting['theme']) . '</em>';
+      ?>
+    </p>
+
+    <?php
+    $cat_labels = [
+        'main_role'    => ['label' => 'Best Main Role',             'desc' => 'TMOD · Table Topics Master · General Evaluator'],
+        'aux_role'     => ['label' => 'Best Auxiliary Role',         'desc' => 'SAA · Timer · Ah-Counter · Grammarian'],
+        'table_topics' => ['label' => 'Best Table Topics Speaker',   'desc' => 'Added by VPE during the session'],
+        'speaker'      => ['label' => 'Best Speaker',                'desc' => 'Prepared speech presenters of the day'],
+        'evaluator'    => ['label' => 'Best Evaluator',              'desc' => 'Speech evaluators of the day'],
+    ];
+    $winners_declared = !empty($today_meeting['winners_declared']);
+    ?>
+
+    <?php if ($winners_declared) : ?>
+    <div class="vote-winners-banner">
+      <span>&#127942;</span> Winners have been declared — see results below!
+    </div>
+    <?php endif; ?>
+
+    <div class="vote-grid" data-tmc-vote-grid>
+      <?php foreach ($cat_labels as $cat => $meta) :
+        $nominees_in_cat = $voting_nominees[$cat] ?? [];
+      ?>
+      <div class="vote-card" data-vote-cat="<?php echo esc_attr($cat); ?>">
+        <p class="eyebrow"><?php echo esc_html($meta['label']); ?></p>
+        <p class="vote-card__desc"><?php echo esc_html($meta['desc']); ?></p>
+
+        <?php if (empty($nominees_in_cat)) : ?>
+          <p class="vote-empty" data-vote-empty>
+            <?php echo $cat === 'table_topics' ? 'Speakers will appear here once VPE adds them.' : 'Nominees will appear once roles are confirmed.'; ?>
+          </p>
+        <?php else : ?>
+          <ul class="vote-nominee-list" data-vote-list>
+            <?php foreach ($nominees_in_cat as $nom) :
+              $is_winner = $winners_declared && !empty($nom['is_winner']);
+            ?>
+              <li class="vote-nominee<?php echo $is_winner ? ' vote-nominee--winner' : ''; ?>" data-nominee-id="<?php echo (int) $nom['id']; ?>">
+                <label class="vote-option<?php echo $is_winner ? ' vote-option--winner' : ''; ?>">
+                  <input type="radio" name="vote_<?php echo esc_attr($cat); ?>" value="<?php echo (int) $nom['id']; ?>" />
+                  <span class="vote-name"><?php echo $is_winner ? '🏆 ' : ''; echo esc_html($nom['display_name']); ?></span>
+                  <span class="vote-role"><?php echo esc_html($nom['role_name']); ?></span>
+                </label>
+                <span class="vote-count" data-vote-count="<?php echo (int) $nom['id']; ?>" style="<?php echo $is_winner ? '' : 'display:none;'; ?>"><?php echo (int) $nom['vote_count']; ?> vote<?php echo (int) $nom['vote_count'] !== 1 ? 's' : ''; ?></span>
+              </li>
+            <?php endforeach; ?>
+          </ul>
+        <?php endif; ?>
+      </div>
+      <?php endforeach; ?>
+    </div>
+
+    <div class="vote-action">
+      <button class="vote-submit-btn" id="tmc-vote-submit">Cast My Vote</button>
+      <p class="vote-status" data-vote-all-status role="status"></p>
+    </div>
+    <p class="vote-footer-note">Pick your favourite from each category above, then cast your vote.</p>
+  </section>
+  <?php endif; ?>
 
   <!-- ════════════════════════════════════════════════ RECOGNITION WALL -->
   <?php if (!empty($level_ups)) : ?>

@@ -36,6 +36,7 @@ class TMP_Activator {
         self::create_pages();
         self::migrate_mentor_text_to_id();
         self::migrate_ah_counter_normalization();
+        self::migrate_v060_voting_columns();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -97,6 +98,8 @@ class TMP_Activator {
         $participation = $wpdb->prefix . 'tmp_participation_history';
         $overrides   = $wpdb->prefix . 'tmp_req_overrides';
         $level_ups   = $wpdb->prefix . 'tmp_level_up_history';
+        $nominees    = $wpdb->prefix . 'tmp_vote_nominees';
+        $votes       = $wpdb->prefix . 'tmp_votes';
 
         // mentor VARCHAR kept for legacy data; mentor_id is the FK used by all new code
         dbDelta("CREATE TABLE {$members} (
@@ -140,6 +143,8 @@ class TMP_Activator {
             theme VARCHAR(190) NOT NULL,
             venue VARCHAR(190) NULL,
             agenda_notes TEXT NULL,
+            poll_open TINYINT(1) NOT NULL DEFAULT 0,
+            winners_declared TINYINT(1) NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY  (id),
@@ -223,6 +228,36 @@ class TMP_Activator {
             KEY leveled_up_at (leveled_up_at)
         ) $charset;");
 
+        dbDelta("CREATE TABLE {$nominees} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            meeting_id BIGINT UNSIGNED NOT NULL,
+            category VARCHAR(20) NOT NULL,
+            member_id BIGINT UNSIGNED NULL,
+            display_name VARCHAR(190) NOT NULL,
+            role_name VARCHAR(120) NOT NULL,
+            sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+            is_winner TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY  (id),
+            KEY meeting_id (meeting_id),
+            KEY category (category),
+            KEY meeting_category (meeting_id, category)
+        ) $charset;");
+
+        dbDelta("CREATE TABLE {$votes} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            meeting_id BIGINT UNSIGNED NOT NULL,
+            nominee_id BIGINT UNSIGNED NOT NULL,
+            category VARCHAR(20) NOT NULL,
+            voter_token VARCHAR(64) NOT NULL,
+            wp_user_id BIGINT UNSIGNED NULL,
+            voted_at DATETIME NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY token_category (voter_token, category, meeting_id),
+            KEY meeting_id (meeting_id),
+            KEY nominee_id (nominee_id)
+        ) $charset;");
+
         self::seed_data();
     }
 
@@ -247,6 +282,28 @@ class TMP_Activator {
             if ($mentor_id) {
                 $wpdb->update($table, array('mentor_id' => (int) $mentor_id), array('id' => (int) $row['id']));
             }
+        }
+    }
+
+    /**
+     * v0.6.0: Add poll_open / winners_declared to meetings; is_winner to nominees.
+     */
+    private static function migrate_v060_voting_columns() {
+        global $wpdb;
+        $meetings  = $wpdb->prefix . 'tmp_meetings';
+        $nominees  = $wpdb->prefix . 'tmp_vote_nominees';
+
+        $mcols = $wpdb->get_col("DESCRIBE {$meetings}");
+        if (!in_array('poll_open', $mcols, true)) {
+            $wpdb->query("ALTER TABLE {$meetings} ADD COLUMN poll_open TINYINT(1) NOT NULL DEFAULT 0");
+        }
+        if (!in_array('winners_declared', $mcols, true)) {
+            $wpdb->query("ALTER TABLE {$meetings} ADD COLUMN winners_declared TINYINT(1) NOT NULL DEFAULT 0");
+        }
+
+        $ncols = $wpdb->get_col("DESCRIBE {$nominees}");
+        if (!in_array('is_winner', $ncols, true)) {
+            $wpdb->query("ALTER TABLE {$nominees} ADD COLUMN is_winner TINYINT(1) NOT NULL DEFAULT 0");
         }
     }
 

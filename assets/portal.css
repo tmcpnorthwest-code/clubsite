@@ -179,8 +179,11 @@
 }
 
 .tmp-primary {
-  background: var(--tmp-burgundy);
-  color: white;
+  background: var(--tmp-burgundy) !important;
+  color: #fff !important;
+}
+.tmp-primary:hover {
+  background: #70112b !important;
 }
 
 .tmp-secondary {
@@ -886,6 +889,69 @@
   align-items: center;
   gap: 5px;
   font-size: 0.88rem;
+}
+
+/* ── VPE voting panel ────────────────────────────────────────────────────── */
+
+.tmp-vote-cat-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--tmp-line);
+  font-size: 0.88rem;
+}
+
+.tmp-vote-cat-summary strong {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tmp-muted);
+}
+
+.tmp-tt-speaker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tmp-tt-speaker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 6px;
+  font-size: 0.88rem;
+}
+
+.tmp-results-cat {
+  margin-bottom: 16px;
+}
+
+.tmp-result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  margin-top: 4px;
+  background: #f9f9f9;
+}
+
+.tmp-result-row--winner {
+  background: #fff8e1;
+  border-left: 3px solid var(--tmp-gold);
+  font-weight: 700;
+}
+
+.tmp-result-votes {
+  color: var(--tmp-muted);
+  font-size: 0.82rem;
 }
 
 /* Role diversity leaderboard */

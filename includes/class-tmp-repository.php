@@ -790,6 +790,14 @@ class TMP_Repository {
     // Meetings
     // -------------------------------------------------------------------------
 
+    public static function get_meeting($id) {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM " . self::meeting_table() . " WHERE id = %d",
+            $id
+        ), ARRAY_A);
+    }
+
     public static function meetings() {
         global $wpdb;
         $meetings    = self::meeting_table();
@@ -2713,5 +2721,315 @@ class TMP_Repository {
                 )
             );
         }
+    }
+
+    // =========================================================================
+    // VOTING
+    // =========================================================================
+
+    public static function vote_nominees_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_vote_nominees';
+    }
+
+    public static function votes_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_votes';
+    }
+
+    /**
+     * Which role names belong to which voting category.
+     * Strips agenda parentheticals first (e.g. "Timer (Report)" → "Timer").
+     * Uses word-boundary patterns to avoid false substring matches.
+     */
+    private static function nominee_category_for_role($role_name) {
+        // Strip agenda detail suffix: "Toastmaster of the Day (Intro of theme)" → "Toastmaster of the Day"
+        $base  = trim(preg_replace('/\s*\(.*\)$/', '', $role_name));
+        $lower = strtolower($base);
+
+        if (preg_match('/\b(toastmaster of the day|tmod|table topics master|ttm|general evaluator)\b/', $lower)) {
+            return 'main_role';
+        }
+
+        if (preg_match('/\b(sergeant at arms|saa|timer|ah.counter|grammarian)\b/', $lower)) {
+            return 'aux_role';
+        }
+
+        // "Table Topics Speaker" is managed live by VPE — exclude from auto-population
+        if (preg_match('/\btable topics speaker\b/', $lower)) {
+            return null;
+        }
+
+        if (preg_match('/\b(speaker|prepared speech|ice breaker)\b/', $lower)) {
+            return 'speaker';
+        }
+
+        if (preg_match('/\bevaluator\b/', $lower)) {
+            return 'evaluator';
+        }
+
+        return null;
+    }
+
+    /**
+     * Auto-populate nominees from a meeting's confirmed role assignments.
+     * Safe to call repeatedly — clears and re-inserts non-TT nominees.
+     */
+    public static function populate_vote_nominees($meeting_id) {
+        global $wpdb;
+        $nominees_table    = self::vote_nominees_table();
+        $assignments_table = self::assignment_table();
+        $members_table     = self::member_table();
+
+        // Remove auto-populated rows; keep VPE-added TT speakers (member_id IS NULL with category = table_topics)
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$nominees_table} WHERE meeting_id = %d AND category IN ('main_role', 'aux_role', 'speaker', 'evaluator')",
+            $meeting_id
+        ));
+
+        $assignments = $wpdb->get_results($wpdb->prepare(
+            "SELECT a.id, a.role_name, a.member_id, m.full_name
+               FROM {$assignments_table} a
+          LEFT JOIN {$members_table} m ON m.id = a.member_id
+              WHERE a.meeting_id = %d AND a.member_id IS NOT NULL",
+            $meeting_id
+        ), ARRAY_A);
+
+        $sort = 0;
+        $now  = current_time('mysql');
+        $seen = []; // deduplicate: one nominee per (member_id, category)
+        foreach ($assignments as $a) {
+            // Base role name strips the agenda-segment detail in parentheses
+            $base_role = trim(preg_replace('/\s*\(.*\)$/', '', $a['role_name']));
+            $cat       = self::nominee_category_for_role($base_role);
+            if (!$cat) continue;
+
+            $key = $cat . '_' . $a['member_id'];
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+
+            $wpdb->insert($nominees_table, [
+                'meeting_id'   => (int) $meeting_id,
+                'category'     => $cat,
+                'member_id'    => (int) $a['member_id'],
+                'display_name' => $a['full_name'] ?? '',
+                'role_name'    => $base_role,
+                'sort_order'   => $sort++,
+                'created_at'   => $now,
+            ]);
+        }
+    }
+
+    /**
+     * Returns nominees with live vote counts for a meeting.
+     * Groups into [main_role => [...], aux_role => [...], table_topics => [...]]
+     */
+    public static function get_vote_nominees($meeting_id) {
+        global $wpdb;
+        $nominees_table = self::vote_nominees_table();
+        $votes_table    = self::votes_table();
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT n.id, n.category, n.member_id, n.display_name, n.role_name, n.sort_order, n.is_winner,
+                    COUNT(v.id) AS vote_count
+               FROM {$nominees_table} n
+          LEFT JOIN {$votes_table} v ON v.nominee_id = n.id
+              WHERE n.meeting_id = %d
+           GROUP BY n.id
+           ORDER BY n.category, n.sort_order",
+            $meeting_id
+        ), ARRAY_A);
+
+        $grouped = ['main_role' => [], 'aux_role' => [], 'table_topics' => [], 'speaker' => [], 'evaluator' => []];
+        foreach ($rows as $row) {
+            $row['vote_count'] = (int) $row['vote_count'];
+            $row['is_winner']  = (int) $row['is_winner'];
+            $cat = $row['category'];
+            if (array_key_exists($cat, $grouped)) {
+                $grouped[$cat][] = $row;
+            }
+        }
+        return $grouped;
+    }
+
+    /**
+     * VPE adds a Table Topics speaker live during the meeting.
+     */
+    public static function add_tt_speaker($meeting_id, $display_name, $member_id = null) {
+        global $wpdb;
+        $nominees_table = self::vote_nominees_table();
+
+        $sort = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM {$nominees_table}
+              WHERE meeting_id = %d AND category = 'table_topics'",
+            $meeting_id
+        ));
+
+        $wpdb->insert($nominees_table, [
+            'meeting_id'   => (int) $meeting_id,
+            'category'     => 'table_topics',
+            'member_id'    => $member_id ? (int) $member_id : null,
+            'display_name' => sanitize_text_field($display_name),
+            'role_name'    => 'Table Topics Speaker',
+            'sort_order'   => $sort,
+            'created_at'   => current_time('mysql'),
+        ]);
+
+        return $wpdb->insert_id;
+    }
+
+    /**
+     * Remove a TT speaker — only allowed if no votes cast yet.
+     */
+    public static function remove_tt_speaker($nominee_id) {
+        global $wpdb;
+        $nominees_table = self::vote_nominees_table();
+        $votes_table    = self::votes_table();
+
+        $nominee = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$nominees_table} WHERE id = %d AND category = 'table_topics'",
+            $nominee_id
+        ), ARRAY_A);
+
+        if (!$nominee) return new WP_Error('not_found', 'Nominee not found');
+
+        $votes = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$votes_table} WHERE nominee_id = %d",
+            $nominee_id
+        ));
+
+        if ($votes > 0) return new WP_Error('has_votes', 'Cannot remove a nominee who has received votes');
+
+        $wpdb->delete($nominees_table, ['id' => (int) $nominee_id]);
+        return true;
+    }
+
+    /**
+     * Cast a vote. Returns true on success, WP_Error on duplicate or invalid nominee.
+     */
+    public static function cast_vote($meeting_id, $nominee_id, $voter_token, $wp_user_id = null) {
+        global $wpdb;
+        $nominees_table = self::vote_nominees_table();
+        $votes_table    = self::votes_table();
+
+        $nominee = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$nominees_table} WHERE id = %d AND meeting_id = %d",
+            $nominee_id, $meeting_id
+        ), ARRAY_A);
+
+        if (!$nominee) return new WP_Error('invalid_nominee', 'Nominee not found for this meeting');
+
+        $category = $nominee['category'];
+
+        // Check for duplicate vote in this category
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$votes_table}
+              WHERE meeting_id = %d AND category = %s AND voter_token = %s",
+            $meeting_id, $category, $voter_token
+        ));
+
+        if ($existing) return new WP_Error('already_voted', 'You have already voted in this category');
+
+        $wpdb->insert($votes_table, [
+            'meeting_id'   => (int) $meeting_id,
+            'nominee_id'   => (int) $nominee_id,
+            'category'     => $category,
+            'voter_token'  => $voter_token,
+            'wp_user_id'   => $wp_user_id ? (int) $wp_user_id : null,
+            'voted_at'     => current_time('mysql'),
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Full results for VPE: nominees with vote counts, sorted by count desc.
+     */
+    public static function get_vote_results($meeting_id) {
+        global $wpdb;
+        $nominees_table = self::vote_nominees_table();
+        $votes_table    = self::votes_table();
+
+        $total_voters = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT voter_token) FROM {$votes_table} WHERE meeting_id = %d",
+            $meeting_id
+        ));
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT n.id, n.category, n.display_name, n.role_name, COUNT(v.id) AS vote_count
+               FROM {$nominees_table} n
+          LEFT JOIN {$votes_table} v ON v.nominee_id = n.id
+              WHERE n.meeting_id = %d
+           GROUP BY n.id
+           ORDER BY n.category, vote_count DESC",
+            $meeting_id
+        ), ARRAY_A);
+
+        $grouped = ['main_role' => [], 'aux_role' => [], 'table_topics' => [], 'speaker' => [], 'evaluator' => []];
+        foreach ($rows as $row) {
+            $row['vote_count'] = (int) $row['vote_count'];
+            $cat = $row['category'];
+            if (array_key_exists($cat, $grouped)) {
+                $grouped[$cat][] = $row;
+            }
+        }
+
+        return ['total_voters' => $total_voters, 'results' => $grouped];
+    }
+
+    /**
+     * Open or close the live poll for a meeting.
+     */
+    public static function set_poll_open($meeting_id, $open) {
+        global $wpdb;
+        $wpdb->update(
+            self::meeting_table(),
+            ['poll_open' => $open ? 1 : 0],
+            ['id' => (int) $meeting_id]
+        );
+    }
+
+    /**
+     * Find the top vote-getter(s) in every category and mark them is_winner = 1.
+     * Handles ties: all nominees sharing the highest count are marked winners.
+     * Returns full results array.
+     */
+    public static function declare_winners($meeting_id) {
+        global $wpdb;
+        $nominees_table = self::vote_nominees_table();
+        $votes_table    = self::votes_table();
+
+        // Reset all winner flags for this meeting first
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$nominees_table} SET is_winner = 0 WHERE meeting_id = %d",
+            $meeting_id
+        ));
+
+        $categories = ['main_role', 'aux_role', 'table_topics', 'speaker', 'evaluator'];
+        foreach ($categories as $cat) {
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT n.id, COUNT(v.id) AS vote_count
+                   FROM {$nominees_table} n
+              LEFT JOIN {$votes_table} v ON v.nominee_id = n.id
+                  WHERE n.meeting_id = %d AND n.category = %s
+               GROUP BY n.id",
+                $meeting_id, $cat
+            ), ARRAY_A);
+
+            if (empty($rows)) continue;
+            $max = max(array_column($rows, 'vote_count'));
+            if ((int) $max === 0) continue;
+
+            $winner_ids = array_map('intval',
+                array_column(array_filter($rows, fn($r) => (int) $r['vote_count'] === (int) $max), 'id')
+            );
+            if (empty($winner_ids)) continue;
+            $placeholders = implode(',', $winner_ids);
+            $wpdb->query("UPDATE {$nominees_table} SET is_winner = 1 WHERE id IN ({$placeholders})");
+        }
+
+        $wpdb->update(self::meeting_table(), ['winners_declared' => 1], ['id' => (int) $meeting_id]);
+
+        return self::get_vote_results($meeting_id);
     }
 }

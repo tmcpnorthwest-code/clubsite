@@ -252,6 +252,55 @@ class TMP_REST_API {
             'callback'            => [__CLASS__, 'get_public_role_diversity'],
             'permission_callback' => '__return_true',
         ]);
+
+        // ── Voting (public read, authenticated write) ───────────────────────────
+        register_rest_route('toastmasters/v1', '/voting/nominees/(?P<meeting_id>\d+)', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_vote_nominees'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/voting/vote', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'cast_vote'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/voting/tt-speaker', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'add_tt_speaker'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/voting/tt-speaker/(?P<id>\d+)', [
+            'methods'             => WP_REST_Server::DELETABLE,
+            'callback'            => [__CLASS__, 'remove_tt_speaker'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/voting/results/(?P<meeting_id>\d+)', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_vote_results'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/voting/refresh-nominees/(?P<meeting_id>\d+)', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'refresh_vote_nominees'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/voting/open-poll/(?P<meeting_id>\d+)', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'open_poll'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/voting/declare-winners/(?P<meeting_id>\d+)', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'declare_winners'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
     }
 
     // ── Permission helpers ─────────────────────────────────────────────────────
@@ -717,5 +766,115 @@ class TMP_REST_API {
             $value = sprintf('%.0f', (float) $value);
         }
         return sanitize_text_field($value);
+    }
+
+    // ── Voting handlers ────────────────────────────────────────────────────────
+
+    public static function get_vote_nominees(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('meeting_id');
+
+        // Auto-populate main/aux nominees from role assignments on first fetch
+        $existing = TMP_Repository::get_vote_nominees($meeting_id);
+        if (empty($existing['main_role']) && empty($existing['aux_role'])) {
+            TMP_Repository::populate_vote_nominees($meeting_id);
+        }
+
+        $nominees = TMP_Repository::get_vote_nominees($meeting_id);
+        $meeting  = TMP_Repository::get_meeting($meeting_id);
+        $poll_open = $meeting ? (bool) $meeting['poll_open'] : false;
+
+        return rest_ensure_response([
+            'meeting_id'  => $meeting_id,
+            'voting_open' => $poll_open,
+            'poll_open'   => $poll_open,
+            'nominees'    => $nominees,
+        ]);
+    }
+
+    public static function cast_vote(WP_REST_Request $req) {
+        $meeting_id  = (int) $req->get_param('meeting_id');
+        $nominee_id  = (int) $req->get_param('nominee_id');
+
+        if (!$meeting_id || !$nominee_id) {
+            return new WP_Error('missing_params', 'meeting_id and nominee_id are required', ['status' => 400]);
+        }
+
+        // Prefer a client-supplied device token (avoids shared-IP conflicts on same WiFi).
+        // Fall back to IP+UA only when the client sends nothing.
+        $client_token = sanitize_text_field($req->get_param('voter_token') ?? '');
+        if ($client_token && strlen($client_token) >= 16 && strlen($client_token) <= 128) {
+            $token = hash('sha256', $client_token . '|' . $meeting_id);
+        } else {
+            $ip    = sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? '');
+            $ua    = sanitize_text_field($_SERVER['HTTP_USER_AGENT'] ?? '');
+            $token = hash('sha256', $ip . '|' . $ua . '|' . $meeting_id);
+        }
+
+        $result = TMP_Repository::cast_vote(
+            $meeting_id,
+            $nominee_id,
+            $token,
+            is_user_logged_in() ? get_current_user_id() : null
+        );
+
+        if (is_wp_error($result)) {
+            $status = $result->get_error_code() === 'already_voted' ? 409 : 400;
+            return new WP_Error($result->get_error_code(), $result->get_error_message(), ['status' => $status]);
+        }
+
+        // Return updated counts so UI can refresh without a separate fetch
+        $nominees = TMP_Repository::get_vote_nominees($meeting_id);
+        return rest_ensure_response(['success' => true, 'nominees' => $nominees]);
+    }
+
+    public static function add_tt_speaker(WP_REST_Request $req) {
+        $meeting_id   = (int) $req->get_param('meeting_id');
+        $display_name = sanitize_text_field($req->get_param('display_name'));
+        $member_id    = $req->get_param('member_id') ? (int) $req->get_param('member_id') : null;
+
+        if (!$meeting_id || !$display_name) {
+            return new WP_Error('missing_params', 'meeting_id and display_name are required', ['status' => 400]);
+        }
+
+        $id       = TMP_Repository::add_tt_speaker($meeting_id, $display_name, $member_id);
+        $nominees = TMP_Repository::get_vote_nominees($meeting_id);
+        return rest_ensure_response(['success' => true, 'nominee_id' => $id, 'nominees' => $nominees]);
+    }
+
+    public static function remove_tt_speaker(WP_REST_Request $req) {
+        $nominee_id = (int) $req->get_param('id');
+        $result     = TMP_Repository::remove_tt_speaker($nominee_id);
+
+        if (is_wp_error($result)) {
+            $status = $result->get_error_code() === 'has_votes' ? 409 : 404;
+            return new WP_Error($result->get_error_code(), $result->get_error_message(), ['status' => $status]);
+        }
+
+        return rest_ensure_response(['success' => true]);
+    }
+
+    public static function get_vote_results(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('meeting_id');
+        return rest_ensure_response(TMP_Repository::get_vote_results($meeting_id));
+    }
+
+    public static function refresh_vote_nominees(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('meeting_id');
+        TMP_Repository::populate_vote_nominees($meeting_id);
+        $nominees = TMP_Repository::get_vote_nominees($meeting_id);
+        return rest_ensure_response(['success' => true, 'nominees' => $nominees]);
+    }
+
+    public static function open_poll(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('meeting_id');
+        $open       = (bool) $req->get_param('open');
+        TMP_Repository::set_poll_open($meeting_id, $open);
+        return rest_ensure_response(['success' => true, 'poll_open' => $open]);
+    }
+
+    public static function declare_winners(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('meeting_id');
+        $results    = TMP_Repository::declare_winners($meeting_id);
+        return rest_ensure_response(['success' => true, 'results' => $results]);
     }
 }

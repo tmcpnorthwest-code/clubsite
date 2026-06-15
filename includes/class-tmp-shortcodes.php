@@ -461,6 +461,67 @@ class TMP_Shortcodes {
             </section>
         </div>
 
+        <!-- ══ VOTING PANEL — Table Topics live entry + results ══ -->
+        <section class="tmp-panel" data-tmp-voting-panel>
+            <div class="tmp-card-head">
+                <div>
+                    <p class="tmp-eyebrow">Meeting Day</p>
+                    <h3 style="margin:0;">Voting &amp; Table Topics</h3>
+                </div>
+                <span data-tmp-voting-meeting-label style="color:var(--tmp-muted);font-size:0.85rem;"></span>
+            </div>
+            <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
+                Select today&rsquo;s meeting to manage live voting. Add Table Topics speakers as they step up — the voting form on the home page updates automatically.
+            </p>
+
+            <label style="display:block;margin-bottom:16px;">
+                Meeting
+                <select data-tmp-voting-meeting-select style="display:block;width:100%;margin-top:4px;">
+                    <option value="">— select meeting —</option>
+                </select>
+            </label>
+
+            <!-- TT speaker entry -->
+            <div data-tmp-tt-entry style="display:none;">
+                <p class="tmp-eyebrow" style="margin-top:20px;">Table Topics Speakers</p>
+                <!-- Row 1: select + Add button always side-by-side -->
+                <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
+                    <div style="flex:1;">
+                        <label style="display:block;margin-bottom:4px;font-size:0.88rem;font-weight:700;">Add speaker</label>
+                        <select data-tmp-tt-member-select style="display:block;width:100%;">
+                            <option value="">— select member —</option>
+                            <!-- members + guest option populated by JS -->
+                        </select>
+                    </div>
+                    <button class="tmp-button tmp-primary" data-tmp-tt-add-btn style="flex-shrink:0;white-space:nowrap;">+ Add</button>
+                </div>
+                <!-- Row 2: guest name input, shown only when Guest option selected -->
+                <div data-tmp-tt-guest-wrap style="display:none;margin-bottom:10px;">
+                    <input type="text" data-tmp-tt-name placeholder="Enter guest name" style="display:block;width:100%;" />
+                </div>
+                <div data-tmp-tt-speaker-list></div>
+            </div>
+
+            <!-- Nominee overview + results -->
+            <div data-tmp-voting-nominees style="display:none;margin-top:20px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                    <p class="tmp-eyebrow" style="margin:0;">Current Nominees</p>
+                    <button class="tmp-small-button" data-tmp-refresh-nominees-btn title="Re-sync main and auxiliary nominees from confirmed role assignments">&#8635; Refresh from Assignments</button>
+                </div>
+                <div data-tmp-nominees-summary></div>
+
+                <!-- Poll control -->
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
+                    <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Open Poll</button>
+                    <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
+                </div>
+                <button class="tmp-button" data-tmp-declare-winners-btn style="margin-top:8px;background:#1e4a6e;color:#fff;border:none;">&#127942; Declare Winners</button>
+
+                <button class="tmp-small-button" data-tmp-voting-results-btn style="margin-top:14px;">Show Live Results</button>
+                <div data-tmp-voting-results style="display:none;margin-top:12px;"></div>
+            </div>
+        </section>
+
         <!-- Mentor assignment modal (hidden, shown by JS) -->
         <div id="tmp-mentor-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
             <div style="background:#fff;border-radius:8px;padding:30px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.2);">

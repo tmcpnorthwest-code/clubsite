@@ -1988,8 +1988,274 @@
     });
   }
 
+  // ── VPE Voting Panel ────────────────────────────────────────────────────────
+
+  function initVotingPanel() {
+    const panel = qs('[data-tmp-voting-panel]');
+    if (!panel) return;
+
+    const meetingSelect   = qs('[data-tmp-voting-meeting-select]', panel);
+    const meetingLabel    = qs('[data-tmp-voting-meeting-label]', panel);
+    const ttEntry         = qs('[data-tmp-tt-entry]', panel);
+    const ttNameInput     = qs('[data-tmp-tt-name]', panel);
+    const ttGuestWrap     = qs('[data-tmp-tt-guest-wrap]', panel);
+    const ttMemberSelect  = qs('[data-tmp-tt-member-select]', panel);
+    const ttAddBtn        = qs('[data-tmp-tt-add-btn]', panel);
+    const ttSpeakerList   = qs('[data-tmp-tt-speaker-list]', panel);
+    const nomineesBlock   = qs('[data-tmp-voting-nominees]', panel);
+    const nomineesSummary = qs('[data-tmp-nominees-summary]', panel);
+    const refreshBtn      = qs('[data-tmp-refresh-nominees-btn]', panel);
+    const resultsBtn      = qs('[data-tmp-voting-results-btn]', panel);
+    const resultsBlock    = qs('[data-tmp-voting-results]', panel);
+    const openPollBtn     = qs('[data-tmp-open-poll-btn]', panel);
+    const pollStatus      = qs('[data-tmp-poll-status]', panel);
+    const declareWinnersBtn = qs('[data-tmp-declare-winners-btn]', panel);
+
+    let currentMeetingId = null;
+    let pollTimer        = null;
+    let pollIsOpen       = false;
+
+    // Populate meeting dropdown from existing meetings data
+    api('/meetings').then(meetings => {
+      if (!meetings || !meetings.length) return;
+      const today = new Date().toISOString().slice(0, 10);
+      meetings.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.meeting_date + (m.theme ? ' — ' + m.theme : '');
+        if (m.meeting_date === today) opt.selected = true;
+        meetingSelect.appendChild(opt);
+      });
+      if (meetingSelect.value) onMeetingChange(meetingSelect.value);
+    }).catch(() => {});
+
+    // Populate member options for TT speaker select; Guest option first, then members
+    api('/members').then(members => {
+      if (!members) return;
+      const guestOpt = document.createElement('option');
+      guestOpt.value = '__guest__';
+      guestOpt.textContent = '✎ Guest speaker (enter name)…';
+      ttMemberSelect.appendChild(guestOpt);
+      members.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.full_name;
+        ttMemberSelect.appendChild(opt);
+      });
+    }).catch(() => {});
+
+    // Show/hide guest name input based on selection
+    ttMemberSelect.addEventListener('change', () => {
+      const isGuest = ttMemberSelect.value === '__guest__';
+      ttGuestWrap.style.display = isGuest ? 'block' : 'none';
+      if (isGuest) ttNameInput.focus();
+      else ttNameInput.value = '';
+    });
+
+    meetingSelect.addEventListener('change', () => onMeetingChange(meetingSelect.value));
+
+    function onMeetingChange(mid) {
+      currentMeetingId = mid ? parseInt(mid) : null;
+      clearInterval(pollTimer);
+      if (!currentMeetingId) {
+        ttEntry.style.display = 'none';
+        nomineesBlock.style.display = 'none';
+        return;
+      }
+      ttEntry.style.display = 'block';
+      nomineesBlock.style.display = 'block';
+      loadNominees();
+      pollTimer = setInterval(loadNominees, 30000);
+    }
+
+    function loadNominees() {
+      if (!currentMeetingId) return;
+      api('/voting/nominees/' + currentMeetingId).then(data => {
+        renderTTSpeakers(data.nominees.table_topics || []);
+        renderNomineesSummary(data.nominees);
+        setPollOpenUI(!!data.poll_open);
+      }).catch(() => {});
+    }
+
+    function setPollOpenUI(isOpen) {
+      pollIsOpen = isOpen;
+      if (openPollBtn) {
+        openPollBtn.textContent = isOpen ? 'Close Poll' : 'Open Poll';
+        openPollBtn.style.background = isOpen ? '#a33' : '';
+      }
+      if (pollStatus) {
+        pollStatus.textContent = isOpen ? '🟢 Poll is OPEN — members can vote' : '⚪ Poll is closed';
+      }
+    }
+
+    function renderTTSpeakers(speakers) {
+      if (!speakers.length) {
+        ttSpeakerList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.88rem;">No TT speakers added yet.</p>';
+        return;
+      }
+      ttSpeakerList.innerHTML = '<ol class="tmp-tt-speaker-list">' +
+        speakers.map(s => `
+          <li class="tmp-tt-speaker-row">
+            <span>${esc(s.display_name)}</span>
+            <button class="tmp-link-button tmp-tt-remove" data-id="${s.id}" style="color:var(--tmp-burgundy);font-size:0.8rem;"
+              ${s.vote_count > 0 ? 'disabled title="Has votes — cannot remove"' : ''}>remove</button>
+          </li>`).join('') + '</ol>';
+
+      panel.querySelectorAll('.tmp-tt-remove:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', () => {
+          api('/voting/tt-speaker/' + btn.dataset.id, { method: 'DELETE' })
+            .then(loadNominees).catch(err => alert('Remove failed: ' + err.message));
+        });
+      });
+    }
+
+    function renderNomineesSummary(nominees) {
+      const cats = { main_role: 'Main Role', aux_role: 'Auxiliary Role', table_topics: 'Table Topics', speaker: 'Best Speaker', evaluator: 'Best Evaluator' };
+      nomineesSummary.innerHTML = Object.entries(cats).map(([cat, label]) => {
+        const items = nominees[cat] || [];
+        return `<div class="tmp-vote-cat-summary">
+          <strong>${label}</strong>
+          <span>${items.map(n => esc(n.display_name) + ' (' + esc(n.role_name) + ')').join(', ') || '<em>—</em>'}</span>
+        </div>`;
+      }).join('');
+    }
+
+    // Add TT speaker
+    ttAddBtn.addEventListener('click', () => {
+      if (!currentMeetingId) return;
+      const sel = ttMemberSelect.value;
+      let name, memberId;
+      if (sel === '__guest__') {
+        name     = ttNameInput.value.trim();
+        memberId = null;
+        if (!name) { ttNameInput.focus(); return; }
+      } else if (sel) {
+        name     = ttMemberSelect.options[ttMemberSelect.selectedIndex].textContent;
+        memberId = sel;
+      } else {
+        ttMemberSelect.focus();
+        return;
+      }
+
+      ttAddBtn.disabled = true;
+      api('/voting/tt-speaker', {
+        method: 'POST',
+        body: JSON.stringify({ meeting_id: currentMeetingId, display_name: name, member_id: memberId }),
+      }).then(data => {
+        ttNameInput.value         = '';
+        ttMemberSelect.value      = '';
+        ttGuestWrap.style.display = 'none';
+        if (data.nominees) {
+          renderTTSpeakers(data.nominees.table_topics || []);
+          renderNomineesSummary(data.nominees);
+        } else {
+          loadNominees();
+        }
+      }).catch(err => alert('Failed: ' + err.message))
+        .finally(() => { ttAddBtn.disabled = false; });
+    });
+
+    // Refresh nominees from assignments
+    refreshBtn.addEventListener('click', () => {
+      if (!currentMeetingId) return;
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = 'Refreshing…';
+      api('/voting/refresh-nominees/' + currentMeetingId, { method: 'POST' })
+        .then(data => {
+          renderTTSpeakers(data.nominees.table_topics || []);
+          renderNomineesSummary(data.nominees);
+        })
+        .catch(err => alert('Refresh failed: ' + err.message))
+        .finally(() => { refreshBtn.disabled = false; refreshBtn.textContent = '↻ Refresh from Assignments'; });
+    });
+
+    // Open / close poll
+    if (openPollBtn) {
+      openPollBtn.addEventListener('click', () => {
+        if (!currentMeetingId) return;
+        const newState = !pollIsOpen;
+        openPollBtn.disabled = true;
+        api('/voting/open-poll/' + currentMeetingId, {
+          method: 'POST',
+          body: JSON.stringify({ open: newState }),
+        }).then(data => {
+          setPollOpenUI(data.poll_open);
+        }).catch(err => alert('Poll update failed: ' + err.message))
+          .finally(() => { openPollBtn.disabled = false; });
+      });
+    }
+
+    // Declare winners
+    if (declareWinnersBtn) {
+      declareWinnersBtn.addEventListener('click', () => {
+        if (!currentMeetingId) return;
+        if (!confirm('Declare winners now? This will mark the top vote-getter(s) in each category. You can re-run it any time.')) return;
+        declareWinnersBtn.disabled = true;
+        declareWinnersBtn.textContent = 'Calculating…';
+        api('/voting/declare-winners/' + currentMeetingId, { method: 'POST' })
+          .then(data => {
+            renderResults(data.results);
+            resultsBlock.style.display = 'block';
+            resultsBtn.textContent = 'Hide Results';
+          }).catch(err => alert('Declare winners failed: ' + err.message))
+          .finally(() => { declareWinnersBtn.disabled = false; declareWinnersBtn.textContent = '🏆 Declare Winners'; });
+      });
+    }
+
+    // Results toggle
+    resultsBtn.addEventListener('click', () => {
+      if (!currentMeetingId) return;
+      const showing = resultsBlock.style.display !== 'none';
+      if (showing) {
+        resultsBlock.style.display = 'none';
+        resultsBtn.textContent = 'Show Live Results';
+        return;
+      }
+      resultsBtn.textContent = 'Loading…';
+      api('/voting/results/' + currentMeetingId).then(data => {
+        renderResults(data);
+        resultsBlock.style.display = 'block';
+        resultsBtn.textContent = 'Hide Results';
+      }).catch(err => {
+        resultsBlock.innerHTML = '<p style="color:var(--tmp-burgundy);font-size:0.85rem;">Could not load results: ' + (err.message || 'unknown error') + '</p>';
+        resultsBlock.style.display = 'block';
+        resultsBtn.textContent = 'Show Live Results';
+      });
+    });
+
+    function renderResults(data) {
+      const cats  = {
+        main_role:    'Best Main Role',
+        aux_role:     'Best Auxiliary Role',
+        table_topics: 'Best Table Topics Speaker',
+        speaker:      'Best Speaker',
+        evaluator:    'Best Evaluator',
+      };
+      const results = data.results || data; // support both declare-winners and get-results shapes
+      const total   = data.total_voters ?? '';
+      const totalLine = total !== '' ? `<p style="color:var(--tmp-muted);font-size:0.85rem;">${total} voter${total !== 1 ? 's' : ''} so far</p>` : '';
+      resultsBlock.innerHTML = totalLine +
+        Object.entries(cats).map(([cat, label]) => {
+          const items = (results[cat] || []);
+          if (!items.length) return '';
+          const maxVotes = Math.max(...items.map(n => n.vote_count));
+          return `<div class="tmp-results-cat">
+            <p class="tmp-eyebrow">${label}</p>
+            ${items.map(n => {
+              const isWinner = n.is_winner || (maxVotes > 0 && n.vote_count === maxVotes);
+              return `<div class="tmp-result-row ${isWinner ? 'tmp-result-row--winner' : ''}">
+                <span>${isWinner ? '🏆 ' : ''}${esc(n.display_name)} <small style="color:var(--tmp-muted)">${esc(n.role_name)}</small></span>
+                <span class="tmp-result-votes">${n.vote_count} vote${n.vote_count !== 1 ? 's' : ''}</span>
+              </div>`;
+            }).join('')}
+          </div>`;
+        }).join('');
+    }
+  }
+
   initMemberDashboard();
   initAdmin();
   initVPEducation();
   initEnrolment();
+  initVotingPanel();
 })();
