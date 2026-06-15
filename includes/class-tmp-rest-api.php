@@ -933,7 +933,14 @@ class TMP_REST_API {
     // ── Wrap-up handlers ───────────────────────────────────────────────────────
 
     public static function get_meeting_pulse() {
-        $summary = TMP_Repository::get_meeting_summary();
+        $cache_key = 'tmp_meeting_pulse';
+        $summary   = get_transient($cache_key);
+        if ($summary === false) {
+            $summary = TMP_Repository::get_meeting_summary();
+            if ($summary) {
+                set_transient($cache_key, $summary, 60); // cache 60s
+            }
+        }
         if (!$summary) {
             return new WP_Error('no_meeting', 'No past meeting found', ['status' => 404]);
         }
@@ -958,6 +965,7 @@ class TMP_REST_API {
         }
 
         TMP_Repository::save_wrap_up($meeting_id, $body);
+        delete_transient('tmp_meeting_pulse'); // bust cache so home page reflects updated data immediately
         $summary = TMP_Repository::get_meeting_summary($meeting_id);
         return rest_ensure_response(['success' => true, 'summary' => $summary]);
     }

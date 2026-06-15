@@ -209,7 +209,9 @@
     if (mainSubmitBtn) mainSubmitBtn.addEventListener('click', castAllVotes);
 
     pollNominees(); // immediate first poll to get latest TT speakers
-    setInterval(pollNominees, 30000);
+    setInterval(function() {
+      if (!document.hidden) pollNominees();
+    }, 30000);
   }
 
   // ── Meeting Pulse live refresh ────────────────────────────────────────────
@@ -295,8 +297,10 @@
       }
     }
 
-    // Poll every 60 seconds; fire immediately too
+    // Poll every 60 seconds; skip when tab is hidden to avoid background load
     fetchPulse();
-    setInterval(fetchPulse, 60000);
+    setInterval(function() {
+      if (!document.hidden) fetchPulse();
+    }, 60000);
   }());
 }());

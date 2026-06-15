@@ -399,7 +399,7 @@ class TMP_Shortcodes {
 
             <section class="tmp-panel">
                 <button class="tmp-collapsible-toggle" data-tmp-meeting-form-toggle aria-expanded="false" style="width:100%;text-align:left;">
-                    Schedule New Meeting
+                    <span data-tmp-meeting-form-label>Schedule New Meeting</span>
                     <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
                 </button>
                 <div data-tmp-meeting-form-body style="display:none;margin-top:14px;">
@@ -423,7 +423,7 @@ class TMP_Shortcodes {
                             <?php endforeach; ?>
                         </div>
                         <label>Number of Speech Slots <input type="number" name="speech_slots" value="3" min="0" max="10" /></label>
-                        <p style="font-size:11px;color:#666;margin-top:5px;">* This will automatically create matching Evaluator and Table Topics Speaker slots.</p>
+                        <p style="font-size:11px;color:#666;margin-top:5px;">* This will automatically create matching Evaluator slots. Table Topics Speakers are added live via the Voting panel during the meeting.</p>
                     </div>
                     <label class="tmp-wide">Agenda notes <textarea name="agenda_notes" rows="2"></textarea></label>
                     <div class="tmp-form-actions tmp-wide">

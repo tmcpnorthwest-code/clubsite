@@ -24,8 +24,7 @@
     if (sm) return 100 + (parseInt(sm[1], 10) - 1) * 2;
     if (em) return 101 + (parseInt(em[1], 10) - 1) * 2;
     if (n.includes("table topics master"))  return 90;
-    if (n.includes("table topics speaker")) return 91;
-    if (n.includes("table topics"))         return 92;
+    if (n.includes("table topics"))         return 91;
     if (n.includes("presiding officer"))    return 0;
     if (n === "saa" || n.includes("sergeant at arms")) return 1;
     if (n.includes("toastmaster"))          return 2;
@@ -1124,6 +1123,7 @@
             ${agendaTable}
             <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;">
               <button class="tmp-button tmp-secondary tmp-small" data-print-agenda="${meeting.id}">Print Agenda</button>
+              <button class="tmp-button tmp-secondary tmp-small" data-edit-meeting="${meeting.id}">Edit Meeting</button>
               <button class="tmp-button tmp-danger tmp-small" data-delete-meeting="${meeting.id}">Delete Meeting</button>
             </div>
           </div>
@@ -1206,7 +1206,7 @@
 
     function toggleFieldsByRole(roleName) {
       const rLower = (roleName || "").toLowerCase();
-      // Speech title: only for Speaker slots (Speaker, Speaker 1, etc.) — not Table Topics Speaker
+      // Speech title: only for Speaker slots (Speaker, Speaker 1, etc.)
       if (speechWrapper) speechWrapper.style.display = rLower.startsWith("speaker") ? "block" : "none";
       if (presSeries) presSeries.style.display = rLower.includes("educational presentation") ? "block" : "none";
     }
@@ -1478,9 +1478,16 @@
       const statusEl = qs("[data-tmp-meeting-save-status]", root);
       if (btn) btn.disabled = true;
       try {
-        const d    = formData(meetingForm);
-        const newM = await api("/meetings", { method: "POST", body: JSON.stringify(d) });
+        const d      = formData(meetingForm);
+        const isEdit = !!(d.id);
+        const newM   = await api("/meetings", { method: "POST", body: JSON.stringify(d) });
         clearForm(meetingForm);
+        // Restore create-mode labels
+        const formLabel = qs("[data-tmp-meeting-form-label]", root);
+        if (formLabel) formLabel.textContent = "Schedule New Meeting";
+        if (btn) btn.textContent = "Save Meeting";
+        const rolesSetup = qs(".tmp-roles-setup", root);
+        if (rolesSetup) rolesSetup.style.display = "";
         // Auto-collapse the form after a successful save
         const formToggle = qs("[data-tmp-meeting-form-toggle]", root);
         const formBody   = qs("[data-tmp-meeting-form-body]", root);
@@ -1488,7 +1495,9 @@
         if (formBody)   formBody.style.display = "none";
         // Inline success feedback
         if (statusEl) {
-          statusEl.textContent = `Meeting for ${esc(d.meeting_date || "new date")} created — roles ready.`;
+          statusEl.textContent = isEdit
+            ? `Meeting for ${esc(d.meeting_date)} updated.`
+            : `Meeting for ${esc(d.meeting_date || "new date")} created — roles ready.`;
           statusEl.style.color = "#2e7d32";
           setTimeout(() => { if (statusEl) { statusEl.textContent = ""; } }, 4000);
         }
@@ -1561,7 +1570,15 @@
       deadlineInput.value = `${yyyy}-${mm}-${dd}T18:00`;
     });
 
-    qs("[data-tmp-clear-meeting]",    root)?.addEventListener("click", () => clearForm(meetingForm));
+    qs("[data-tmp-clear-meeting]", root)?.addEventListener("click", () => {
+      clearForm(meetingForm);
+      const formLabel  = qs("[data-tmp-meeting-form-label]", root);
+      if (formLabel) formLabel.textContent = "Schedule New Meeting";
+      const submitBtn  = meetingForm.querySelector("button[type=submit]");
+      if (submitBtn) submitBtn.textContent = "Save Meeting";
+      const rolesSetup = qs(".tmp-roles-setup", root);
+      if (rolesSetup) rolesSetup.style.display = "";
+    });
     qs("[data-tmp-clear-assignment]", root)?.addEventListener("click", () => {
       clearForm(assignmentForm);
       toggleFieldsByRole("");
@@ -1587,10 +1604,34 @@
       const print        = e.target.closest("[data-print-agenda]");
       const viewConflicts= e.target.closest("[data-view-conflicts]");
       const delMeeting   = e.target.closest("[data-delete-meeting]");
+      const editMeeting  = e.target.closest("[data-edit-meeting]");
       const approveReq   = e.target.closest("[data-vpe-approve-req]");
 
+      if (editMeeting) {
+        const mid = editMeeting.dataset.editMeeting;
+        const m   = root._meetings.find((x) => String(x.id) === mid);
+        if (!m) return;
+        fillForm(meetingForm, m);
+        const rolesSetup = qs(".tmp-roles-setup", root);
+        if (rolesSetup) rolesSetup.style.display = "none";
+        const formLabel  = qs("[data-tmp-meeting-form-label]", root);
+        if (formLabel) formLabel.textContent = "Edit Meeting";
+        const submitBtn  = meetingForm.querySelector("button[type=submit]");
+        if (submitBtn) submitBtn.textContent = "Update Meeting";
+        const formToggle = qs("[data-tmp-meeting-form-toggle]", root);
+        const formBody   = qs("[data-tmp-meeting-form-body]", root);
+        if (formToggle) {
+          formToggle.setAttribute("aria-expanded", "true");
+          const ch = qs(".tmp-chevron", formToggle);
+          if (ch) ch.style.transform = "rotate(90deg)";
+        }
+        if (formBody) formBody.style.display = "block";
+        formToggle?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+
       if (delMeeting) {
-        if (confirm("Delete this meeting and all its assignments permanently?")) {
+        if (confirm("Delete this meeting? This removes all role assignments, requests, votes, and attendance records permanently.")) {
           e.target.closest("article")?.remove();
           await api(`/meetings/${delMeeting.dataset.deleteMeeting}`, { method: "DELETE" });
           meetingSelect.value = "";

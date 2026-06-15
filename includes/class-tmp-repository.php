@@ -83,7 +83,6 @@ class TMP_Repository {
             'Presiding Officer'      => 'Presiding Officer',
             'Toastmaster of the Day' => 'TMOD',
             'Table Topics Master'    => 'Topics Master',
-            'Table Topics Speaker'   => 'TT Speaker',
             'General Evaluator'      => 'GE',
             'Timer'                  => 'Timer',
             'Ah-Counter'             => 'Ah-Counter',
@@ -720,8 +719,25 @@ class TMP_Repository {
     public static function delete_meeting($id) {
         global $wpdb;
         $id = absint($id);
-        $wpdb->delete(self::assignment_table(), array('meeting_id' => $id));
-        return (bool) $wpdb->delete(self::meeting_table(), array('id' => $id));
+
+        // Remove votes first (they FK to nominees)
+        $nominees_tbl = self::vote_nominees_table();
+        $votes_tbl    = self::votes_table();
+        $nominee_ids  = $wpdb->get_col($wpdb->prepare(
+            "SELECT id FROM {$nominees_tbl} WHERE meeting_id = %d", $id
+        ));
+        if (!empty($nominee_ids)) {
+            $safe = implode(',', array_map('intval', $nominee_ids));
+            $wpdb->query("DELETE FROM {$votes_tbl} WHERE nominee_id IN ({$safe})");
+        }
+        $wpdb->delete($nominees_tbl,            ['meeting_id' => $id]);
+        $wpdb->delete(self::request_table(),    ['meeting_id' => $id]);
+        $wpdb->delete(self::assignment_table(), ['meeting_id' => $id]);
+        $wpdb->delete(self::attendance_table(), ['meeting_id' => $id]);
+        $wpdb->delete(self::win_history_table(), ['meeting_id' => $id]);
+        // participation_history and level_up_history preserved — permanent member records
+
+        return (bool) $wpdb->delete(self::meeting_table(), ['id' => $id]);
     }
 
     // -------------------------------------------------------------------------
@@ -1112,6 +1128,7 @@ class TMP_Repository {
                AND (m.requests_close_at IS NULL OR m.requests_close_at >= %s)
                AND (a.member_id IS NULL OR a.member_id = 0 OR a.member_id = '')
                AND a.role_name NOT LIKE 'Break%%'
+               AND a.role_name NOT LIKE 'Table Topics Speaker%%'
              ORDER BY m.meeting_date ASC LIMIT 50",
             $today,
             $now
@@ -1985,10 +2002,9 @@ class TMP_Repository {
                 $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Intro segments', 'dur' => 3];
             }
 
-            // Table Topics section
+            // Table Topics section — TTM is a role; speakers are called live and managed via voting panel
             if (in_array('Table Topics Master', $selected_roles)) {
                 $agenda[] = ['role' => 'Table Topics Master', 'note' => 'Runs Table Topics', 'dur' => 15];
-                $agenda[] = ['role' => 'Table Topics Speaker', 'note' => 'Table Topics answer', 'dur' => 2];
             }
 
             $speech_slots = absint($data['speech_slots'] ?? 0);
