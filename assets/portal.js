@@ -1067,11 +1067,7 @@
 
       const qualified = unique.filter((r) => r.qualified).sort((a, b) => roleSort(a.display) - roleSort(b.display));
       const opts = '<option value="">(None)</option>' +
-        qualified.map((r) => {
-          let label = r.display;
-          if (r.isGoal) label += " ⭐ Goal";
-          return `<option value="${esc(r.assignment_id)}">${esc(label)}</option>`;
-        }).join("");
+        qualified.map((r) => `<option value="${esc(r.assignment_id)}">${esc(r.display)}</option>`).join("");
 
       const rSelects = qsa("[data-tmp-req-role-select]", reqForm);
       rSelects.forEach((sel) => { sel.innerHTML = opts; });
