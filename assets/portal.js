@@ -329,7 +329,7 @@
         4: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
         5: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
       };
-      const visibleMilestones = milestonesByLevel[level] || milestonesByLevel[5];
+      const visibleMilestones = milestonesByLevel[levelCompleted] || milestonesByLevel[5];
 
       qsa("[data-m]", root).forEach((el) => {
         const key = el.dataset.m;
