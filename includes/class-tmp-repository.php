@@ -669,8 +669,15 @@ class TMP_Repository {
             $mid
         ), ARRAY_A) ?: [];
 
+        $now = current_time('Y-m-d');
         $dist_rows = $wpdb->get_results(
-            "SELECT level_completed, COUNT(*) as cnt FROM {$members} WHERE state = 'Active' GROUP BY level_completed ORDER BY level_completed",
+            $wpdb->prepare(
+                "SELECT level_completed, COUNT(*) as cnt FROM {$members}
+                  WHERE state = 'Active'
+                    AND (is_exempt_from_unpaid_block = 1 OR paid_until IS NULL OR paid_until >= %s)
+                  GROUP BY level_completed ORDER BY level_completed",
+                $now
+            ),
             ARRAY_A
         ) ?: [];
         $distribution = [];
