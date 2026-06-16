@@ -1472,7 +1472,11 @@ class TMP_REST_API {
             return new WP_Error('tmp_invalid_level', 'Offset is only valid for levels 1–3.', ['status' => 400]);
         }
 
-        TMP_Repository::set_pathway_offset($m_id, $level, $offset, $notes);
+        global $wpdb;
+        $ok = TMP_Repository::set_pathway_offset($m_id, $level, $offset, $notes);
+        if (!$ok) {
+            return new WP_Error('tmp_db_error', 'Could not save offset: ' . $wpdb->last_error, ['status' => 500]);
+        }
         return rest_ensure_response(['ok' => true]);
     }
 

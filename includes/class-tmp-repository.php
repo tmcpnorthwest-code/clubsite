@@ -3849,17 +3849,24 @@ class TMP_Repository {
     /**
      * VPE sets a pre-system speech offset for a member at a given level.
      */
-    public static function set_pathway_offset($member_id, $level, $offset, $notes = ''): void {
+    public static function set_pathway_offset($member_id, $level, $offset, $notes = ''): bool {
         global $wpdb;
         $table = self::pathway_offsets_table();
 
-        $wpdb->replace($table, [
-            'member_id'  => (int) $member_id,
-            'level'      => (int) $level,
-            'offset'     => max(0, (int) $offset),
-            'notes'      => sanitize_text_field($notes),
-            'created_at' => current_time('mysql'),
-        ]);
+        // Use INSERT ... ON DUPLICATE KEY UPDATE with explicit backtick on `offset`
+        // because $wpdb->replace() leaves column names unquoted and 'offset' is a SQL keyword.
+        $result = $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$table} (member_id, level, `offset`, notes, created_at)
+             VALUES (%d, %d, %d, %s, %s)
+             ON DUPLICATE KEY UPDATE `offset` = VALUES(`offset`), notes = VALUES(notes), created_at = VALUES(created_at)",
+            (int) $member_id,
+            (int) $level,
+            max(0, (int) $offset),
+            sanitize_text_field($notes),
+            current_time('mysql')
+        ));
+
+        return $result !== false;
     }
 
     // -------------------------------------------------------------------------

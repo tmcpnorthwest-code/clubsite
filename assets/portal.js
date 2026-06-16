@@ -3479,24 +3479,28 @@
       }).join("");
     };
 
-    const loadDetail = async (memberId) => {
+    const loadDetail = async (memberId, inPlace = false) => {
       const detailRow = rowsEl.querySelector(`[data-lp-detail="${memberId}"]`);
       if (!detailRow) return;
       const td = detailRow.querySelector("td");
       if (!td) return;
 
-      // Toggle close
-      if (expandedId === memberId) {
+      // Toggle close (only when not doing an in-place refresh)
+      if (!inPlace && expandedId === memberId) {
         detailRow.style.display = "none";
         expandedId = null;
         return;
       }
-      if (expandedId) {
+      if (!inPlace && expandedId) {
         rowsEl.querySelector(`[data-lp-detail="${expandedId}"]`)?.style?.setProperty("display", "none");
       }
       expandedId = memberId;
       detailRow.style.display = "";
-      td.innerHTML = `<div style="padding:12px;background:#f9f9f9;border-top:1px solid var(--tmp-line);">Loading…</div>`;
+      if (!inPlace) {
+        td.innerHTML = `<div style="padding:12px;background:#f9f9f9;border-top:1px solid var(--tmp-line);">Loading…</div>`;
+      } else {
+        td.style.opacity = "0.4";
+      }
 
       try {
         const data = await api(`/members/${memberId}/level-status`);
@@ -3521,13 +3525,16 @@
           </div>` : "";
 
         const rolesHtml = `<div style="margin-bottom:12px;">
-          <p style="font-weight:600;font-size:0.88rem;margin:0 0 6px;">Club Roles (Level ${lvl})</p>
+          <p style="font-weight:600;font-size:0.88rem;margin:0 0 6px;">Club Roles (Level ${lvl}) <small style="font-weight:400;color:var(--muted);">— auto-detected from meeting history</small></p>
           ${(data.role_gaps || []).map((g) => `
             <div style="font-size:0.88rem;display:flex;align-items:center;gap:6px;margin:3px 0;">
-              ${g.met ? "✅" : "☐"} ${esc(g.label)}
+              <span style="color:${g.met ? "var(--teal)" : "var(--muted)"};">${g.met ? "✅" : "○"}</span>
+              <span style="color:${g.met ? "var(--ink)" : "var(--muted)"};">${esc(g.label)}</span>
+              ${g.met ? "" : `<span style="font-size:0.75rem;color:var(--muted);">(not yet completed)</span>`}
             </div>`).join("")}
         </div>`;
 
+        td.style.opacity = "";
         td.innerHTML = `<div style="padding:14px;background:#f9f9f9;border-top:1px solid var(--tmp-line);">
           ${spHtml}${rolesHtml}
           <p style="font-size:0.88rem;font-weight:600;color:${data.ready_to_advance ? "var(--tmp-teal)" : "#e65100"};">
@@ -3535,6 +3542,7 @@
           </p>
         </div>`;
       } catch (err) {
+        td.style.opacity = "";
         td.innerHTML = `<div style="padding:12px;color:var(--tmp-burgundy);">Could not load: ${esc(err.message)}</div>`;
       }
     };
@@ -3561,14 +3569,21 @@
             method: "POST",
             body: JSON.stringify({ level: parseInt(lvl, 10), offset: current }),
           });
-          // Refresh row data
-          const fresh = await api("/vpe/members/level-summary").catch(() => null);
-          if (fresh) {
+          // Reload detail content in-place (inPlace=true skips Loading… replacement and toggle-close logic).
+          await loadDetail(mId, true);
+          // Quietly refresh summary row speech count in the background.
+          api("/vpe/members/level-summary").then((fresh) => {
+            if (!fresh) return;
             allData = fresh;
             populatePathwayFilter(allData);
-            render();
-            await loadDetail(mId);
-          }
+            const m   = fresh.find((x) => String(x.member_id) === String(mId));
+            const row = rowsEl.querySelector(`[data-lp-member="${mId}"]`);
+            if (m && row && row.cells[2]) {
+              row.cells[2].textContent = m.speech_done !== null
+                ? `${m.speech_done}/${m.speech_needed} speeches`
+                : "—";
+            }
+          }).catch(() => {});
         } catch (err) {
           alert("Could not save offset: " + err.message);
         }

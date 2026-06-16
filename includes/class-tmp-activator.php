@@ -13,6 +13,7 @@ class TMP_Activator {
         self::migrate_v080_timing_and_publish();
         self::migrate_v090_level_progress();
         self::migrate_v100_recognition();
+        self::migrate_v120_pathway_tables();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -44,6 +45,7 @@ class TMP_Activator {
         self::migrate_v080_timing_and_publish();
         self::migrate_v090_level_progress();
         self::migrate_v100_recognition();
+        self::migrate_v120_pathway_tables();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -465,11 +467,49 @@ class TMP_Activator {
      * Normalises "Ah Counter" (space) → "Ah-Counter" (hyphen) in history and assignments.
      */
     /**
-     * v0.9.0: Creates pathway_offsets and level_up_requests tables (handled by dbDelta
-     * in create_tables). No ALTER needed — purely new tables.
+     * v0.9.0: pathway_offsets and level_up_requests — superseded by migrate_v120_pathway_tables().
      */
     private static function migrate_v090_level_progress() {
-        // Tables are created by create_tables() via dbDelta. Nothing extra needed.
+        // Intentionally empty; v0.12.0 migration handles these tables robustly.
+    }
+
+    /**
+     * v0.12.0: Create pathway_offsets and level_up_requests using direct SQL.
+     * dbDelta was skipping pathway_offsets because 'offset' is a MySQL keyword
+     * that confuses its regex parser.
+     */
+    private static function migrate_v120_pathway_tables() {
+        global $wpdb;
+        $charset = $wpdb->get_charset_collate();
+
+        $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}tmp_pathway_offsets (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id BIGINT UNSIGNED NOT NULL,
+            level TINYINT UNSIGNED NOT NULL,
+            `offset` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            notes VARCHAR(255) NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY tmp_po_member_level (member_id, level)
+        ) {$charset}");
+
+        $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}tmp_level_up_requests (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            member_id BIGINT UNSIGNED NOT NULL,
+            from_level TINYINT UNSIGNED NOT NULL,
+            to_level TINYINT UNSIGNED NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            member_note TEXT NULL,
+            evidence JSON NOT NULL,
+            system_verdict VARCHAR(20) NOT NULL DEFAULT 'incomplete',
+            vpe_note TEXT NULL,
+            created_at DATETIME NOT NULL,
+            reviewed_at DATETIME NULL,
+            reviewed_by BIGINT UNSIGNED NULL,
+            PRIMARY KEY (id),
+            KEY tmp_lu_member_id (member_id),
+            KEY tmp_lu_status (status)
+        ) {$charset}");
     }
 
     /**
