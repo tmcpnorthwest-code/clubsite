@@ -1366,3 +1366,47 @@
 @media print {
   .tmp-no-print { display: none !important; }
 }
+
+/* ── VPE Tab navigation ──────────────────────────────────────────────── */
+.tmp-tab-nav {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--tmp-line);
+  margin: 0 0 20px;
+  overflow-x: auto;
+}
+.tmp-tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 10px 22px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--tmp-muted);
+  cursor: pointer;
+  margin-bottom: -2px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tmp-tab-btn:hover { color: var(--tmp-ink); }
+.tmp-tab-btn--active {
+  color: var(--tmp-teal);
+  border-bottom-color: var(--tmp-teal);
+}
+.tmp-tab-badge {
+  background: var(--tmp-burgundy);
+  color: #fff;
+  border-radius: 12px;
+  padding: 1px 7px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  min-width: 18px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.4;
+}

@@ -1281,8 +1281,10 @@
     const vpePathway     = qs("[data-tmp-vpe-pathway]", root);
     const vpeLevel       = qs("[data-tmp-vpe-level]", root);
     const vpeMentorFilt  = qs("[data-tmp-vpe-mentor-filter]", root);
-    const overviewList   = qs("[data-tmp-vpe-member-list]", root);
+    const statusFilter   = qs("[data-tmp-vpe-lp-status]", root);
+    const unifiedRows    = qs("[data-tmp-unified-rows]", root);
     const overviewCount  = qs("[data-tmp-vpe-member-count]", root);
+    const readyCountEl   = qs("[data-tmp-vpe-ready-count]", root);
     const cooloffWarning = qs("[data-tmp-cooloff-warning]", assignmentForm);
     const cooloffOverrideWrap = qs("[data-tmp-cooloff-override-wrapper]", assignmentForm);
     const presSeries     = qs("[data-tmp-pres-series-wrapper]", assignmentForm);
@@ -1290,32 +1292,125 @@
 
     refreshVPE = () => renderMeetings().catch(console.error);
 
-    // -- Members overview + mentor assignment ----------------------------------
+    // -- Unified members table -------------------------------------------------
+
+    let expandedLpId = null;
+    const trafficLabel = (t) => t === "ready" ? "🟢 Ready" : t === "stuck" ? "🔴 Stuck" : "🟡 In Progress";
+    const trafficStyle = (t) => t === "ready" ? "background:#e8f5e9;color:#2e7d32" : t === "stuck" ? "background:#ffebee;color:#c62828" : "background:#fff3e0;color:#e65100";
+
+    const loadUnifiedDetail = async (memberId, inPlace = false) => {
+      const detailRow = unifiedRows?.querySelector(`[data-lp-detail="${memberId}"]`);
+      if (!detailRow) return;
+      const td = detailRow.querySelector("td");
+      if (!td) return;
+
+      const setChevron = (id, open) => {
+        const btn = unifiedRows?.querySelector(`[data-expand-lp="${id}"]`);
+        if (btn) btn.innerHTML = open ? "&#9660;" : "&#9658;";
+      };
+
+      if (!inPlace && expandedLpId === memberId) {
+        detailRow.style.display = "none";
+        setChevron(memberId, false);
+        expandedLpId = null;
+        return;
+      }
+      if (!inPlace && expandedLpId) {
+        unifiedRows.querySelector(`[data-lp-detail="${expandedLpId}"]`)?.style?.setProperty("display", "none");
+        setChevron(expandedLpId, false);
+      }
+      expandedLpId = memberId;
+      setChevron(memberId, true);
+      detailRow.style.display = "";
+      if (!inPlace) {
+        td.innerHTML = `<div style="padding:12px;background:#f9f9f9;border-top:1px solid var(--tmp-line);">Loading…</div>`;
+      } else {
+        td.style.opacity = "0.4";
+      }
+
+      try {
+        const memberRow = unifiedRows?.querySelector(`[data-lp-member="${memberId}"]`);
+        const mLevel = parseInt(memberRow?.dataset.mLevel || "0", 10);
+
+        if (mLevel > 3) {
+          td.style.opacity = "";
+          td.innerHTML = `<div style="padding:14px;background:#f9f9f9;border-top:1px solid var(--tmp-line);">
+            <p style="font-size:0.88rem;color:var(--tmp-muted);">Level 4+ progress is tracked manually. Use the member edit form to update their level.</p>
+          </div>`;
+          return;
+        }
+
+        const data = await api(`/members/${memberId}/level-status`);
+        const sp   = data.speech_progress;
+        const lvl  = data.level;
+
+        const chips = sp ? (sp.speeches || []).map((s) =>
+          `<span class="tmp-speech-chip">${esc(s.role_name)} <small>${esc(s.meeting_date)}</small></span>`
+        ).join("") : "";
+
+        const spHtml = sp ? `
+          <div style="margin-bottom:12px;">
+            <p style="font-weight:600;font-size:0.88rem;margin:0 0 6px;">Speeches (Level ${lvl})</p>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">${chips || "<span style=\"color:var(--tmp-muted)\">None recorded yet</span>"}</div>
+            <p style="font-size:0.85rem;color:var(--tmp-muted);margin:0;">${sp.done}/${sp.needed} done${sp.offset ? ` (includes ${sp.offset} pre-system)` : ""}</p>
+            <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+              <span style="font-size:0.85rem;">Pre-system offset:</span>
+              <button class="tmp-small-button" data-offset-dec="${memberId}" data-offset-lvl="${lvl}">−</button>
+              <span data-offset-val="${memberId}">${sp.offset}</span>
+              <button class="tmp-small-button" data-offset-inc="${memberId}" data-offset-lvl="${lvl}">+</button>
+            </div>
+          </div>` : "";
+
+        const rolesHtml = `<div style="margin-bottom:12px;">
+          <p style="font-weight:600;font-size:0.88rem;margin:0 0 6px;">Club Roles (Level ${lvl}) <small style="font-weight:400;color:var(--muted);">— auto-detected from meeting history</small></p>
+          ${(data.role_gaps || []).map((g) => `
+            <div style="font-size:0.88rem;display:flex;align-items:center;gap:6px;margin:3px 0;">
+              <span style="color:${g.met ? "var(--teal)" : "var(--muted)"};">${g.met ? "✅" : "○"}</span>
+              <span style="color:${g.met ? "var(--ink)" : "var(--muted)"};">${esc(g.label)}</span>
+              ${g.met ? "" : `<span style="font-size:0.75rem;color:var(--muted);">(not yet completed)</span>`}
+            </div>`).join("")}
+        </div>`;
+
+        td.style.opacity = "";
+        td.innerHTML = `<div style="padding:14px;background:#f9f9f9;border-top:1px solid var(--tmp-line);">
+          ${spHtml}${rolesHtml}
+          <p style="font-size:0.88rem;font-weight:600;color:${data.ready_to_advance ? "var(--tmp-teal)" : "#e65100"};">
+            ${data.ready_to_advance ? "🟢 Ready to advance" : "🟡 " + (data.verdict_detail || []).join(" · ")}
+          </p>
+        </div>`;
+      } catch (err) {
+        td.style.opacity = "";
+        td.innerHTML = `<div style="padding:12px;color:var(--tmp-burgundy);">Could not load: ${esc(err.message)}</div>`;
+      }
+    };
 
     async function renderMembers(force = false) {
       if (force || !root._allMembers) {
         try {
           root._allMembers = await api("/members");
         } catch (err) {
-          if (overviewList) overviewList.innerHTML = `<p style="color:var(--tmp-burgundy)">Could not load members: ${esc(err.message)}</p>`;
+          if (unifiedRows) unifiedRows.innerHTML = `<tr><td colspan="7" style="color:var(--tmp-burgundy)">Could not load members: ${esc(err.message)}</td></tr>`;
           return;
         }
       }
-      const all = root._allMembers;
+      const all   = root._allMembers;
+      const lsMap = root._levelSummaryMap || {};
 
-      const search      = (vpeSearch?.value || "").toLowerCase();
-      const pathway     = vpePathway?.value || "all";
-      const levelFilt   = vpeLevel?.value || "all";
-      const mentorFilt  = vpeMentorFilt?.value || "all";
+      const search     = (vpeSearch?.value || "").toLowerCase();
+      const pathway    = vpePathway?.value || "all";
+      const levelFilt  = vpeLevel?.value || "all";
+      const mentorFilt = vpeMentorFilt?.value || "all";
+      const stFilt     = statusFilter?.value || "all";
 
       const eligible = (all || []).filter((m) =>
         m.is_eligible &&
-        (!search || m.full_name.toLowerCase().includes(search) || m.email.toLowerCase().includes(search)) &&
+        (!search || m.full_name.toLowerCase().includes(search) || (m.email || "").toLowerCase().includes(search)) &&
         (pathway === "all" || m.pathway === pathway) &&
         (levelFilt === "all" || String(m.level) === levelFilt) &&
         (mentorFilt === "all" ||
          (mentorFilt === "none"     && !m.mentor_id && !m.mentor_name) ||
-         (mentorFilt === "assigned" && (m.mentor_id  ||  m.mentor_name)))
+         (mentorFilt === "assigned" && (m.mentor_id  ||  m.mentor_name))) &&
+        (stFilt === "all" || lsMap[String(m.id)]?.traffic_light === stFilt)
       );
 
       if (memberSelect) {
@@ -1324,19 +1419,17 @@
             .map((m) => `<option value="${esc(m.id)}">${esc(m.formatted_name)}</option>`).join("");
       }
 
-      // Unmentored alert — only Level 0 (new members; Level 1+ no longer need a mentor)
       const unmentored = (all || []).filter((m) => m.is_eligible && !m.mentor_id && !m.mentor_name && m.level === 0);
       const alertEl    = qs("[data-tmp-unmentored-alert]", root);
       if (alertEl) {
         alertEl.innerHTML = unmentored.length
           ? `<div style="background:#fff8e1;border:1px solid #ffd54f;border-radius:4px;padding:10px 14px;margin-bottom:12px;font-size:13px;">
               <strong>${unmentored.length} new member${unmentored.length > 1 ? "s have" : " has"} no mentor assigned.</strong>
-              Use the Assign Mentor button below to pair them up.
+              Use the Assign Mentor button to pair them up.
              </div>`
           : "";
       }
 
-      // Sort
       if (!root._vpeSort) root._vpeSort = { col: "name", dir: "asc" };
       const { col: vSortCol, dir: vSortDir } = root._vpeSort;
       const sortedEligible = [...eligible].sort((a, b) => {
@@ -1348,57 +1441,52 @@
         return mul * a.full_name.localeCompare(b.full_name);
       });
 
-      const vpeToggle = qs("[data-tmp-vpe-members-toggle]", root);
-      const isOpenVpe = overviewList?.style.display !== "none";
-      if (vpeToggle) {
-        vpeToggle.textContent = isOpenVpe
-          ? `Hide Members (${sortedEligible.length})`
-          : `Show Members (${sortedEligible.length})`;
-      }
-
       const sortInd = (col) => col === vSortCol ? (vSortDir === "asc" ? "▲" : "▼") : "↕";
-      const levelLabel = (lvl) => lvl === 0 ? "Level 0" : `Level ${lvl}`;
+      if (overviewCount) overviewCount.textContent = `${sortedEligible.length} member${sortedEligible.length !== 1 ? "s" : ""}`;
 
-      if (overviewList) {
-        const dueMap = Object.fromEntries((root._dueForRoles || []).map((d) => [String(d.id), d]));
-        if (overviewCount) overviewCount.textContent = `${sortedEligible.length} member${sortedEligible.length !== 1 ? "s" : ""}`;
-        overviewList.innerHTML = sortedEligible.length
-          ? `<div class="tmp-table-wrap"><table class="tmp-table">
-              <thead><tr>
-                <th data-sort-col="name" class="tmp-sortable">Name <span class="tmp-sort-ind">${sortInd("name")}</span></th>
-                <th>Pathway</th>
-                <th data-sort-col="level" class="tmp-sortable">Level <span class="tmp-sort-ind">${sortInd("level")}</span></th>
-                <th>Phone</th>
-                <th>Email</th>
-                <th>Recent</th>
-                <th>Last Role</th>
-                <th>Mentor</th>
-                <th>Actions</th>
-              </tr></thead>
-              <tbody>${sortedEligible.map((m) => {
-                const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
-                const due = dueMap[String(m.id)];
-                const lastRoleCell = due
-                  ? `<span class="tmp-tag" style="background:${Number(due.days_since_role) > 28 ? "#b71c1c" : "#ef6c00"};color:#fff;font-size:11px;">${due.days_since_role}d ago</span>`
-                  : `<span style="color:var(--tmp-muted);font-size:11px;">—</span>`;
-                return `<tr ${inactive ? 'style="background:#fff8e1"' : ""}>
-                  <td data-label="Name"><strong>${esc(m.full_name)}</strong>${inactive ? `<br><small style="color:#ef6c00;font-weight:bold">No roles in last ${m.total_recent_meetings_checked} meetings</small>` : ""}</td>
-                  <td data-label="Pathway"><small>${esc(m.pathway)}</small></td>
-                  <td data-label="Level"><span class="tmp-tag" style="background:#e8eaf6;color:#303f9f;font-size:0.78rem;">${levelLabel(m.level)}</span></td>
-                  <td data-label="Phone"><small>${esc(m.phone || "—")}</small></td>
-                  <td data-label="Email"><small>${esc(m.email)}</small></td>
-                  <td data-label="Recent">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
-                  <td data-label="Last Role">${lastRoleCell}</td>
-                  <td data-label="Mentor">${esc(m.mentor_name || "—")}</td>
-                  <td data-label="Action">${m.level === 0
-                    ? `<button class="tmp-small-button" type="button" data-assign-mentor="${esc(m.id)}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">
-                        ${m.mentor_name ? "Change" : "Assign"} Mentor
-                       </button>`
-                    : ""}</td>
-                </tr>`;
-              }).join("")}</tbody></table></div>`
-          : "<p>No members match the selected filters.</p>";
+      const readyCount = Object.values(lsMap).filter((ls) => ls.traffic_light === "ready").length;
+      if (readyCountEl) readyCountEl.textContent = readyCount ? `${readyCount} ready to advance` : "";
+
+      const thead = unifiedRows?.closest("table")?.querySelector("thead");
+      if (thead) {
+        qsa("[data-sort-col]", thead).forEach((th) => {
+          const ind = th.querySelector(".tmp-sort-ind");
+          if (ind) ind.textContent = sortInd(th.dataset.sortCol);
+        });
       }
+
+      if (!unifiedRows) return;
+      if (!sortedEligible.length) {
+        unifiedRows.innerHTML = `<tr><td colspan="7" style="color:var(--tmp-muted);text-align:center;padding:16px;">No members match the selected filters.</td></tr>`;
+        return;
+      }
+
+      unifiedRows.innerHTML = sortedEligible.map((m) => {
+        const ls       = lsMap[String(m.id)];
+        const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
+        const spCell   = ls ? `${ls.speech_done}/${ls.speech_needed}` : "—";
+        const roleCell = ls ? `${ls.roles_total - ls.roles_unmet}/${ls.roles_total}` : "—";
+        const statusCell = ls
+          ? `<span class="tmp-badge" style="${trafficStyle(ls.traffic_light)};">${trafficLabel(ls.traffic_light)}</span>`
+          : `<span class="tmp-tag" style="background:#e8eaf6;color:#303f9f;font-size:0.78rem;">L${m.level}</span>`;
+        const mentorCell = (m.level === 0 && !m.mentor_name)
+          ? `<span style="color:var(--tmp-burgundy);font-size:0.82rem;">⚠ No mentor</span>`
+          : esc(m.mentor_name || "—");
+        const mentorBtn = m.level === 0
+          ? `<button class="tmp-small-button" type="button" data-assign-mentor="${m.id}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">${m.mentor_name ? "Change" : "Assign"} Mentor</button>`
+          : "";
+        const actionCell = `<div style="display:flex;gap:6px;align-items:center;">${mentorBtn}<button class="tmp-small-button" data-expand-lp="${m.id}" style="min-width:28px;">&#9658;</button></div>`;
+        return `<tr data-lp-member="${m.id}" data-m-level="${m.level}"${inactive ? ' style="background:#fff8e1"' : ""}>
+          <td><strong>${esc(m.full_name)}</strong>${inactive ? `<br><small style="color:#ef6c00;font-weight:bold">Inactive</small>` : ""}<br><small style="color:var(--tmp-muted)">${esc(m.pathway)}</small></td>
+          <td>Level ${m.level}</td>
+          <td>${spCell}</td>
+          <td>${roleCell}</td>
+          <td>${mentorCell}</td>
+          <td>${statusCell}</td>
+          <td>${actionCell}</td>
+        </tr>
+        <tr data-lp-detail="${m.id}" style="display:none;"><td colspan="7" style="padding:0;"></td></tr>`;
+      }).join("");
     }
 
     // -- Due for roles (data loaded at init, used by renderMembers + renderRoleStatus) --------
@@ -2168,7 +2256,7 @@
     let pendingMentorMemberId = null;
 
     if (modal) {
-      overviewList?.addEventListener("click", async (e) => {
+      unifiedRows?.addEventListener("click", async (e) => {
         const btn = e.target.closest("[data-assign-mentor]");
         if (!btn) return;
 
@@ -2242,17 +2330,10 @@
     vpePathway?.addEventListener("change", () => renderMembers());
     vpeLevel?.addEventListener("change",   () => renderMembers());
     vpeMentorFilt?.addEventListener("change", () => renderMembers());
+    statusFilter?.addEventListener("change", () => renderMembers());
 
-    // VPE member list: collapsed by default + sort via event delegation
-    if (overviewList) overviewList.style.display = "none";
-    const vpeToggle = qs("[data-tmp-vpe-members-toggle]", root);
-    vpeToggle?.addEventListener("click", () => {
-      const open = overviewList?.style.display !== "none";
-      if (overviewList) overviewList.style.display = open ? "none" : "";
-      renderMembers();
-    });
-
-    overviewList?.addEventListener("click", (ev) => {
+    // Unified table: sort via thead delegation
+    unifiedRows?.closest("table")?.querySelector("thead")?.addEventListener("click", (ev) => {
       const th = ev.target.closest("[data-sort-col]");
       if (!th) return;
       const col = th.dataset.sortCol;
@@ -2261,6 +2342,45 @@
         ? { col, dir: root._vpeSort.dir === "asc" ? "desc" : "asc" }
         : { col, dir: "asc" };
       renderMembers();
+    });
+
+    // Unified table: expand detail + offset controls
+    unifiedRows?.addEventListener("click", async (e) => {
+      const expandBtn = e.target.closest("[data-expand-lp]");
+      const incBtn    = e.target.closest("[data-offset-inc]");
+      const decBtn    = e.target.closest("[data-offset-dec]");
+
+      if (expandBtn) {
+        await loadUnifiedDetail(expandBtn.dataset.expandLp);
+        return;
+      }
+
+      if (incBtn || decBtn) {
+        const mId   = (incBtn || decBtn).dataset[incBtn ? "offsetInc" : "offsetDec"];
+        const lvl   = (incBtn || decBtn).dataset.offsetLvl;
+        const valEl = unifiedRows.querySelector(`[data-offset-val="${mId}"]`);
+        let current = parseInt(valEl?.textContent || "0", 10);
+        current = Math.max(0, current + (incBtn ? 1 : -1));
+        if (valEl) valEl.textContent = current;
+        try {
+          await api(`/members/${mId}/pathway-offset`, {
+            method: "POST",
+            body: JSON.stringify({ level: parseInt(lvl, 10), offset: current }),
+          });
+          await loadUnifiedDetail(mId, true);
+          api("/vpe/members/level-summary").then((fresh) => {
+            if (!fresh) return;
+            root._levelSummaryMap = Object.fromEntries(fresh.map((s) => [String(s.member_id), s]));
+            const m   = fresh.find((x) => String(x.member_id) === String(mId));
+            const row = unifiedRows.querySelector(`[data-lp-member="${mId}"]`);
+            if (m && row && row.cells[2]) {
+              row.cells[2].textContent = m.speech_done !== null ? `${m.speech_done}/${m.speech_needed}` : "—";
+            }
+          }).catch(() => {});
+        } catch (err) {
+          alert("Could not save offset: " + err.message);
+        }
+      }
     });
 
     // -- Role gate settings panel (VPE/admin only) ----------------------------
@@ -2324,7 +2444,8 @@
     }
 
     // Inject gate settings panel HTML before first use
-    const agendaSection = qs("[data-tmp-meeting-list]", root)?.closest("section") || null;
+    const agendaSection  = qs("[data-tmp-meeting-list]", root)?.closest("section") || null;
+    const agendaParent   = agendaSection?.parentElement || root;
     const gateSection = document.createElement("section");
     gateSection.className = "tmp-panel";
     gateSection.innerHTML = `
@@ -2334,7 +2455,7 @@
       </button>
       <div data-tmp-gate-settings-body style="display:none;margin-top:14px;"></div>`;
     gateSection.setAttribute("data-tmp-gate-settings-panel", "");
-    root.insertBefore(gateSection, agendaSection);
+    agendaParent.insertBefore(gateSection, agendaSection);
 
     qs("[data-tmp-gate-settings-toggle]", root)?.addEventListener("click", async (e) => {
       const btn  = e.currentTarget;
@@ -2440,7 +2561,7 @@
         <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
       </button>
       <div data-tmp-timing-settings-body style="display:none;margin-top:14px;"></div>`;
-    root.insertBefore(timingSection, agendaSection);
+    agendaParent.insertBefore(timingSection, agendaSection);
 
     qs("[data-tmp-timing-settings-toggle]", root)?.addEventListener("click", async (e) => {
       const btn  = e.currentTarget;
@@ -2480,23 +2601,39 @@
 
     try {
       root._dueForRoles = await api("/members/due-for-roles").catch(() => []);
+      const lsSummary   = await api("/vpe/members/level-summary").catch(() => []);
+      root._levelSummaryMap = Object.fromEntries((lsSummary || []).map((s) => [String(s.member_id), s]));
       await Promise.all([
         renderMembers(true).catch((err) => console.error("Members load failed:", err)),
         renderMeetings(),
       ]);
     } catch (err) {
       console.error("VPE init error:", err);
-      meetingList.innerHTML = `<div class="tmp-panel tmp-danger"><h3>Error loading agendas</h3><p>${esc(err.message)}</p></div>`;
+      if (meetingList) meetingList.innerHTML = `<div class="tmp-panel tmp-danger"><h3>Error loading agendas</h3><p>${esc(err.message)}</p></div>`;
     }
   }
 
   async function renderPendingRequests(root) {
-    const count = qs("[data-tmp-request-count]", root);
-    const list  = qs("[data-tmp-vpe-requests]", root);
+    const count      = qs("[data-tmp-request-count]", root);
+    const list       = qs("[data-tmp-vpe-requests]", root);
+    const body       = qs("[data-tmp-requests-body]", root);
+    const toggleBtn  = qs("[data-tmp-requests-toggle]", root);
     const approveBtn = qs("[data-tmp-approve-all-btn]", root);
-    if (!count || !list) {
-      console.error("Pending requests elements not found", { count: !!count, list: !!list });
+    if (!list) {
+      console.error("Pending requests elements not found");
       return;
+    }
+
+    if (!root._requestsToggleBound) {
+      root._requestsToggleBound = true;
+      toggleBtn?.addEventListener("click", () => {
+        if (!body) return;
+        const open = body.style.display !== "none";
+        body.style.display = open ? "none" : "";
+        toggleBtn.setAttribute("aria-expanded", String(!open));
+        const ch = toggleBtn.querySelector(".tmp-chevron");
+        if (ch) ch.style.transform = open ? "" : "rotate(90deg)";
+      });
     }
 
     let data;
@@ -2510,7 +2647,10 @@
 
     const { meetings } = data;
     const totalRequests = meetings.reduce((sum, m) => sum + m.totalRequests, 0);
-    if (count) count.textContent = `${totalRequests} pending`;
+    root._pendingRolesCount = totalRequests;
+    updateMembersTabBadge(root);
+
+    if (count) { count.textContent = totalRequests; count.style.display = totalRequests > 0 ? "inline-flex" : "none"; }
 
     if (totalRequests === 0) {
       list.innerHTML = "<p>No pending requests across upcoming meetings.</p>";
@@ -2519,6 +2659,7 @@
     }
 
     if (approveBtn) approveBtn.style.display = "block";
+    if (body) { body.style.display = ""; if (toggleBtn) { toggleBtn.setAttribute("aria-expanded", "true"); const ch = toggleBtn.querySelector(".tmp-chevron"); if (ch) ch.style.transform = "rotate(90deg)"; } }
 
     let html = '<div style="display:flex;flex-direction:column;gap:12px;">';
     for (const meeting of meetings) {
@@ -3315,17 +3456,34 @@
   async function initLevelUpQueue() {
     const root = qs("[data-tmp-vpe]");
     if (!root) return;
-    const listEl  = qs("[data-tmp-levelup-request-list]", root);
-    const countEl = qs("[data-tmp-levelup-pending-count]", root);
+    const listEl    = qs("[data-tmp-levelup-request-list]", root);
+    const countEl   = qs("[data-tmp-levelup-pending-count]", root);
+    const toggleBtn = qs("[data-tmp-levelup-toggle]", root);
     if (!listEl) return;
 
+    const openSection = () => {
+      listEl.style.display = "";
+      if (toggleBtn) { toggleBtn.setAttribute("aria-expanded", "true"); const ch = toggleBtn.querySelector(".tmp-chevron"); if (ch) ch.style.transform = "rotate(90deg)"; }
+    };
+    toggleBtn?.addEventListener("click", () => {
+      const open = listEl.style.display !== "none";
+      listEl.style.display = open ? "none" : "";
+      toggleBtn.setAttribute("aria-expanded", String(!open));
+      const ch = toggleBtn.querySelector(".tmp-chevron");
+      if (ch) ch.style.transform = open ? "" : "rotate(90deg)";
+    });
+
     const requests = await api("/vpe/level-up-requests").catch(() => []);
+    root._pendingLevelUpCount = (requests || []).length;
+    updateMembersTabBadge(root);
+
     if (!requests || requests.length === 0) {
       if (countEl) countEl.style.display = "none";
       return;
     }
 
     if (countEl) { countEl.textContent = requests.length; countEl.style.display = "inline-flex"; }
+    openSection();
 
     listEl.innerHTML = requests.map((req) => {
       const ev      = req.evidence || {};
@@ -3906,16 +4064,46 @@
     }
   }
 
+  function updateMembersTabBadge(root) {
+    const badge = qs('[data-tab-badge="members"]', root);
+    if (!badge) return;
+    const total = (root._pendingLevelUpCount || 0) + (root._pendingRolesCount || 0);
+    badge.textContent = total;
+    badge.style.display = total > 0 ? "inline-flex" : "none";
+  }
+
+  function initVPETabs() {
+    const root = qs("[data-tmp-vpe]");
+    if (!root) return;
+    const STORAGE_KEY = "tmp_vpe_tab";
+    const activateTab = (tab) => {
+      qsa("[data-tab]", root).forEach((btn) => {
+        btn.classList.toggle("tmp-tab-btn--active", btn.dataset.tab === tab);
+      });
+      qsa("[data-tab-body]", root).forEach((body) => {
+        body.style.display = body.dataset.tabBody === tab ? "" : "none";
+      });
+      try { sessionStorage.setItem(STORAGE_KEY, tab); } catch (_) {}
+    };
+    root.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-tab]");
+      if (!btn || !btn.closest("[data-tmp-tab-nav]")) return;
+      activateTab(btn.dataset.tab);
+    });
+    const saved = (() => { try { return sessionStorage.getItem(STORAGE_KEY); } catch (_) { return null; } })();
+    activateTab(saved || "members");
+  }
+
   initMemberDashboard();
   initSAAAttendance();
   initAdmin();
   initVPEducation();
   initLevelUpQueue();
-  initLevelProgressPanel();
   initEnrolment();
   initVotingPanel();
   initWrapUpPanel();
   initRecognitionPanel();
   initMentorRating();
   initMyRecognition();
+  initVPETabs();
 })();

@@ -421,414 +421,380 @@ class TMP_Shortcodes {
                 <p>Create meetings, assign roles, add speech titles, and publish a usable agenda view.</p>
             </div>
 
-            <section class="tmp-panel" data-tmp-vpe-levelup-queue>
-                <div class="tmp-card-head">
-                    <h3>Level Advancement Requests</h3>
-                    <span data-tmp-levelup-pending-count class="tmp-badge" style="display:none;"></span>
-                </div>
-                <div data-tmp-levelup-request-list><p style="color:var(--tmp-muted);font-size:0.88rem;">No pending requests.</p></div>
-            </section>
-
-            <section class="tmp-panel">
-                <div class="tmp-card-head">
-                    <h3>Pending Role Requests</h3>
-                    <span data-tmp-request-count>0 pending</span>
-                </div>
-                <div style="margin-bottom:16px;">
-                    <button class="tmp-button tmp-primary" data-tmp-approve-all-btn style="display:none;">Approve All Recommended</button>
-                </div>
-                <div data-tmp-vpe-requests>Loading requests...</div>
-            </section>
-
-            <section class="tmp-panel">
-                <div class="tmp-card-head">
-                    <h3>Member Overview (Paid)</h3>
-                    <span data-tmp-vpe-member-count>0 members</span>
-                </div>
-                <!-- Unmentored alert injected by JS -->
-                <div data-tmp-unmentored-alert></div>
-                <div class="tmp-admin-filters" style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;background:#f9f9f9;padding:12px;border-radius:4px;border:1px solid #eee;">
-                    <input type="text" data-tmp-vpe-search placeholder="Search by name or email..." style="flex:1;min-width:200px;">
-                    <select data-tmp-vpe-pathway>
-                        <option value="all">All Pathways</option>
-                        <option>No pathway registered</option>
-                        <option>Enrolled — Pathway TBD</option>
-                        <option>Dynamic Leadership</option>
-                        <option>Effective Coaching</option>
-                        <option>Engaging Humor</option>
-                        <option>Innovative Planning</option>
-                        <option>Motivational Strategies</option>
-                        <option>Persuasive Influence</option>
-                        <option>Presentation Mastery</option>
-                        <option>Strategic Relationships</option>
-                        <option>Team Collaboration</option>
-                        <option>Visionary Communication</option>
-                        <option>Distinguished Toastmaster</option>
-                    </select>
-                    <select data-tmp-vpe-level>
-                        <option value="all">All Levels</option>
-                        <option value="0">Level 0 (Enrolled)</option>
-                        <option value="1">Level 1</option>
-                        <option value="2">Level 2</option>
-                        <option value="3">Level 3</option>
-                        <option value="4">Level 4</option>
-                        <option value="5">Level 5</option>
-                    </select>
-                    <select data-tmp-vpe-mentor-filter>
-                        <option value="all">All Members</option>
-                        <option value="none">No Mentor Assigned</option>
-                        <option value="assigned">Has Mentor</option>
-                    </select>
-                </div>
-                <div style="margin-bottom:10px;">
-                    <button class="tmp-small-button" type="button" data-tmp-vpe-members-toggle>Show Members</button>
-                </div>
-                <div data-tmp-vpe-member-list>Loading members...</div>
-            </section>
-
-            <section class="tmp-panel" data-tmp-vpe-level-panel>
-                <div class="tmp-card-head">
-                    <h3>Member Level Progress (L1–L3)</h3>
-                    <span data-tmp-vpe-ready-count style="color:var(--tmp-teal);font-weight:700;font-size:0.9rem;"></span>
-                </div>
-                <div class="tmp-admin-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;background:#f9f9f9;padding:10px;border-radius:4px;border:1px solid #eee;">
-                    <select data-tmp-vpe-lp-pathway style="flex:1;min-width:160px;">
-                        <option value="all">All Pathways</option>
-                        <option>Dynamic Leadership</option>
-                        <option>Effective Coaching</option>
-                        <option>Engaging Humor</option>
-                        <option>Innovative Planning</option>
-                        <option>Leadership Development</option>
-                        <option>Motivational Strategies</option>
-                        <option>Persuasive Influence</option>
-                        <option>Presentation Mastery</option>
-                        <option>Strategic Relationships</option>
-                        <option>Team Collaboration</option>
-                        <option>Visionary Communication</option>
-                    </select>
-                    <select data-tmp-vpe-lp-level>
-                        <option value="all">All Levels</option>
-                        <option value="1">Level 1</option>
-                        <option value="2">Level 2</option>
-                        <option value="3">Level 3</option>
-                    </select>
-                    <select data-tmp-vpe-lp-status>
-                        <option value="all">All statuses</option>
-                        <option value="ready">Ready to advance</option>
-                        <option value="in_progress">In progress</option>
-                        <option value="stuck">Stuck</option>
-                    </select>
-                </div>
-                <table class="tmp-table" style="width:100%;">
-                    <thead>
-                        <tr>
-                            <th>Member</th>
-                            <th>Level</th>
-                            <th>Speeches</th>
-                            <th>Club Roles</th>
-                            <th>Status</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody data-tmp-vpe-lp-rows></tbody>
-                </table>
-            </section>
-
-            <section class="tmp-panel">
-                <div class="tmp-card-head" style="margin-bottom:10px;">
-                    <h3 style="margin:0;">Manage Meetings</h3>
-                </div>
-                <div data-tmp-meetings-compact-list style="margin-bottom:14px;"></div>
-                <button class="tmp-collapsible-toggle" data-tmp-meeting-form-toggle aria-expanded="false" style="width:100%;text-align:left;">
-                    <span data-tmp-meeting-form-label>Schedule New Meeting</span>
-                    <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+            <!-- Tab navigation -->
+            <nav class="tmp-tab-nav" data-tmp-tab-nav>
+                <button class="tmp-tab-btn" data-tab="members">
+                    Members
+                    <span class="tmp-tab-badge" data-tab-badge="members" style="display:none;"></span>
                 </button>
-                <div data-tmp-meeting-form-body style="display:none;margin-top:14px;">
-                <form class="tmp-form" data-tmp-meeting-form>
-                    <input type="hidden" name="id" />
-                    <label>Meeting date <input type="date" name="meeting_date" required /></label>
-                    <label>Start time <input type="time" name="start_time" value="18:30" /></label>
-                    <label>Total Duration (mins) <input type="number" name="total_duration" value="120" min="0" /></label>
-                    <label>Requests deadline <input type="datetime-local" name="requests_close_at" /></label>
-                    <label>Theme <input name="theme" required placeholder="Meeting theme" /></label>
-                    <label>Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
-                    <div class="tmp-wide tmp-roles-setup" style="margin:10px 0;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;">
-                        <p class="tmp-eyebrow">Meeting Template (New meetings only)</p>
-                        <p style="font-size:12px;color:#555;margin:0 0 8px;">
-                            Using standard agenda with all roles.
-                            <button type="button" class="tmp-link-button" data-tmp-customise-roles style="margin-left:6px;font-size:12px;">Customise roles ▾</button>
-                        </p>
-                        <div data-tmp-roles-grid style="display:none;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px;">
-                            <?php foreach (TMP_Repository::get_standard_roles() as $fullName => $shortName) : ?>
-                                <label><input type="checkbox" name="roles[]" value="<?php echo esc_attr($fullName); ?>" checked> <?php echo esc_html($shortName); ?></label>
-                            <?php endforeach; ?>
+                <button class="tmp-tab-btn" data-tab="meetings">Meetings</button>
+                <button class="tmp-tab-btn" data-tab="recognition">Recognition</button>
+            </nav>
+
+            <!-- ══ MEMBERS TAB ══ -->
+            <div data-tab-body="members">
+
+                <!-- Level Advancement Requests — collapsible, auto-expands when there are requests -->
+                <section class="tmp-panel" data-tmp-vpe-levelup-queue>
+                    <button class="tmp-collapsible-toggle" data-tmp-levelup-toggle aria-expanded="false">
+                        Level Advancement Requests
+                        <span data-tmp-levelup-pending-count class="tmp-badge" style="display:none;margin-left:6px;"></span>
+                        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+                    </button>
+                    <div data-tmp-levelup-request-list style="display:none;padding-top:12px;">
+                        <p style="color:var(--tmp-muted);font-size:0.88rem;">No pending requests.</p>
+                    </div>
+                </section>
+
+                <!-- Pending Role Requests — collapsible, auto-expands when there are requests -->
+                <section class="tmp-panel">
+                    <button class="tmp-collapsible-toggle" data-tmp-requests-toggle aria-expanded="false">
+                        Pending Role Requests
+                        <span data-tmp-request-count class="tmp-badge" style="display:none;margin-left:6px;"></span>
+                        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+                    </button>
+                    <div data-tmp-requests-body style="display:none;padding-top:12px;">
+                        <div style="margin-bottom:12px;">
+                            <button class="tmp-button tmp-primary" data-tmp-approve-all-btn style="display:none;">Approve All Recommended</button>
                         </div>
-                        <label>Number of Speech Slots <input type="number" name="speech_slots" value="3" min="0" max="10" /></label>
-                        <p style="font-size:11px;color:#666;margin-top:5px;">* This will automatically create matching Evaluator slots. Table Topics Speakers are added live via the Voting panel during the meeting.</p>
+                        <div data-tmp-vpe-requests>Loading requests...</div>
                     </div>
-                    <label class="tmp-wide">Agenda notes <textarea name="agenda_notes" rows="2"></textarea></label>
-                    <div class="tmp-form-actions tmp-wide">
-                        <button class="tmp-button tmp-primary" type="submit">Save Meeting</button>
-                        <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-meeting>Clear</button>
-                        <span class="tmp-inline-status" data-tmp-meeting-save-status style="margin-left:10px;font-size:13px;"></span>
+                </section>
+
+                <!-- Unified member table: all levels, speech/role progress for L1–L3, mentor column -->
+                <section class="tmp-panel">
+                    <div class="tmp-card-head">
+                        <h3>Members</h3>
+                        <div style="display:flex;gap:12px;align-items:center;">
+                            <span data-tmp-vpe-ready-count style="color:var(--tmp-teal);font-weight:700;font-size:0.9rem;"></span>
+                            <span data-tmp-vpe-member-count style="color:var(--tmp-muted);font-size:0.88rem;">0 members</span>
+                        </div>
                     </div>
-                </form>
-                </div>
-            </section>
-
-            <form class="tmp-panel tmp-form" data-tmp-assignment-form>
-                <input type="hidden" name="id" />
-                <input type="hidden" name="role_name" />
-                <label>Meeting <select name="meeting_id" required data-tmp-meeting-select></select></label>
-                <div class="tmp-wide"><small>Add a new role slot, change duration, or set a speech title. To assign members to existing slots, use the Role Assignments table below.</small></div>
-                <label>Role <select data-tmp-role-select required></select></label>
-                <!-- Inline role suggestions — shown by JS when a role slot is selected -->
-                <div data-tmp-role-suggestions class="tmp-wide" style="display:none;"></div>
-                <label>Member <select name="member_id" data-tmp-member-select></select></label>
-                <!-- Cooloff warning injected here by JS -->
-                <div data-tmp-cooloff-warning style="display:none;" class="tmp-wide"></div>
-                <label data-tmp-speech-title-wrapper>Speech title <input name="speech_title" placeholder="Optional speech title" /></label>
-                <!-- Presentation series — shown only for Educational Presentation roles -->
-                <label data-tmp-pres-series-wrapper style="display:none;">
-                    Presentation Series
-                    <select name="presentation_series">
-                        <option value="">Not applicable</option>
-                        <option value="Successful Club Series">Successful Club Series</option>
-                        <option value="Better Speaker Series">Better Speaker Series</option>
-                        <option value="Leadership Excellence Series">Leadership Excellence Series</option>
-                    </select>
-                </label>
-                <label>Duration (mins) <input type="number" name="duration" min="0" placeholder="e.g. 7" /></label>
-                <!-- Timer guidance — shown when a slot is selected; hidden for breaks -->
-                <div data-tmp-timing-wrap class="tmp-wide" style="display:none;padding:10px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:4px;">
-                    <p class="tmp-eyebrow" style="margin:0 0 8px;">Timer Guidance (M:SS)</p>
-                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
-                        <label><span style="color:#2e7d32;font-weight:700;">● Green</span><input type="text" name="time_green"  placeholder="5:00" style="display:block;width:100%;margin-top:4px;" /></label>
-                        <label><span style="color:#f9a825;font-weight:700;">● Yellow</span><input type="text" name="time_yellow" placeholder="6:00" style="display:block;width:100%;margin-top:4px;" /></label>
-                        <label><span style="color:#c62828;font-weight:700;">● Red</span><input type="text" name="time_red"    placeholder="7:00" style="display:block;width:100%;margin-top:4px;" /></label>
-                    </div>
-                </div>
-                <label style="display:none;">Status
-                    <select name="status">
-                        <option>Planned</option>
-                        <option>Requested</option>
-                        <option>Confirmed</option>
-                        <option>Needs replacement</option>
-                        <option>Completed</option>
-                    </select>
-                </label>
-                <!-- Cooloff override — shown by JS when needed -->
-                <div data-tmp-cooloff-override-wrapper class="tmp-wide" style="display:none;padding:10px;background:#fff8e1;border:1px solid #ffd54f;border-radius:4px;">
-                    <label style="display:flex;align-items:center;gap:8px;font-weight:bold;">
-                        <input type="checkbox" name="cooloff_override" value="1"> Override cooloff period
-                    </label>
-                    <label style="margin-top:6px;">
-                        Override reason <input type="text" name="override_reason" placeholder="Brief reason for the exception" />
-                    </label>
-                </div>
-                <div class="tmp-form-actions tmp-wide">
-                    <button class="tmp-button tmp-primary" type="submit">Save Assignment</button>
-                    <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-assignment>Clear</button>
-                </div>
-            </form>
-
-            <!-- Role Status panel — populated by JS when a meeting is selected in the form above -->
-            <section class="tmp-panel" data-tmp-role-status-panel style="display:none;">
-                <p class="tmp-eyebrow">Role assignments</p>
-                <!-- content injected by renderRoleStatus() -->
-            </section>
-
-            <section class="tmp-panel">
-                <div class="tmp-card-head">
-                    <h3>Meeting Agendas</h3>
-                    <span data-tmp-meeting-count>0 meetings</span>
-                </div>
-                <div data-tmp-meeting-list></div>
-            </section>
-        </div>
-
-        <!-- ══ VOTING PANEL — Table Topics live entry + results ══ -->
-        <section class="tmp-panel" data-tmp-voting-panel>
-            <div class="tmp-card-head">
-                <div>
-                    <p class="tmp-eyebrow">Meeting Day</p>
-                    <h3 style="margin:0;">Voting &amp; Table Topics</h3>
-                </div>
-                <span data-tmp-voting-meeting-label style="color:var(--tmp-muted);font-size:0.85rem;"></span>
-            </div>
-            <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
-                Select today&rsquo;s meeting to manage live voting. Add Table Topics speakers as they step up — the voting form on the home page updates automatically.
-            </p>
-
-            <label style="display:block;margin-bottom:16px;">
-                Meeting
-                <select data-tmp-voting-meeting-select style="display:block;width:100%;margin-top:4px;">
-                    <option value="">— select meeting —</option>
-                </select>
-            </label>
-
-            <!-- TT speaker entry -->
-            <div data-tmp-tt-entry style="display:none;">
-                <p class="tmp-eyebrow" style="margin-top:20px;">Table Topics Speakers</p>
-                <!-- Row 1: select + Add button always side-by-side -->
-                <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
-                    <div style="flex:1;">
-                        <label style="display:block;margin-bottom:4px;font-size:0.88rem;font-weight:700;">Add speaker</label>
-                        <select data-tmp-tt-member-select style="display:block;width:100%;">
-                            <option value="">— select member —</option>
-                            <!-- members + guest option populated by JS -->
+                    <div data-tmp-unmentored-alert></div>
+                    <div class="tmp-admin-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;background:#f9f9f9;padding:10px;border-radius:4px;border:1px solid #eee;">
+                        <input type="text" data-tmp-vpe-search placeholder="Search by name or email..." style="flex:1;min-width:180px;">
+                        <select data-tmp-vpe-pathway>
+                            <option value="all">All Pathways</option>
+                            <option>No pathway registered</option>
+                            <option>Enrolled — Pathway TBD</option>
+                            <option>Dynamic Leadership</option>
+                            <option>Effective Coaching</option>
+                            <option>Engaging Humor</option>
+                            <option>Innovative Planning</option>
+                            <option>Motivational Strategies</option>
+                            <option>Persuasive Influence</option>
+                            <option>Presentation Mastery</option>
+                            <option>Strategic Relationships</option>
+                            <option>Team Collaboration</option>
+                            <option>Visionary Communication</option>
+                            <option>Distinguished Toastmaster</option>
+                        </select>
+                        <select data-tmp-vpe-level>
+                            <option value="all">All Levels</option>
+                            <option value="0">Level 0 (Enrolled)</option>
+                            <option value="1">Level 1</option>
+                            <option value="2">Level 2</option>
+                            <option value="3">Level 3</option>
+                            <option value="4">Level 4</option>
+                            <option value="5">Level 5</option>
+                        </select>
+                        <select data-tmp-vpe-mentor-filter>
+                            <option value="all">All Members</option>
+                            <option value="none">No Mentor Assigned</option>
+                            <option value="assigned">Has Mentor</option>
+                        </select>
+                        <select data-tmp-vpe-lp-status>
+                            <option value="all">All statuses</option>
+                            <option value="ready">🟢 Ready to advance</option>
+                            <option value="in_progress">🟡 In progress</option>
+                            <option value="stuck">🔴 Stuck</option>
                         </select>
                     </div>
-                    <button class="tmp-button tmp-primary" data-tmp-tt-add-btn style="flex-shrink:0;white-space:nowrap;">+ Add</button>
-                </div>
-                <!-- Row 2: guest name input, shown only when Guest option selected -->
-                <div data-tmp-tt-guest-wrap style="display:none;margin-bottom:10px;">
-                    <input type="text" data-tmp-tt-name placeholder="Enter guest name" style="display:block;width:100%;" />
-                </div>
-                <div data-tmp-tt-speaker-list></div>
-            </div>
-
-            <!-- Nominee overview + results -->
-            <div data-tmp-voting-nominees style="display:none;margin-top:20px;">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
-                    <p class="tmp-eyebrow" style="margin:0;">Current Nominees</p>
-                    <button class="tmp-small-button" data-tmp-refresh-nominees-btn title="Re-sync main and auxiliary nominees from confirmed role assignments">&#8635; Refresh from Assignments</button>
-                </div>
-                <div data-tmp-nominees-summary></div>
-
-                <!-- Poll control -->
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
-                    <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Open Poll</button>
-                    <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
-                </div>
-                <button class="tmp-button" data-tmp-declare-winners-btn style="margin-top:8px;background:#1e4a6e;color:#fff;border:none;">&#127942; Declare Winners</button>
-
-                <button class="tmp-small-button" data-tmp-voting-results-btn style="margin-top:14px;">Show Live Results</button>
-                <div data-tmp-voting-results style="display:none;margin-top:12px;"></div>
-            </div>
-        </section>
-
-        <!-- ══ MEETING WRAP-UP ══ -->
-        <section class="tmp-panel" data-tmp-wrapup-panel>
-            <div class="tmp-card-head">
-                <div>
-                    <p class="tmp-eyebrow">After the Meeting</p>
-                    <h3 style="margin:0;">Meeting Wrap-Up</h3>
-                </div>
-                <span data-tmp-wrapup-badge style="display:none;background:#e8f5e9;color:#2e7d32;border:1px solid #4caf50;border-radius:20px;padding:3px 10px;font-size:0.78rem;font-weight:700;">✓ Completed</span>
-            </div>
-            <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
-                Record who attended, confirm roles performed, and finalise winners. The home page Meeting Pulse updates once you complete this.
-            </p>
-
-            <label style="display:block;margin-bottom:16px;">
-                Meeting
-                <select data-tmp-wrapup-meeting-select style="display:block;width:100%;margin-top:4px;">
-                    <option value="">— select meeting —</option>
-                </select>
-            </label>
-
-            <div data-tmp-wrapup-content style="display:none;">
-
-                <!-- ── Role Performers ────────────────────────────────────────── -->
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;flex-wrap:wrap;gap:6px;">
-                    <p class="tmp-eyebrow" style="margin:0;">Role Performers</p>
-                    <button class="tmp-link-button" data-tmp-mark-all-present style="font-size:0.82rem;color:var(--tmp-teal);">↺ Mark all present</button>
-                </div>
-                <p style="font-size:0.82rem;color:var(--tmp-muted);margin:4px 0 10px;">
-                    Everyone is present by default. Tap a row to mark absent.
-                </p>
-                <div data-tmp-role-performers-list></div>
-
-                <!-- ── Walk-in Members (no role) ─────────────────────────────── -->
-                <div style="margin-top:20px;">
-                    <p class="tmp-eyebrow" style="margin-bottom:6px;">Also Attended <span style="font-weight:400;font-size:0.78rem;color:var(--tmp-muted);">(no assigned role)</span></p>
-                    <div style="position:relative;">
-                        <input type="text" data-tmp-walkin-search placeholder="Search member name…" autocomplete="off"
-                               style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
-                        <div data-tmp-walkin-dropdown style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid var(--tmp-line);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:100;max-height:220px;overflow-y:auto;"></div>
+                    <div class="tmp-table-wrap">
+                        <table class="tmp-table" style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th data-sort-col="name" class="tmp-sortable">Name <span class="tmp-sort-ind">▲</span></th>
+                                    <th data-sort-col="level" class="tmp-sortable">Level <span class="tmp-sort-ind">↕</span></th>
+                                    <th>Speeches</th>
+                                    <th>Roles</th>
+                                    <th>Mentor</th>
+                                    <th>Status</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody data-tmp-unified-rows></tbody>
+                        </table>
                     </div>
-                    <div data-tmp-walkin-list style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
-                </div>
+                </section>
 
-                <!-- ── Guests ─────────────────────────────────────────────────── -->
-                <div style="margin-top:16px;">
-                    <p class="tmp-eyebrow" style="margin-bottom:6px;">Guests</p>
-                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                        <input type="text" data-tmp-guest-name placeholder="Guest name" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
-                        <button class="tmp-button tmp-primary" data-tmp-add-guest-btn style="flex-shrink:0;white-space:nowrap;padding:8px 14px;">+ Add Guest</button>
+            </div><!-- /tab-body members -->
+
+            <!-- ══ MEETINGS TAB ══ -->
+            <div data-tab-body="meetings" style="display:none;">
+
+                <section class="tmp-panel">
+                    <div class="tmp-card-head" style="margin-bottom:10px;">
+                        <h3 style="margin:0;">Manage Meetings</h3>
                     </div>
-                    <div data-tmp-guests-list style="margin-top:8px;"></div>
-                </div>
+                    <div data-tmp-meetings-compact-list style="margin-bottom:14px;"></div>
+                    <button class="tmp-collapsible-toggle" data-tmp-meeting-form-toggle aria-expanded="false" style="width:100%;text-align:left;">
+                        <span data-tmp-meeting-form-label>Schedule New Meeting</span>
+                        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+                    </button>
+                    <div data-tmp-meeting-form-body style="display:none;margin-top:14px;">
+                    <form class="tmp-form" data-tmp-meeting-form>
+                        <input type="hidden" name="id" />
+                        <label>Meeting date <input type="date" name="meeting_date" required /></label>
+                        <label>Start time <input type="time" name="start_time" value="18:30" /></label>
+                        <label>Total Duration (mins) <input type="number" name="total_duration" value="120" min="0" /></label>
+                        <label>Requests deadline <input type="datetime-local" name="requests_close_at" /></label>
+                        <label>Theme <input name="theme" required placeholder="Meeting theme" /></label>
+                        <label>Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
+                        <div class="tmp-wide tmp-roles-setup" style="margin:10px 0;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;">
+                            <p class="tmp-eyebrow">Meeting Template (New meetings only)</p>
+                            <p style="font-size:12px;color:#555;margin:0 0 8px;">
+                                Using standard agenda with all roles.
+                                <button type="button" class="tmp-link-button" data-tmp-customise-roles style="margin-left:6px;font-size:12px;">Customise roles ▾</button>
+                            </p>
+                            <div data-tmp-roles-grid style="display:none;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px;">
+                                <?php foreach (TMP_Repository::get_standard_roles() as $fullName => $shortName) : ?>
+                                    <label><input type="checkbox" name="roles[]" value="<?php echo esc_attr($fullName); ?>" checked> <?php echo esc_html($shortName); ?></label>
+                                <?php endforeach; ?>
+                            </div>
+                            <label>Number of Speech Slots <input type="number" name="speech_slots" value="3" min="0" max="10" /></label>
+                            <p style="font-size:11px;color:#666;margin-top:5px;">* This will automatically create matching Evaluator slots. Table Topics Speakers are added live via the Voting panel during the meeting.</p>
+                        </div>
+                        <label class="tmp-wide">Agenda notes <textarea name="agenda_notes" rows="2"></textarea></label>
+                        <div class="tmp-form-actions tmp-wide">
+                            <button class="tmp-button tmp-primary" type="submit">Save Meeting</button>
+                            <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-meeting>Clear</button>
+                            <span class="tmp-inline-status" data-tmp-meeting-save-status style="margin-left:10px;font-size:13px;"></span>
+                        </div>
+                    </form>
+                    </div>
+                </section>
 
-                <!-- ── Winners ──────────────────────────────────────── -->
-                <div data-tmp-winners-section style="margin-top:20px;">
-                    <p class="tmp-eyebrow">Winners</p>
-                    <p style="font-size:0.82rem;color:var(--tmp-muted);margin:4px 0 10px;">
-                        Pre-filled from voting. Uncheck to exclude.
+                <form class="tmp-panel tmp-form" data-tmp-assignment-form>
+                    <input type="hidden" name="id" />
+                    <input type="hidden" name="role_name" />
+                    <label>Meeting <select name="meeting_id" required data-tmp-meeting-select></select></label>
+                    <div class="tmp-wide"><small>Add a new role slot, change duration, or set a speech title. To assign members to existing slots, use the Role Assignments table below.</small></div>
+                    <label>Role <select data-tmp-role-select required></select></label>
+                    <div data-tmp-role-suggestions class="tmp-wide" style="display:none;"></div>
+                    <label>Member <select name="member_id" data-tmp-member-select></select></label>
+                    <div data-tmp-cooloff-warning style="display:none;" class="tmp-wide"></div>
+                    <label data-tmp-speech-title-wrapper>Speech title <input name="speech_title" placeholder="Optional speech title" /></label>
+                    <label data-tmp-pres-series-wrapper style="display:none;">
+                        Presentation Series
+                        <select name="presentation_series">
+                            <option value="">Not applicable</option>
+                            <option value="Successful Club Series">Successful Club Series</option>
+                            <option value="Better Speaker Series">Better Speaker Series</option>
+                            <option value="Leadership Excellence Series">Leadership Excellence Series</option>
+                        </select>
+                    </label>
+                    <label>Duration (mins) <input type="number" name="duration" min="0" placeholder="e.g. 7" /></label>
+                    <div data-tmp-timing-wrap class="tmp-wide" style="display:none;padding:10px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:4px;">
+                        <p class="tmp-eyebrow" style="margin:0 0 8px;">Timer Guidance (M:SS)</p>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                            <label><span style="color:#2e7d32;font-weight:700;">● Green</span><input type="text" name="time_green"  placeholder="5:00" style="display:block;width:100%;margin-top:4px;" /></label>
+                            <label><span style="color:#f9a825;font-weight:700;">● Yellow</span><input type="text" name="time_yellow" placeholder="6:00" style="display:block;width:100%;margin-top:4px;" /></label>
+                            <label><span style="color:#c62828;font-weight:700;">● Red</span><input type="text" name="time_red"    placeholder="7:00" style="display:block;width:100%;margin-top:4px;" /></label>
+                        </div>
+                    </div>
+                    <label style="display:none;">Status
+                        <select name="status">
+                            <option>Planned</option>
+                            <option>Requested</option>
+                            <option>Confirmed</option>
+                            <option>Needs replacement</option>
+                            <option>Completed</option>
+                        </select>
+                    </label>
+                    <div data-tmp-cooloff-override-wrapper class="tmp-wide" style="display:none;padding:10px;background:#fff8e1;border:1px solid #ffd54f;border-radius:4px;">
+                        <label style="display:flex;align-items:center;gap:8px;font-weight:bold;">
+                            <input type="checkbox" name="cooloff_override" value="1"> Override cooloff period
+                        </label>
+                        <label style="margin-top:6px;">
+                            Override reason <input type="text" name="override_reason" placeholder="Brief reason for the exception" />
+                        </label>
+                    </div>
+                    <div class="tmp-form-actions tmp-wide">
+                        <button class="tmp-button tmp-primary" type="submit">Save Assignment</button>
+                        <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-assignment>Clear</button>
+                    </div>
+                </form>
+
+                <section class="tmp-panel" data-tmp-role-status-panel style="display:none;">
+                    <p class="tmp-eyebrow">Role assignments</p>
+                </section>
+
+                <section class="tmp-panel">
+                    <div class="tmp-card-head">
+                        <h3>Meeting Agendas</h3>
+                        <span data-tmp-meeting-count>0 meetings</span>
+                    </div>
+                    <div data-tmp-meeting-list></div>
+                </section>
+
+                <!-- Voting panel -->
+                <section class="tmp-panel" data-tmp-voting-panel>
+                    <div class="tmp-card-head">
+                        <div>
+                            <p class="tmp-eyebrow">Meeting Day</p>
+                            <h3 style="margin:0;">Voting &amp; Table Topics</h3>
+                        </div>
+                        <span data-tmp-voting-meeting-label style="color:var(--tmp-muted);font-size:0.85rem;"></span>
+                    </div>
+                    <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
+                        Select today&rsquo;s meeting to manage live voting. Add Table Topics speakers as they step up — the voting form on the home page updates automatically.
                     </p>
-                    <div data-tmp-winners-list></div>
-                </div>
+                    <label style="display:block;margin-bottom:16px;">
+                        Meeting
+                        <select data-tmp-voting-meeting-select style="display:block;width:100%;margin-top:4px;">
+                            <option value="">— select meeting —</option>
+                        </select>
+                    </label>
+                    <div data-tmp-tt-entry style="display:none;">
+                        <p class="tmp-eyebrow" style="margin-top:20px;">Table Topics Speakers</p>
+                        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
+                            <div style="flex:1;">
+                                <label style="display:block;margin-bottom:4px;font-size:0.88rem;font-weight:700;">Add speaker</label>
+                                <select data-tmp-tt-member-select style="display:block;width:100%;">
+                                    <option value="">— select member —</option>
+                                </select>
+                            </div>
+                            <button class="tmp-button tmp-primary" data-tmp-tt-add-btn style="flex-shrink:0;white-space:nowrap;">+ Add</button>
+                        </div>
+                        <div data-tmp-tt-guest-wrap style="display:none;margin-bottom:10px;">
+                            <input type="text" data-tmp-tt-name placeholder="Enter guest name" style="display:block;width:100%;" />
+                        </div>
+                        <div data-tmp-tt-speaker-list></div>
+                    </div>
+                    <div data-tmp-voting-nominees style="display:none;margin-top:20px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                            <p class="tmp-eyebrow" style="margin:0;">Current Nominees</p>
+                            <button class="tmp-small-button" data-tmp-refresh-nominees-btn title="Re-sync main and auxiliary nominees from confirmed role assignments">&#8635; Refresh from Assignments</button>
+                        </div>
+                        <div data-tmp-nominees-summary></div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
+                            <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Open Poll</button>
+                            <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
+                        </div>
+                        <button class="tmp-button" data-tmp-declare-winners-btn style="margin-top:8px;background:#1e4a6e;color:#fff;border:none;">&#127942; Declare Winners</button>
+                        <button class="tmp-small-button" data-tmp-voting-results-btn style="margin-top:14px;">Show Live Results</button>
+                        <div data-tmp-voting-results style="display:none;margin-top:12px;"></div>
+                    </div>
+                </section>
 
-                <!-- ── Submit ──────────────────────────────────────── -->
-                <div class="tmp-wrapup-actions">
-                    <button class="tmp-button tmp-primary" data-tmp-complete-meeting-btn>✓ Complete Meeting</button>
-                    <span data-tmp-wrapup-save-status style="font-size:0.82rem;"></span>
-                </div>
+                <!-- Meeting wrap-up -->
+                <section class="tmp-panel" data-tmp-wrapup-panel>
+                    <div class="tmp-card-head">
+                        <div>
+                            <p class="tmp-eyebrow">After the Meeting</p>
+                            <h3 style="margin:0;">Meeting Wrap-Up</h3>
+                        </div>
+                        <span data-tmp-wrapup-badge style="display:none;background:#e8f5e9;color:#2e7d32;border:1px solid #4caf50;border-radius:20px;padding:3px 10px;font-size:0.78rem;font-weight:700;">✓ Completed</span>
+                    </div>
+                    <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
+                        Record who attended, confirm roles performed, and finalise winners. The home page Meeting Pulse updates once you complete this.
+                    </p>
+                    <label style="display:block;margin-bottom:16px;">
+                        Meeting
+                        <select data-tmp-wrapup-meeting-select style="display:block;width:100%;margin-top:4px;">
+                            <option value="">— select meeting —</option>
+                        </select>
+                    </label>
+                    <div data-tmp-wrapup-content style="display:none;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;flex-wrap:wrap;gap:6px;">
+                            <p class="tmp-eyebrow" style="margin:0;">Role Performers</p>
+                            <button class="tmp-link-button" data-tmp-mark-all-present style="font-size:0.82rem;color:var(--tmp-teal);">↺ Mark all present</button>
+                        </div>
+                        <p style="font-size:0.82rem;color:var(--tmp-muted);margin:4px 0 10px;">
+                            Everyone is present by default. Tap a row to mark absent.
+                        </p>
+                        <div data-tmp-role-performers-list></div>
+                        <div style="margin-top:20px;">
+                            <p class="tmp-eyebrow" style="margin-bottom:6px;">Also Attended <span style="font-weight:400;font-size:0.78rem;color:var(--tmp-muted);">(no assigned role)</span></p>
+                            <div style="position:relative;">
+                                <input type="text" data-tmp-walkin-search placeholder="Search member name…" autocomplete="off"
+                                       style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
+                                <div data-tmp-walkin-dropdown style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid var(--tmp-line);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:100;max-height:220px;overflow-y:auto;"></div>
+                            </div>
+                            <div data-tmp-walkin-list style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+                        </div>
+                        <div style="margin-top:16px;">
+                            <p class="tmp-eyebrow" style="margin-bottom:6px;">Guests</p>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <input type="text" data-tmp-guest-name placeholder="Guest name" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
+                                <button class="tmp-button tmp-primary" data-tmp-add-guest-btn style="flex-shrink:0;white-space:nowrap;padding:8px 14px;">+ Add Guest</button>
+                            </div>
+                            <div data-tmp-guests-list style="margin-top:8px;"></div>
+                        </div>
+                        <div data-tmp-winners-section style="margin-top:20px;">
+                            <p class="tmp-eyebrow">Winners</p>
+                            <p style="font-size:0.82rem;color:var(--tmp-muted);margin:4px 0 10px;">Pre-filled from voting. Uncheck to exclude.</p>
+                            <div data-tmp-winners-list></div>
+                        </div>
+                        <div class="tmp-wrapup-actions">
+                            <button class="tmp-button tmp-primary" data-tmp-complete-meeting-btn>✓ Complete Meeting</button>
+                            <span data-tmp-wrapup-save-status style="font-size:0.82rem;"></span>
+                        </div>
+                    </div>
+                </section>
 
-            </div><!-- /data-tmp-wrapup-content -->
-        </section>
+            </div><!-- /tab-body meetings -->
 
-        <!-- ── Recognition: TM of Month / Quarter ──────────────────────────── -->
-        <section class="tmp-panel" data-tmp-recognition-panel>
-            <div class="tmp-card-head" style="margin-bottom:16px;">
-                <h3 style="margin:0;">Member Recognition</h3>
-                <span class="tmp-eyebrow">Toastmaster of the Month / Quarter</span>
-            </div>
+            <!-- ══ RECOGNITION TAB ══ -->
+            <div data-tab-body="recognition" style="display:none;">
 
-            <!-- Period selector -->
-            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end;">
-                <label style="flex:0 0 auto;">
-                    Award type
-                    <select data-tmp-recog-type style="display:block;margin-top:4px;">
-                        <option value="month">Toastmaster of the Month</option>
-                        <option value="quarter">Toastmaster of the Quarter</option>
-                    </select>
-                </label>
-                <label style="flex:0 0 auto;">
-                    Period start
-                    <input type="date" data-tmp-recog-start style="display:block;margin-top:4px;" />
-                </label>
-                <label style="flex:0 0 auto;">
-                    Period end
-                    <input type="date" data-tmp-recog-end style="display:block;margin-top:4px;" />
-                </label>
-                <button class="tmp-button tmp-primary" data-tmp-recog-compute style="flex:0 0 auto;align-self:flex-end;">Compute Scores</button>
-            </div>
+                <section class="tmp-panel" data-tmp-recognition-panel>
+                    <div class="tmp-card-head" style="margin-bottom:16px;">
+                        <h3 style="margin:0;">Member Recognition</h3>
+                        <span class="tmp-eyebrow">Toastmaster of the Month / Quarter</span>
+                    </div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end;">
+                        <label style="flex:0 0 auto;">
+                            Award type
+                            <select data-tmp-recog-type style="display:block;margin-top:4px;">
+                                <option value="month">Toastmaster of the Month</option>
+                                <option value="quarter">Toastmaster of the Quarter</option>
+                            </select>
+                        </label>
+                        <label style="flex:0 0 auto;">
+                            Period start
+                            <input type="date" data-tmp-recog-start style="display:block;margin-top:4px;" />
+                        </label>
+                        <label style="flex:0 0 auto;">
+                            Period end
+                            <input type="date" data-tmp-recog-end style="display:block;margin-top:4px;" />
+                        </label>
+                        <button class="tmp-button tmp-primary" data-tmp-recog-compute style="flex:0 0 auto;align-self:flex-end;">Compute Scores</button>
+                    </div>
+                    <div data-tmp-recog-scores style="overflow-x:auto;"></div>
+                    <div style="margin-top:28px;">
+                        <h4 style="margin:0 0 10px;">Past Awards</h4>
+                        <div data-tmp-recog-awards-list></div>
+                    </div>
+                </section>
 
-            <!-- Score table -->
-            <div data-tmp-recog-scores style="overflow-x:auto;"></div>
+            </div><!-- /tab-body recognition -->
 
-            <!-- Past awards list -->
-            <div style="margin-top:28px;">
-                <h4 style="margin:0 0 10px;">Past Awards</h4>
-                <div data-tmp-recog-awards-list></div>
-            </div>
-        </section>
-
-        <!-- Mentor assignment modal (hidden, shown by JS) -->
-        <div id="tmp-mentor-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
-            <div style="background:#fff;border-radius:8px;padding:30px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.2);">
-                <h3 style="margin:0 0 6px;">Assign Mentor</h3>
-                <p id="tmp-mentor-modal-member" style="color:var(--tmp-muted);margin:0 0 16px;font-size:13px;"></p>
-                <label style="display:block;margin-bottom:16px;">
-                    Select eligible mentor (Level 2+, active)
-                    <select id="tmp-mentor-select" style="width:100%;margin-top:6px;"></select>
-                </label>
-                <p id="tmp-mentor-modal-error" style="display:none;color:var(--tmp-burgundy);font-size:13px;margin:0 0 12px;"></p>
-                <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
-                    <button class="tmp-button tmp-secondary" id="tmp-mentor-modal-cancel">Cancel</button>
-                    <button class="tmp-button tmp-primary" id="tmp-mentor-modal-save">Save Mentor</button>
+            <!-- Mentor assignment modal -->
+            <div id="tmp-mentor-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
+                <div style="background:#fff;border-radius:8px;padding:30px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.2);">
+                    <h3 style="margin:0 0 6px;">Assign Mentor</h3>
+                    <p id="tmp-mentor-modal-member" style="color:var(--tmp-muted);margin:0 0 16px;font-size:13px;"></p>
+                    <label style="display:block;margin-bottom:16px;">
+                        Select eligible mentor (Level 2+, active)
+                        <select id="tmp-mentor-select" style="width:100%;margin-top:6px;"></select>
+                    </label>
+                    <p id="tmp-mentor-modal-error" style="display:none;color:var(--tmp-burgundy);font-size:13px;margin:0 0 12px;"></p>
+                    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+                        <button class="tmp-button tmp-secondary" id="tmp-mentor-modal-cancel">Cancel</button>
+                        <button class="tmp-button tmp-primary" id="tmp-mentor-modal-save">Save Mentor</button>
+                    </div>
                 </div>
             </div>
         </div>
