@@ -3706,6 +3706,7 @@ class TMP_Repository {
 
         return [
             'level'            => $level,
+            'level_completed'  => (int)($member['level_completed'] ?? 0),
             'pathway'          => $member['pathway'] ?? '',
             'speech_progress'  => $speech_progress,
             'role_gaps'        => $role_gaps,

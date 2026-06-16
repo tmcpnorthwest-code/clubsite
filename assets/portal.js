@@ -465,9 +465,8 @@
         const data = await api("/me/level-status").catch(() => null);
         if (!data) return;
 
-        // Use level_completed to determine current working level (more reliable than level field)
         const levelCompleted = data.level_completed || 0;
-        const workingLevel = Math.min(levelCompleted + 1, 5);
+        const workingLevel = data.level || Math.min(levelCompleted + 1, 5);
 
         if (workingLevel > 3) {
           // L4+ members: hide progress panel, show next action
