@@ -70,6 +70,7 @@ class TMP_Repository {
             'ah-counter'          => 0,  // L0+ (any level)
             'timer'               => 0,  // L0+ (any level)
             'sergeant at arms'    => 0,  // L0+ (any level)
+            'active listener'     => 0,  // L0+ (any level)
         ];
     }
 
@@ -89,6 +90,7 @@ class TMP_Repository {
             'Grammarian'             => 'Grammarian',
             'Introductory Mentor'    => 'Intro Mentor',
             'Educational Presentation' => 'Edu Presentation',
+            'Active Listener'        => 'Active Listener',
         ];
     }
 
@@ -2083,6 +2085,7 @@ class TMP_Repository {
             if (in_array('Timer', $selected_roles))    $agenda[] = ['role' => 'Timer',              'note' => 'Report',       'dur' => 2];
             if (in_array('Ah-Counter', $selected_roles)) $agenda[] = ['role' => 'Ah-Counter',        'note' => 'Report',       'dur' => 3];
             if (in_array('Grammarian', $selected_roles)) $agenda[] = ['role' => 'Grammarian',        'note' => 'Report',       'dur' => 3];
+            if (in_array('Active Listener', $selected_roles)) $agenda[] = ['role' => 'Active Listener', 'note' => 'Report',      'dur' => 3];
             if (in_array('General Evaluator', $selected_roles)) $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 5];
             if (in_array('Toastmaster of the Day', $selected_roles)) $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Audience Feedback for Moment of Glory', 'dur' => 1];
             if (in_array('Presiding Officer', $selected_roles)) $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Closing address and Guest feedback', 'dur' => 4];
@@ -2165,6 +2168,9 @@ class TMP_Repository {
             return str_contains($lower, 'report') ? $pick('ah_counter') : $pick('intro');
         }
         if (str_contains($lower, 'grammarian')) {
+            return str_contains($lower, 'report') ? $pick('grammarian') : $pick('intro');
+        }
+        if (str_contains($lower, 'active listener')) {
             return str_contains($lower, 'report') ? $pick('grammarian') : $pick('intro');
         }
         return [null, null, null];
@@ -2955,7 +2961,7 @@ class TMP_Repository {
             return 'main_role';
         }
 
-        if (preg_match('/\b(sergeant at arms|saa|timer|ah.counter|grammarian)\b/', $lower)) {
+        if (preg_match('/\b(sergeant at arms|saa|timer|ah.counter|grammarian|active listener)\b/', $lower)) {
             return 'aux_role';
         }
 
@@ -3930,6 +3936,7 @@ class TMP_Repository {
             'table topics master', 'table topics speaker',
             'introductory mentor', 'intro mentor',
             'presiding officer', 'educational presentation',
+            'active listener',
         ];
         foreach ($service_patterns as $p) {
             if (strpos($lower, $p) !== false) {

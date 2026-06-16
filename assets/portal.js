@@ -34,7 +34,8 @@
     if (n.includes("timer"))                return 3;
     if (n.includes("ah counter"))           return 4;
     if (n.includes("grammarian"))           return 5;
-    if (n.includes("general evaluator"))    return 6;
+    if (n.includes("active listener"))      return 6;
+    if (n.includes("general evaluator"))    return 7;
     return 50;
   }
 

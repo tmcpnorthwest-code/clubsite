@@ -40,13 +40,19 @@ $diversity_leaders = [];
 if (class_exists('TMP_Repository')) {
     $all_members = TMP_Repository::members();
 
-    $active_members = array_filter($all_members, function ($m) {
-        return strtolower($m['state'] ?? '') !== 'unpaidmember';
+    $today_str = gmdate('Y-m-d');
+    $active_members = array_filter($all_members, function ($m) use ($today_str) {
+        return strtolower($m['state'] ?? '') === 'active'
+            && (
+                !empty($m['is_exempt_from_unpaid_block'])
+                || empty($m['paid_until'])
+                || $m['paid_until'] >= $today_str
+            );
     });
     $active_count = count($active_members);
 
     foreach ($active_members as $m) {
-        $l = max(0, min(5, (int) ($m['level'] ?? 0)));
+        $l = max(0, min(5, (int) ($m['level_completed'] ?? 0)));
         $level_dist[$l] = ($level_dist[$l] ?? 0) + 1;
     }
     ksort($level_dist);
@@ -228,37 +234,31 @@ if ($next_meeting) {
   <!-- ══════════════════════════════════════════════════════════ HERO -->
   <section class="hero" id="tmc-top">
     <img
-      src="<?php echo esc_url($template_dir . '/assets/club-hero.png'); ?>"
+      src="<?php echo esc_url($template_dir . '/assets/hero-photo.jpeg'); ?>"
       alt="Toastmasters Club of Pune North West members at a meeting"
       loading="eager"
     />
-    <div class="hero-overlay">
-      <p class="eyebrow">District 98 &middot; Pune, India</p>
-      <h1>Toastmasters Club of<br>Pune North West</h1>
-      <p>Where Pune North West finds its voice. Weekly meetings to build speaking confidence, leadership, and lifelong connections.</p>
-
-      <?php if ($next_meeting) :
-        $nm_dt = new DateTime($next_meeting['meeting_date']); ?>
-        <div class="hero-meeting-chip">
-          <span class="hero-chip-label">Next Meeting</span>
-          <strong><?php echo esc_html($nm_dt->format('l, F j')); ?></strong>
-          <?php if ($days_until !== null && $days_until >= 0) : ?>
-            <span class="hero-chip-countdown">
-              <?php echo $days_until === 0 ? 'Today!' : "in {$days_until} day" . ($days_until !== 1 ? 's' : ''); ?>
-            </span>
-          <?php endif; ?>
-          <?php if (!empty($next_meeting['theme'])) : ?>
-            &middot; <em><?php echo esc_html($next_meeting['theme']); ?></em>
-          <?php endif; ?>
-        </div>
-      <?php endif; ?>
-
-      <div class="hero-actions">
-        <a class="button primary" href="<?php echo esc_url(home_url('/member-dashboard/')); ?>">Member Login</a>
-        <a class="button secondary" href="#tmc-membership">Join the Club</a>
-        <a class="button secondary" href="#tmc-gallery">Club Life</a>
+    <?php if ($next_meeting) :
+      $nm_dt = new DateTime($next_meeting['meeting_date']); ?>
+      <div class="hero-meeting-chip">
+        <span class="hero-chip-label">Next Meeting</span>
+        <strong><?php echo esc_html($nm_dt->format('l, F j')); ?></strong>
+        <?php if ($days_until !== null && $days_until >= 0) : ?>
+          <span class="hero-chip-countdown">
+            <?php echo $days_until === 0 ? 'Today!' : "in {$days_until} day" . ($days_until !== 1 ? 's' : ''); ?>
+          </span>
+        <?php endif; ?>
+        <?php if (!empty($next_meeting['theme'])) : ?>
+          &middot; <em><?php echo esc_html($next_meeting['theme']); ?></em>
+        <?php endif; ?>
       </div>
-    </div>
+    <?php endif; ?>
+    <a class="hero-join-btn" href="#tmc-membership" aria-label="Join Us – scroll to membership section">
+      <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18" aria-hidden="true">
+        <path d="M9 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM17.32 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 0 0-1.5-4.33A5 5 0 0 1 19 16v1h-6.07ZM6 11a5 5 0 0 1 5 5v1H1v-1a5 5 0 0 1 5-5Z"/>
+      </svg>
+      Join Us
+    </a>
   </section>
 
   <!-- ══════════════════════════════════════════════════════ STATS BAND -->
@@ -386,7 +386,7 @@ if ($next_meeting) {
     <?php
     $cat_labels = [
         'main_role'    => ['label' => 'Best Main Role',             'desc' => 'TMOD · Table Topics Master · General Evaluator'],
-        'aux_role'     => ['label' => 'Best Auxiliary Role',         'desc' => 'SAA · Timer · Ah-Counter · Grammarian'],
+        'aux_role'     => ['label' => 'Best Auxiliary Role',         'desc' => 'SAA · Timer · Ah-Counter · Grammarian · Active Listener'],
         'table_topics' => ['label' => 'Best Table Topics Speaker',   'desc' => 'Added by VPE during the session'],
         'speaker'      => ['label' => 'Best Speaker',                'desc' => 'Prepared speech presenters of the day'],
         'evaluator'    => ['label' => 'Best Evaluator',              'desc' => 'Speech evaluators of the day'],
@@ -626,7 +626,7 @@ if ($next_meeting) {
     $sp_joined = !empty($sp['created_at'])
         ? (new DateTime($sp['created_at']))->format('F Y') : null;
     $level_labels = ['Level 0 (Enrolled)', 'Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5'];
-    $sp_level  = $level_labels[(int) ($sp['level'] ?? 1)] ?? 'Level 1';
+    $sp_level  = $level_labels[(int) ($sp['level_completed'] ?? 0)] ?? 'Level 0 (Enrolled)';
   ?>
   <section class="section spotlight-section" id="tmc-spotlight">
     <p class="eyebrow">Welcome to the Club</p>
@@ -671,7 +671,7 @@ if ($next_meeting) {
             <strong><?php echo esc_html($m['full_name']); ?></strong>
             <small><?php echo esc_html($m['pathway']); ?></small>
           </div>
-          <span class="level-badge" style="background:<?php echo esc_attr($level_colors[(int)$m['level']] ?? '#999'); ?>">L<?php echo (int) $m['level']; ?></span>
+          <span class="level-badge" style="background:<?php echo esc_attr($level_colors[(int)($m['level_completed'] ?? 0)] ?? '#999'); ?>">L<?php echo (int) ($m['level_completed'] ?? 0); ?></span>
           <div class="diversity-tally">
             <strong><?php echo (int) $m['distinct_roles']; ?></strong>
             <small>roles</small>
