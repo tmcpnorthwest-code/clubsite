@@ -1193,7 +1193,7 @@
       const filtered = members.filter((m) =>
         (!searchTerm || m.full_name.toLowerCase().includes(searchTerm) || m.email.toLowerCase().includes(searchTerm)) &&
         (statusFilter === "all" || (statusFilter === "Paid" && m.is_eligible) || (statusFilter === "Unpaid" && !m.is_eligible)) &&
-        (levelFilter === "all" || String(m.level) === levelFilter)
+        (levelFilter === "all" || String(m.level_completed) === levelFilter)
       );
 
       // Sort
@@ -1201,7 +1201,7 @@
       const sorted = [...filtered].sort((a, b) => {
         const mul = sortDir === "asc" ? 1 : -1;
         if (sortCol === "level") {
-          const ld = a.level - b.level;
+          const ld = a.level_completed - b.level_completed;
           return mul * (ld !== 0 ? ld : a.full_name.localeCompare(b.full_name));
         }
         return mul * a.full_name.localeCompare(b.full_name);
@@ -1221,7 +1221,7 @@
         if (ind) ind.textContent = th.dataset.sortCol === sortCol ? (sortDir === "asc" ? "▲" : "▼") : "↕";
       });
 
-      const levelLabel = (lvl) => lvl === 0 ? "Level 0 (Enrolled)" : `Level ${lvl}`;
+      const levelLabel = (lvl) => lvl === 0 ? "Level 0 (New — no levels completed)" : `Level ${lvl}`;
 
       const memberToRow = (m) => {
         const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
@@ -1230,7 +1230,7 @@
           <td>${esc(m.customer_id || "")}</td>
           <td>${esc(m.email)}</td>
           <td>${esc(m.pathway)}</td>
-          <td>${levelLabel(m.level)}</td>
+          <td>${levelLabel(m.level_completed)}</td>
           <td>${esc(m.state)}</td>
           <td style="${inactive ? "color:#ef6c00;font-weight:bold;" : ""}">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
           <td>${m.is_exempt_from_unpaid_block ? "Yes" : "No"}</td>
@@ -1242,7 +1242,7 @@
         table.innerHTML = sorted.map(memberToRow).join("");
       } else {
         const groups = sorted.reduce((acc, m) => {
-          const key = (groupKey === "level" ? levelLabel(m.level) : m[groupKey]) || "Unassigned";
+          const key = (groupKey === "level" ? levelLabel(m.level_completed) : m[groupKey]) || "Unassigned";
           if (!acc[key]) acc[key] = [];
           acc[key].push(m);
           return acc;
