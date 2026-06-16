@@ -1367,6 +1367,13 @@
   .tmp-no-print { display: none !important; }
 }
 
+/* ── Responsive: Two-column progress + request layout ──────────────────── */
+@media (max-width: 1024px) {
+  [style*="grid-template-columns: 1fr 1fr"][style*="gap: 20px"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 /* ── VPE Tab navigation ──────────────────────────────────────────────── */
 .tmp-tab-nav {
   display: flex;

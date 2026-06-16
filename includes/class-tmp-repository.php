@@ -485,6 +485,10 @@ class TMP_Repository {
             }
         }
 
+        // Enforce invariant: level = max(1, min(level_completed + 1, 5))
+        $level_completed = max(0, min(5, absint($data['level_completed'] ?? 0)));
+        $level           = max(1, min($level_completed + 1, 5));
+
         $record = array(
             'user_id'                    => !empty($data['user_id']) ? absint($data['user_id']) : null,
             'customer_id'                => sanitize_text_field($data['customer_id'] ?? ''),
@@ -492,7 +496,8 @@ class TMP_Repository {
             'email'                      => sanitize_email($data['email'] ?? ''),
             'phone'                      => sanitize_text_field($data['phone'] ?? ''),
             'pathway'                    => sanitize_text_field($data['pathway'] ?? 'Presentation Mastery'),
-            'level'                      => max(0, min(5, absint($data['level'] ?? 1))),
+            'level'                      => $level,
+            'level_completed'            => $level_completed,
             'state'                      => sanitize_text_field($data['state'] ?? 'Active'),
             'paid_until'                 => !empty($data['paid_until']) ? sanitize_text_field($data['paid_until']) : null,
             'is_exempt_from_unpaid_block'=> isset($data['is_exempt_from_unpaid_block']) ? (bool) $data['is_exempt_from_unpaid_block'] : 0,
@@ -970,6 +975,7 @@ class TMP_Repository {
         }
 
         $role  = strtolower($role_name);
+        $level_completed = (int) ($member['level_completed'] ?? 0);
         $level = (int) $member['level'];
 
         // Dynamic level gate — patterns ordered so longer/more-specific match first
@@ -977,14 +983,14 @@ class TMP_Repository {
         foreach ($gate_levels as $pattern => $min_level) {
             if (strpos($role, $pattern) !== false) {
                 $gate = (int) $min_level;
-                return $level >= $gate
+                return $level_completed >= $gate
                     ? ['suitable' => true,  'reason' => "L{$gate}+"]
                     : ['suitable' => false, 'reason' => "Needs L{$gate}+"];
             }
         }
 
         // L1 ordering: Ice Breaker (Speaker at L1) only after Table Topics Speaker at L1
-        if ($level <= 1 && preg_match('/^speaker(\s+\d+)?$/i', trim($role_name))) {
+        if ($level_completed >= 1 && preg_match('/^speaker(\s+\d+)?$/i', trim($role_name))) {
             $counts = $participation_at_level ?? self::get_member_participation_counts_for_member($member_id)[1] ?? [];
             $tts_done = isset($counts['Table Topics Speaker']) ? (int) $counts['Table Topics Speaker'] : 0;
             if ($tts_done === 0) {

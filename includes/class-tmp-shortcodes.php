@@ -161,7 +161,14 @@ class TMP_Shortcodes {
                     <div data-tmp-mentorship-checklist style="margin-top:16px;"></div>
                 </article>
 
-                <article class="tmp-panel">
+                <!-- Your Progress to Level X — compact summary (only L1–L3) -->
+                <article class="tmp-panel" data-tmp-progress-summary-panel style="display:none;">
+                    <h3 style="margin-bottom:16px;">Your Progress to Level <span data-tmp-progress-level></span></h3>
+                    <div data-tmp-progress-summary>Loading...</div>
+                </article>
+
+                <!-- Next Action (only shown for L4+) -->
+                <article class="tmp-panel" data-tmp-next-action-panel>
                     <h3>Next Action</h3>
                     <p data-tmp-next-action></p>
                 </article>
@@ -175,19 +182,14 @@ class TMP_Shortcodes {
                     </button>
                     <div data-tmp-meeting-body style="display:none;">
 
-                        <section class="tmp-meeting-section">
-                            <h4>Active Requests</h4>
+                        <section class="tmp-meeting-section" data-tmp-active-requests-section>
+                            <h4>Your Active Requests</h4>
                             <div data-tmp-active-requests>Loading requests...</div>
                         </section>
 
-                        <section class="tmp-meeting-section">
-                            <h4>Request History</h4>
-                            <div data-tmp-request-history>Loading history...</div>
-                        </section>
-
-                        <section class="tmp-meeting-section">
-                            <h4>Your Pending Requests</h4>
-                            <div data-tmp-pending-requests>Loading pending requests...</div>
+                        <section class="tmp-meeting-section" data-tmp-assigned-roles-section style="display:none;">
+                            <h4>Your Assigned Roles</h4>
+                            <div data-tmp-assigned-roles>Loading assignments...</div>
                         </section>
 
                         <section class="tmp-meeting-section">
@@ -195,52 +197,40 @@ class TMP_Shortcodes {
                             <div data-tmp-role-history>Loading history...</div>
                         </section>
 
-                        <section class="tmp-meeting-section" data-tmp-level-journey-panel>
-                            <h4>Required Roles — Level Journey</h4>
-                            <div data-tmp-level-journey>Loading...</div>
-                        </section>
-
-                        <section class="tmp-meeting-section" data-tmp-level-status-panel>
-                            <h4>Progress to Level <span data-tmp-next-level></span></h4>
-                            <div data-tmp-level-status>Loading...</div>
-                        </section>
-
-                        <section class="tmp-meeting-section" data-tmp-levelup-section style="display:none;">
-                            <div data-tmp-levelup-request-status></div>
-                            <button class="tmp-button tmp-primary" data-tmp-request-levelup style="margin-top:10px;">Request Level Up</button>
-                        </section>
-
-                        <section class="tmp-meeting-section" data-tmp-my-mentees-panel style="display:none;">
-                            <h4>My Mentees</h4>
-                            <div data-tmp-my-mentees>Loading...</div>
-                        </section>
-
-                        <section class="tmp-meeting-section">
-                            <h4>Smart Recommendations</h4>
-                            <div class="tmp-rec-grid" data-tmp-recommendations>Loading suggestions...</div>
-                        </section>
-
+                        <!-- Request a Role — top-level section -->
                         <section class="tmp-meeting-section" data-tmp-request-section>
-                            <h4>Available Meeting Slots</h4>
-                            <form class="tmp-panel tmp-form" data-tmp-member-request-form style="margin-top:10px; border:1px dashed #ccc;">
-                                <p class="tmp-eyebrow">Request a role</p>
-                                <div data-tmp-deadline-info></div>
-                                <div data-tmp-dupe-request-warning></div>
-                                <div class="tmp-grid" style="grid-template-columns: 1fr; gap: 10px;">
-                                    <label>1. Select Meeting
+                            <h4>Request a Role</h4>
+                            <form class="tmp-form" data-tmp-member-request-form style="background:none;border:none;padding:0;">
+                                <div data-tmp-deadline-info style="margin-bottom:12px;"></div>
+                                <div data-tmp-dupe-request-warning style="margin-bottom:12px;"></div>
+                                <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+                                    <label>Meeting
                                         <select name="meeting_id" required data-tmp-req-meeting-select></select>
                                     </label>
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;" data-tmp-role-selection-section>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;" data-tmp-role-selection-section>
                                         <label>Priority 1 <select name="priorities[]" required data-tmp-req-role-select></select></label>
                                         <label>Priority 2 <select name="priorities[]" data-tmp-req-role-select></select></label>
                                         <label>Priority 3 <select name="priorities[]" data-tmp-req-role-select></select></label>
                                     </div>
                                 </div>
-                                <div data-tmp-role-info class="tmp-wide"></div>
-                                <div style="margin-top:10px; text-align:right;">
-                                    <button class="tmp-button tmp-primary" type="submit">Submit Request</button>
+                                <div data-tmp-role-info style="margin:10px 0;font-size:0.85rem;"></div>
+                                <div style="margin-top:10px;">
+                                    <button class="tmp-button tmp-primary" type="submit" style="width:100%;">Submit Request</button>
                                 </div>
                             </form>
+                        </section>
+
+                        <!-- Your Progress (shown in upper panel, old sections removed) -->
+                        <section class="tmp-meeting-section" data-tmp-level-journey-panel style="display:none;">
+                            <h4 style="margin-top:0;">Your Progress to Level <span data-tmp-next-level></span></h4>
+                            <div data-tmp-level-status></div>
+                            <div data-tmp-level-journey></div>
+                        </section>
+
+                        <!-- Single column sections below -->
+                        <section class="tmp-meeting-section" data-tmp-my-mentees-panel style="display:none;">
+                            <h4>My Mentees</h4>
+                            <div data-tmp-my-mentees>Loading...</div>
                         </section>
 
                     </div><!-- /data-tmp-meeting-body -->
@@ -491,7 +481,7 @@ class TMP_Shortcodes {
                         </select>
                         <select data-tmp-vpe-level>
                             <option value="all">All Levels</option>
-                            <option value="0">Level 0 (Enrolled)</option>
+                            <option value="0">Level 0 (New — no levels completed)</option>
                             <option value="1">Level 1</option>
                             <option value="2">Level 2</option>
                             <option value="3">Level 3</option>

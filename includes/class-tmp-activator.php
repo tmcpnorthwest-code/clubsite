@@ -14,6 +14,8 @@ class TMP_Activator {
         self::migrate_v090_level_progress();
         self::migrate_v100_recognition();
         self::migrate_v120_pathway_tables();
+        self::migrate_v130_level_completed();
+        self::migrate_v132_enforce_level_invariant();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -46,6 +48,8 @@ class TMP_Activator {
         self::migrate_v090_level_progress();
         self::migrate_v100_recognition();
         self::migrate_v120_pathway_tables();
+        self::migrate_v130_level_completed();
+        self::migrate_v132_enforce_level_invariant();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -120,6 +124,7 @@ class TMP_Activator {
             phone VARCHAR(50) NULL,
             pathway VARCHAR(120) NOT NULL DEFAULT 'Presentation Mastery',
             level TINYINT UNSIGNED NOT NULL DEFAULT 1,
+            level_completed TINYINT UNSIGNED NOT NULL DEFAULT 0,
             state VARCHAR(80) NOT NULL DEFAULT 'Active',
             paid_until DATE NULL,
             is_exempt_from_unpaid_block TINYINT(1) NOT NULL DEFAULT 0,
@@ -527,6 +532,35 @@ class TMP_Activator {
 
         $wpdb->query("UPDATE {$history} SET role_name = 'Ah-Counter' WHERE role_name = 'Ah Counter'");
         $wpdb->query("UPDATE {$assignment} SET role_name = REPLACE(role_name, 'Ah Counter', 'Ah-Counter') WHERE role_name LIKE '%Ah Counter%'");
+    }
+
+    /**
+     * v0.13.0: Add level_completed to track highest completed level separately from current level.
+     * Backfill: old `level` field represented highest completed level, so copy it directly.
+     */
+    private static function migrate_v130_level_completed() {
+        global $wpdb;
+        $members = $wpdb->prefix . 'tmp_members';
+
+        $cols = $wpdb->get_col("DESCRIBE {$members}");
+        if (!in_array('level_completed', $cols, true)) {
+            $wpdb->query("ALTER TABLE {$members} ADD COLUMN level_completed TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER level");
+            $wpdb->query("UPDATE {$members} SET level_completed = level");
+        }
+    }
+
+    /**
+     * v0.13.2: Enforce the canonical invariant: level = max(1, min(level_completed + 1, 5)).
+     * This corrects both old and new data to match the semantic definition:
+     * - level_completed = highest completed level (the credential)
+     * - level = level currently working toward (always >= 1)
+     */
+    private static function migrate_v132_enforce_level_invariant() {
+        global $wpdb;
+        $members = $wpdb->prefix . 'tmp_members';
+
+        // Enforce: level is always min(level_completed + 1, 5) but at least 1
+        $wpdb->query("UPDATE {$members} SET level = GREATEST(LEAST(level_completed + 1, 5), 1)");
     }
 
     private static function seed_data() {

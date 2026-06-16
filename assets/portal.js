@@ -298,11 +298,12 @@
     try {
       const member = await api("/me");
       const level  = Number(member.level || 1);
-      const pct    = Math.max(20, Math.min(100, level * 20));
+      const levelCompleted = Number(member.level_completed || 0);
+      const pct    = Math.max(0, Math.min(100, levelCompleted * 20));
 
       const setField = (sel, val) => { const el = qs(sel, root); if (el) el.textContent = val; };
       setField("[data-tmp-member-name]",    member.full_name);
-      setField("[data-tmp-member-summary]", `${member.pathway} - Level ${level}`);
+      setField("[data-tmp-member-summary]", `${member.pathway} - Level ${levelCompleted}`);
       setField("[data-tmp-progress]",       `${pct}%`);
       const bar = qs("[data-tmp-progress-bar]", root); if (bar) bar.style.width = `${pct}%`;
       setField("[data-tmp-state]",          member.state || "Active");
@@ -315,7 +316,7 @@
       const levelsEl = qs("[data-tmp-levels]", root);
       if (levelsEl) levelsEl.innerHTML = levels.map((lbl, i) => {
         const n   = i + 1;
-        const cls = n < level ? "tmp-done" : n === level ? "tmp-active" : "";
+        const cls = n <= levelCompleted ? "tmp-done" : n === levelCompleted + 1 ? "tmp-active" : "";
         return `<li class="${cls}">${esc(lbl)}</li>`;
       }).join("");
 
@@ -329,14 +330,21 @@
         5: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
       };
       const visibleMilestones = milestonesByLevel[level] || milestonesByLevel[5];
+      const levelCompleted = member.level_completed || 0;
 
       qsa("[data-m]", root).forEach((el) => {
         const key = el.dataset.m;
         const isVisible = visibleMilestones.includes(key);
         el.style.display = isVisible ? "" : "none";
-        if (isVisible && member.milestones && member.milestones[key]) {
-          el.classList.add("tmp-done");
-          el.title = `Completed: ${member.milestones[key]}`;
+        if (isVisible) {
+          if (member.milestones && member.milestones[key]) {
+            el.classList.add("tmp-done");
+            el.title = `Completed: ${member.milestones[key]}`;
+          } else if (key === 'level1_completed' && levelCompleted >= 1) {
+            // Mark level1_completed as done if level_completed >= 1
+            el.classList.add("tmp-done");
+            el.title = "Level 1 Completed";
+          }
         }
       });
 
@@ -351,7 +359,7 @@
       }
 
       // ── Mentor card — shown only for Level 0 and Level 1 members ──────────
-      // Levels 2+ have completed mentorship and no longer need the mentor card
+      // Members working on Level 2+ have usually completed mentorship and may not need it
       const mentorCard = qs("[data-tmp-mentor-card]", root);
       if (mentorCard) mentorCard.style.display = level > 1 ? "none" : "";
 
@@ -448,6 +456,60 @@
       await renderJourney();
 
       // ── Level status (speech + role progress for L1–L3) ───────────────────────
+      const renderProgressSummary = async () => {
+        const summaryPanel = qs("[data-tmp-progress-summary-panel]", root);
+        const nextActionPanel = qs("[data-tmp-next-action-panel]", root);
+        const summaryEl = qs("[data-tmp-progress-summary]", root);
+        const progressLvlEl = qs("[data-tmp-progress-level]", root);
+        if (!summaryEl) return;
+
+        const data = await api("/me/level-status").catch(() => null);
+        if (!data) return;
+
+        // Use level_completed to determine current working level (more reliable than level field)
+        const levelCompleted = data.level_completed || 0;
+        const workingLevel = Math.min(levelCompleted + 1, 5);
+
+        if (workingLevel > 3) {
+          // L4+ members: hide progress panel, show next action
+          if (summaryPanel) summaryPanel.style.display = "none";
+          if (nextActionPanel) nextActionPanel.style.display = "";
+          return;
+        }
+
+        // L1-L3 members: show progress panel, hide next action
+        if (summaryPanel) summaryPanel.style.display = "";
+        if (nextActionPanel) nextActionPanel.style.display = "none";
+
+        if (progressLvlEl) progressLvlEl.textContent = workingLevel;
+
+        const sp = data.speech_progress;
+        const gaps = data.role_gaps || [];
+        const ready = data.ready_to_advance;
+
+        // Speeches line
+        const spLine = sp
+          ? `Speeches at Level ${workingLevel}: ${'▓'.repeat(sp.done)}${'░'.repeat(sp.needed - sp.done)} ${sp.done} / ${sp.needed} done${sp.offset ? ` (+${sp.offset} pre-system)` : ''}<br>${sp.needed - sp.done} more ${sp.needed - sp.done === 1 ? 'speech' : 'speeches'} needed`
+          : '';
+
+        // Roles line
+        const unmetRoles = gaps.filter((g) => !g.met);
+        const rolesLine = unmetRoles.length > 0
+          ? `Club Roles at Level ${workingLevel}: ${gaps.length - unmetRoles.length} / ${gaps.length} done<br>Need: ${unmetRoles.map((g) => g.label).join(', ')}`
+          : `Club Roles at Level ${workingLevel}: ✓ All ${gaps.length} done`;
+
+        const statusColor = ready ? '#2e7d32' : '#ef6c00';
+        const statusIcon = ready ? '🟢' : '🟡';
+        const statusText = ready ? 'Ready to unlock Level Up' : 'Complete all requirements to unlock Level Up';
+
+        summaryEl.innerHTML = `
+          <div style="font-size:0.9rem;line-height:1.6;margin-bottom:12px;">
+            ${spLine}<br><br>
+            ${rolesLine}<br><br>
+            <span style="color:${statusColor};font-weight:600;">${statusIcon} ${statusText}</span>
+          </div>`;
+      };
+
       const renderLevelStatus = async () => {
         const statusEl  = qs("[data-tmp-level-status]", root);
         const nextLvlEl = qs("[data-tmp-next-level]", root);
@@ -563,6 +625,7 @@
         }
       });
 
+      await renderProgressSummary();
       await renderLevelStatus();
 
       // ── Mentee panel (only shown if user is a mentor) ─────────────────────────
@@ -613,13 +676,24 @@
         byMeeting[r.meetingId].requests.push(r);
       }
 
+      // Determine if any request period is still open
+      const nowTs = new Date();
+      const meetingGroups = Object.values(byMeeting);
+      const hasOpenRequests = meetingGroups.some((m) => !m.deadline || new Date(m.deadline) > nowTs);
+      const hasPendingOrApproved = pendingData.requests.some((r) => r.status === "Pending" || r.status === "Approved");
+
+      // Toggle visibility: show Active Requests if period is open, else show Assigned Roles
+      const arSection = qs("[data-tmp-active-requests-section]", root);
+      const asSection = qs("[data-tmp-assigned-roles-section]", root);
+      if (arSection) arSection.style.display = hasOpenRequests ? "" : "none";
+      if (asSection) asSection.style.display = hasOpenRequests ? "none" : "";
+
+      // Render Active Requests (when period is open)
       const arEl = qs("[data-tmp-active-requests]", root);
       if (arEl) {
-        const meetingGroups = Object.values(byMeeting);
         if (meetingGroups.length === 0) {
-          arEl.innerHTML = "<p>You have no active role requests.</p>";
+          arEl.innerHTML = "<p>You have no pending role requests.</p>";
         } else {
-          const nowTs = new Date();
           let html = "";
           for (const mtg of meetingGroups) {
             const deadlinePassed = mtg.deadline && new Date(mtg.deadline) <= nowTs;
@@ -660,9 +734,24 @@
         }
       }
 
-      // Clear the old separate post-deadline section — merged into the view above
-      const prEl = qs("[data-tmp-pending-requests]", root);
-      if (prEl) prEl.innerHTML = "";
+      // Render Assigned Roles (when period is closed)
+      const asEl = qs("[data-tmp-assigned-roles]", root);
+      if (asEl) {
+        const approved = pendingData.requests.filter((r) => r.status === "Approved");
+        if (approved.length === 0) {
+          asEl.innerHTML = "<p>No roles assigned to you.</p>";
+        } else {
+          asEl.innerHTML = `<div class="tmp-table-wrap"><table class="tmp-table">
+            <thead><tr><th>Meeting</th><th>Role</th><th>Status</th></tr></thead>
+            <tbody>${approved.map((r) => `<tr>
+              <td data-label="Meeting">${esc(r.meetingDate)} — ${esc(r.meetingTheme)}</td>
+              <td data-label="Role">${esc(r.roleName)}</td>
+              <td data-label="Status"><span class="tmp-tag" style="background:#2e7d32;color:#fff;font-weight:bold;">✓ Confirmed</span></td>
+            </tr>`).join("")}
+            </tbody>
+          </table></div>`;
+        }
+      }
 
       // ── Request history ────────────────────────────────────────────────────
       const history = await api("/me/requests/history").catch(() => []);
@@ -1406,7 +1495,7 @@
         m.is_eligible &&
         (!search || m.full_name.toLowerCase().includes(search) || (m.email || "").toLowerCase().includes(search)) &&
         (pathway === "all" || m.pathway === pathway) &&
-        (levelFilt === "all" || String(m.level) === levelFilt) &&
+        (levelFilt === "all" || String(m.level_completed) === levelFilt) &&
         (mentorFilt === "all" ||
          (mentorFilt === "none"     && !m.mentor_id && !m.mentor_name) ||
          (mentorFilt === "assigned" && (m.mentor_id  ||  m.mentor_name))) &&
@@ -1419,7 +1508,7 @@
             .map((m) => `<option value="${esc(m.id)}">${esc(m.formatted_name)}</option>`).join("");
       }
 
-      const unmentored = (all || []).filter((m) => m.is_eligible && !m.mentor_id && !m.mentor_name && m.level === 0);
+      const unmentored = (all || []).filter((m) => m.is_eligible && !m.mentor_id && !m.mentor_name && m.level_completed === 0);
       const alertEl    = qs("[data-tmp-unmentored-alert]", root);
       if (alertEl) {
         alertEl.innerHTML = unmentored.length
@@ -1435,7 +1524,7 @@
       const sortedEligible = [...eligible].sort((a, b) => {
         const mul = vSortDir === "asc" ? 1 : -1;
         if (vSortCol === "level") {
-          const ld = a.level - b.level;
+          const ld = a.level_completed - b.level_completed;
           return mul * (ld !== 0 ? ld : a.full_name.localeCompare(b.full_name));
         }
         return mul * a.full_name.localeCompare(b.full_name);
@@ -1468,17 +1557,17 @@
         const roleCell = ls ? `${ls.roles_total - ls.roles_unmet}/${ls.roles_total}` : "—";
         const statusCell = ls
           ? `<span class="tmp-badge" style="${trafficStyle(ls.traffic_light)};">${trafficLabel(ls.traffic_light)}</span>`
-          : `<span class="tmp-tag" style="background:#e8eaf6;color:#303f9f;font-size:0.78rem;">L${m.level}</span>`;
-        const mentorCell = (m.level === 0 && !m.mentor_name)
+          : `<span class="tmp-tag" style="background:#e8eaf6;color:#303f9f;font-size:0.78rem;">L${m.level_completed}</span>`;
+        const mentorCell = (m.level_completed === 0 && !m.mentor_name)
           ? `<span style="color:var(--tmp-burgundy);font-size:0.82rem;">⚠ No mentor</span>`
           : esc(m.mentor_name || "—");
-        const mentorBtn = m.level === 0
+        const mentorBtn = m.level_completed === 0
           ? `<button class="tmp-small-button" type="button" data-assign-mentor="${m.id}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">${m.mentor_name ? "Change" : "Assign"} Mentor</button>`
           : "";
         const actionCell = `<div style="display:flex;gap:6px;align-items:center;">${mentorBtn}<button class="tmp-small-button" data-expand-lp="${m.id}" style="min-width:28px;">&#9658;</button></div>`;
-        return `<tr data-lp-member="${m.id}" data-m-level="${m.level}"${inactive ? ' style="background:#fff8e1"' : ""}>
+        return `<tr data-lp-member="${m.id}" data-m-level="${m.level_completed}"${inactive ? ' style="background:#fff8e1"' : ""}>
           <td><strong>${esc(m.full_name)}</strong>${inactive ? `<br><small style="color:#ef6c00;font-weight:bold">Inactive</small>` : ""}<br><small style="color:var(--tmp-muted)">${esc(m.pathway)}</small></td>
-          <td>Level ${m.level}</td>
+          <td>Level ${m.level_completed}</td>
           <td>${spCell}</td>
           <td>${roleCell}</td>
           <td>${mentorCell}</td>

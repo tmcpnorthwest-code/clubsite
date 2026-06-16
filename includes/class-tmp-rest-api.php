@@ -731,6 +731,7 @@ class TMP_REST_API {
                 'phone'             => self::normalize_phone(self::csv_value($row, $indexes, 'Mobile Phone')),
                 'pathway'           => $parsed['pathway'],
                 'level'             => $parsed['level'],
+                'level_completed'   => $parsed['level_completed'],
                 'state'             => self::csv_value($row, $indexes, 'Status (*)') ?: 'Active',
                 'paid_until'        => self::normalize_date(self::csv_value($row, $indexes, 'Paid Until')),
                 'pathways_enrolled' => $pathways_enrolled,
@@ -1025,28 +1026,30 @@ class TMP_REST_API {
 
         // DTM is a special designation, not a pathway-level code
         if (strtoupper($credential) === 'DTM') {
-            return ['pathway' => 'Distinguished Toastmaster', 'level' => 5];
+            return ['pathway' => 'Distinguished Toastmaster', 'level' => 5, 'level_completed' => 5];
         }
 
         if (!$credential || !preg_match('/^([A-Z]{2})([1-5])$/', $credential, $matches)) {
             if (strtolower(trim($pathways_enrolled)) === 'yes') {
-                return ['pathway' => 'Enrolled — Pathway TBD', 'level' => 0];
+                return ['pathway' => 'Enrolled — Pathway TBD', 'level' => 0, 'level_completed' => 0];
             }
-            return ['pathway' => 'No pathway registered', 'level' => 0];
+            return ['pathway' => 'No pathway registered', 'level' => 0, 'level_completed' => 0];
         }
 
         $code    = $matches[1];
-        $level   = (int) $matches[2];
+        $completed = (int) $matches[2];
         $pathway = $paths[$code] ?? null;
 
         if (!$pathway) {
             if (strtolower(trim($pathways_enrolled)) === 'yes') {
-                return ['pathway' => 'Enrolled — Pathway TBD', 'level' => 0];
+                return ['pathway' => 'Enrolled — Pathway TBD', 'level' => 0, 'level_completed' => 0];
             }
-            return ['pathway' => 'No pathway registered', 'level' => 0];
+            return ['pathway' => 'No pathway registered', 'level' => 0, 'level_completed' => 0];
         }
 
-        return ['pathway' => $pathway, 'level' => $level];
+        // If level N is completed, member is working on level N+1 (or stays at N if already at max)
+        $working_level = min($completed + 1, 5);
+        return ['pathway' => $pathway, 'level' => $working_level, 'level_completed' => $completed];
     }
 
     private static function normalize_date($value) {
