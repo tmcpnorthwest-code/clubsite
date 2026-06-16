@@ -174,7 +174,7 @@
             <span class="tmp-diversity-rank">${i + 1}</span>
             <div class="tmp-diversity-info">
               <strong>${esc(m.full_name)}</strong>
-              <small>${esc(m.pathway)} &middot; ${levelBadge(m.level)}</small>
+              <small>${esc(m.pathway)} &middot; ${levelBadge(m.level_completed)}</small>
             </div>
             <div class="tmp-diversity-roles">
               <span class="tmp-diversity-count">${m.distinct_roles} roles</span>

@@ -670,12 +670,12 @@ class TMP_Repository {
         ), ARRAY_A) ?: [];
 
         $dist_rows = $wpdb->get_results(
-            "SELECT level, COUNT(*) as cnt FROM {$members} WHERE state = 'Active' GROUP BY level ORDER BY level",
+            "SELECT level_completed, COUNT(*) as cnt FROM {$members} WHERE state = 'Active' GROUP BY level_completed ORDER BY level_completed",
             ARRAY_A
         ) ?: [];
         $distribution = [];
         foreach ($dist_rows as $row) {
-            $distribution[(string) $row['level']] = (int) $row['cnt'];
+            $distribution[(string) $row['level_completed']] = (int) $row['cnt'];
         }
 
         $winners = $wpdb->get_results($wpdb->prepare(
@@ -706,7 +706,7 @@ class TMP_Repository {
 
         return $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT m.full_name, m.pathway, m.level,
+                "SELECT m.full_name, m.pathway, m.level_completed,
                         COUNT(DISTINCT h.role_name) AS distinct_roles,
                         GROUP_CONCAT(DISTINCT h.role_name ORDER BY h.role_name SEPARATOR ', ') AS roles_played
                  FROM {$members} m
@@ -1182,8 +1182,9 @@ class TMP_Repository {
         ), ARRAY_A);
 
         $member       = self::current_member();
-        $member_level = $member ? (int) $member['level'] : 1;
-        $member_id    = $member ? (int) $member['id']    : 0;
+        $member_level           = $member ? (int) $member['level'] : 1;
+        $member_level_completed = $member ? (int) $member['level_completed'] : 0;
+        $member_id              = $member ? (int) $member['id']    : 0;
 
         $participation = $member ? self::get_member_participation_counts_for_member($member_id) : [];
         $level_counts  = $participation[$member_level] ?? [];
@@ -1224,7 +1225,7 @@ class TMP_Repository {
                     break;
                 }
             }
-            $slot['qualified'] = $member_level >= $min_level;
+            $slot['qualified'] = $member_level_completed >= $min_level;
             $slot['requirement'] = $min_level > 0 ? "Level {$min_level}+ required" : "Level 0+ (open to all)";
 
             // Cooloff only for Speaker / TMOD / GE — not for Timer, Grammarian, etc.
