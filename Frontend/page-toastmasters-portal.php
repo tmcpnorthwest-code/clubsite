@@ -23,8 +23,8 @@ define('TMC_YT_CHANNEL_ID_OVERRIDE', 'UCC-9rVEwrTuDV4oQpjTyybw');
 
 $template_dir = get_stylesheet_directory_uri();
 
-wp_enqueue_style('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.css', [], '2.1.1');
-wp_enqueue_script('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.js', [], '2.1.1', true);
+wp_enqueue_style('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.css', [], '2.1.2');
+wp_enqueue_script('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.js', [], '2.1.2', true);
 wp_localize_script('toastmasters-portal', 'TMCPublic', [
     'restUrl' => esc_url_raw(rest_url('toastmasters/v1')),
 ]);
@@ -221,6 +221,9 @@ if ($next_meeting) {
       <a href="#tmc-membership">Join</a>
       <a href="<?php echo esc_url(home_url('/member-dashboard/')); ?>" class="button primary" style="padding:8px 18px;font-size:0.88rem;">Member Login</a>
     </div>
+    <button class="icon-button menu-button" data-menu-toggle aria-label="Open menu">
+      <span></span><span></span><span></span>
+    </button>
   </nav>
 
   <!-- ══════════════════════════════════════════════════════════ HERO -->
@@ -579,7 +582,7 @@ if ($next_meeting) {
 
     <div class="gallery-grid">
       <div class="gallery-item gallery-item--large">
-        <img src="<?php echo esc_url($template_dir . '/assets/club-hero.png'); ?>" alt="Club meeting in session" loading="lazy" />
+        <img src="<?php echo esc_url($template_dir . '/assets/hero-photo.jpeg'); ?>" alt="Club meeting in session" loading="lazy" />
       </div>
       <div class="gallery-item">
         <img src="<?php echo esc_url($template_dir . '/assets/pic 01.jpeg'); ?>" alt="Toastmasters Club of Pune North West" loading="lazy" />
