@@ -1584,11 +1584,15 @@
       root._meetings = Array.isArray(meetings) ? meetings : [];
 
       if (meetingCount) meetingCount.textContent = `${meetings.length} ${meetings.length === 1 ? "meeting" : "meetings"}`;
-      meetingSelect.innerHTML  = '<option value="">Select a meeting...</option>' +
+      const prevMeetingVal = meetingSelect.value;
+      meetingSelect.innerHTML =
+        '<option value="">— Select or create meeting —</option>' +
+        '<option value="new">+ Schedule New Meeting</option>' +
         meetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}</option>`).join("");
 
       renderPendingRequests(root).catch(() => {});
       if (selectedId) meetingSelect.value = selectedId;
+      else if (prevMeetingVal) meetingSelect.value = prevMeetingVal;
       updateRoles();
 
       if (compactList) {
@@ -1674,39 +1678,21 @@
             </div>`
           : `<p style="color:var(--tmp-muted);margin-top:12px;">No agenda items yet.</p>`;
 
-        const defaultOpen = idx === 0;
-        const bodyDisplay = defaultOpen ? "block" : "none";
-        const ariaExp     = defaultOpen ? "true" : "false";
-        const chevronRot  = defaultOpen ? "rotate(90deg)" : "";
-
         return `<article class="tmp-agenda-card" data-agenda-meeting="${esc(meeting.id)}">
-          <button class="tmp-agenda-card-toggle" aria-expanded="${ariaExp}" style="width:100%;background:none;border:none;padding:0;cursor:pointer;text-align:left;">
-            <div class="tmp-card-head" style="pointer-events:none;">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <h4 style="margin:0;">${esc(meeting.meeting_date)} — ${esc(meeting.theme)}</h4>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span class="tmp-tag">${esc((meeting.start_time || "18:30").substring(0, 5))}</span>
-                ${meeting.requests_close_at ? `<span class="tmp-tag" style="background:#607d8b;color:#fff;">Closes: ${esc(meeting.requests_close_at.substring(0, 16))}</span>` : ""}
-                <span class="tmp-chevron" aria-hidden="true" style="transform:${chevronRot};transition:transform 0.2s;">&#9658;</span>
-              </div>
-            </div>
-          </button>
-          <div class="tmp-agenda-card-body" style="display:${bodyDisplay};">
-            <p style="margin:6px 0 0;color:var(--tmp-muted);font-size:13px;">${esc(meeting.venue || "Venue not set")}${meeting.agenda_notes ? ` · ${esc(meeting.agenda_notes)}` : ""}</p>
-            ${warning}
-            ${agendaTable}
-            <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;align-items:center;">
-              <button class="tmp-button tmp-secondary tmp-small" data-print-agenda="${meeting.id}">Print Agenda</button>
-              <button class="tmp-button ${String(meeting.is_published) === "1" ? "tmp-primary" : "tmp-secondary"} tmp-small" data-publish-agenda="${meeting.id}">${String(meeting.is_published) === "1" ? "Unpublish" : "Publish to Website"}</button>
-              ${String(meeting.is_published) === "1" ? '<span class="tmp-tag" style="background:#2e7d32;color:#fff;padding:3px 8px;font-size:11px;">● Live on website</span>' : ""}
-            </div>
+          <p style="margin:0 0 8px;color:var(--tmp-muted);font-size:13px;">${esc(meeting.venue || "Venue not set")}${meeting.agenda_notes ? ` · ${esc(meeting.agenda_notes)}` : ""}</p>
+          ${warning}
+          ${agendaTable}
+          <div style="display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;align-items:center;">
+            <button class="tmp-button tmp-secondary tmp-small" data-print-agenda="${meeting.id}">Print Agenda</button>
+            <button class="tmp-button ${String(meeting.is_published) === "1" ? "tmp-primary" : "tmp-secondary"} tmp-small" data-publish-agenda="${meeting.id}">${String(meeting.is_published) === "1" ? "Unpublish" : "Publish to Website"}</button>
+            ${String(meeting.is_published) === "1" ? '<span class="tmp-tag" style="background:#2e7d32;color:#fff;padding:3px 8px;font-size:11px;">● Live on website</span>' : ""}
           </div>
         </article>`;
       }).join("")}</div>`;
 
       // Keep the Role Status panel in sync with the currently selected meeting
       if (meetingSelect.value) renderRoleStatus(meetingSelect.value);
+      applyMeetingSelection(meetingSelect.value);
     }
 
     // -- Assignment form helpers ----------------------------------------------
@@ -1901,11 +1887,10 @@
           : `${unassignedGroups} role${unassignedGroups > 1 ? "s" : ""} need${unassignedGroups === 1 ? "s" : ""} a member`;
 
       panel.innerHTML = `
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-          <strong style="font-size:13px;">${esc(meeting.meeting_date)} — ${esc(meeting.theme)}</strong>
-          <span class="tmp-tag" style="background:${badgeBg};color:#fff;">${esc(badgeLabel)}</span>
-        </div>
-        <div style="font-size:12px;color:var(--tmp-muted);margin-bottom:10px;">Select a member in any row to assign. Edit the Dur column to revise slot duration.</div>
+        <p style="font-size:13px;margin:0 0 12px;">
+          <strong style="color:${badgeBg};">${esc(badgeLabel)}.</strong>
+          <span style="color:var(--tmp-muted);"> Select a member in any row to assign. Edit the Dur column to revise slot duration.</span>
+        </p>
         <div class="tmp-table-wrap">
           <table class="tmp-table" style="font-size:0.88rem;">
             <thead><tr><th>Role</th><th>Member</th><th>Dur (min)</th><th>Notes</th><th>Action</th></tr></thead>
@@ -1971,8 +1956,102 @@
     }
 
     meetingSelect.addEventListener("change", () => {
-      updateRoles();
-      renderRoleStatus(meetingSelect.value);
+      const val = meetingSelect.value;
+      if (val !== "new") {
+        updateRoles();
+        renderRoleStatus(val);
+      }
+      applyMeetingSelection(val);
+    });
+
+    function applyMeetingSelection(val) {
+      const meetingFormWrap      = qs("[data-tmp-meeting-form-wrap]", root);
+      const roleAssignmentWrap   = qs("[data-tmp-role-assignment-wrap]", root);
+      const meetingAgendaWrap    = qs("[data-tmp-meeting-agenda-wrap]", root);
+      const deleteBtn            = qs("[data-tmp-delete-meeting]", root);
+      const rolesSetup        = qs(".tmp-roles-setup", root);
+      const formLabel         = qs("[data-tmp-meeting-form-label]", root);
+      const formToggle        = qs("[data-tmp-meeting-form-toggle]", root);
+      const formBody          = qs("[data-tmp-meeting-form-body]", root);
+      const submitBtn         = meetingForm?.querySelector("button[type=submit]");
+
+      if (val === "new") {
+        const formHadId = !!(meetingForm?.elements.id?.value);
+        if (formHadId) clearForm(meetingForm);
+        if (rolesSetup) rolesSetup.style.display = "";
+        if (formLabel) formLabel.textContent = "Schedule New Meeting";
+        if (submitBtn) submitBtn.textContent = "Save Meeting";
+        if (deleteBtn) deleteBtn.style.display = "none";
+        if (formToggle) {
+          formToggle.setAttribute("aria-expanded", "true");
+          const ch = qs(".tmp-chevron", formToggle);
+          if (ch) ch.style.transform = "rotate(90deg)";
+        }
+        if (formBody) formBody.style.display = "block";
+        if (meetingFormWrap) meetingFormWrap.style.display = "block";
+        if (roleAssignmentWrap) roleAssignmentWrap.style.display = "none";
+        if (meetingAgendaWrap) meetingAgendaWrap.style.display = "none";
+      } else if (val) {
+        const m = (root._meetings || []).find((x) => String(x.id) === val);
+        if (m && meetingForm) {
+          fillForm(meetingForm, m);
+          if (rolesSetup) rolesSetup.style.display = "none";
+          if (formLabel) formLabel.textContent = "Edit Meeting";
+          if (submitBtn) submitBtn.textContent = "Update Meeting";
+          if (deleteBtn) deleteBtn.style.display = "";
+          if (formToggle) {
+            formToggle.setAttribute("aria-expanded", "false");
+            const ch = qs(".tmp-chevron", formToggle);
+            if (ch) ch.style.transform = "";
+          }
+          if (formBody) formBody.style.display = "none";
+          if (meetingFormWrap) meetingFormWrap.style.display = "block";
+        }
+        if (roleAssignmentWrap) roleAssignmentWrap.style.display = "block";
+        if (meetingAgendaWrap) meetingAgendaWrap.style.display = "block";
+        meetingList.querySelectorAll("[data-agenda-meeting]").forEach((card) => {
+          card.style.display = String(card.dataset.agendaMeeting) === val ? "" : "none";
+        });
+      } else {
+        if (meetingFormWrap) meetingFormWrap.style.display = "none";
+        if (roleAssignmentWrap) roleAssignmentWrap.style.display = "none";
+        if (meetingAgendaWrap) meetingAgendaWrap.style.display = "none";
+      }
+    }
+
+    qs("[data-tmp-role-assignment-toggle]", root)?.addEventListener("click", (e) => {
+      const btn  = e.currentTarget;
+      const open = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!open));
+      const body = qs("[data-tmp-role-assignment-body]", root);
+      if (body) body.style.display = open ? "none" : "block";
+      const chevron = qs(".tmp-chevron", btn);
+      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+    });
+
+    qs("[data-tmp-agenda-toggle]", root)?.addEventListener("click", (e) => {
+      const btn  = e.currentTarget;
+      const open = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!open));
+      const body = qs("[data-tmp-agenda-body]", root);
+      if (body) body.style.display = open ? "none" : "block";
+      const chevron = qs(".tmp-chevron", btn);
+      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+    });
+
+    qs("[data-tmp-delete-meeting]", root)?.addEventListener("click", async () => {
+      const mid = meetingForm?.elements.id?.value;
+      if (!mid) return;
+      if (!confirm("Delete this meeting? This removes all role assignments, requests, votes, and attendance records permanently.")) return;
+      try {
+        await api(`/meetings/${mid}`, { method: "DELETE" });
+        meetingSelect.value = "";
+        updateRoles();
+        await renderMeetings();
+        updateMemberDashboard().catch(() => {});
+      } catch (err) {
+        alert("Failed to delete meeting: " + err.message);
+      }
     });
 
     const suggestionsPanel = qs("[data-tmp-role-suggestions]", assignmentForm);
@@ -2548,9 +2627,8 @@
       });
     }
 
-    // Inject gate settings panel HTML before first use
-    const agendaSection  = qs("[data-tmp-meeting-list]", root)?.closest("section") || null;
-    const agendaParent   = agendaSection?.parentElement || root;
+    // Inject gate settings and timer defaults panels at the bottom of the meetings tab
+    const meetingsTab = qs("[data-tab-body='meetings']", root) || root;
     const gateSection = document.createElement("section");
     gateSection.className = "tmp-panel";
     gateSection.innerHTML = `
@@ -2560,7 +2638,7 @@
       </button>
       <div data-tmp-gate-settings-body style="display:none;margin-top:14px;"></div>`;
     gateSection.setAttribute("data-tmp-gate-settings-panel", "");
-    agendaParent.insertBefore(gateSection, agendaSection);
+    meetingsTab.appendChild(gateSection);
 
     qs("[data-tmp-gate-settings-toggle]", root)?.addEventListener("click", async (e) => {
       const btn  = e.currentTarget;
@@ -2687,7 +2765,7 @@
         <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
       </button>
       <div data-tmp-timing-settings-body style="display:none;margin-top:14px;"></div>`;
-    agendaParent.insertBefore(timingSection, agendaSection);
+    meetingsTab.appendChild(timingSection);
 
     qs("[data-tmp-timing-settings-toggle]", root)?.addEventListener("click", async (e) => {
       const btn  = e.currentTarget;
