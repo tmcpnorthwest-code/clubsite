@@ -4190,4 +4190,19 @@
   initMentorRating();
   initMyRecognition();
   initVPETabs();
+
+  // Hide the WordPress page title (rendered by the theme above our portal shortcode)
+  // and strip the theme's content-area top padding so the topbar starts flush.
+  document.addEventListener('DOMContentLoaded', () => {
+    if (!document.querySelector('.tmp-portal')) return;
+    const titleEl = document.querySelector(
+      '.entry-title, .page-title, h1.post-title, h1.wp-block-post-title, .wp-block-post-title'
+    );
+    if (titleEl) titleEl.style.display = 'none';
+    // Remove top padding from common theme content wrappers
+    const contentWrap = document.querySelector(
+      '.entry-content, .page-content, .wp-block-post-content, article.page'
+    );
+    if (contentWrap) contentWrap.style.paddingTop = '0';
+  });
 })();

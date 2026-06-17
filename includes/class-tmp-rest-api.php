@@ -732,7 +732,7 @@ class TMP_REST_API {
                 'pathway'           => $parsed['pathway'],
                 'level'             => $parsed['level'],
                 'level_completed'   => $parsed['level_completed'],
-                'state'             => self::csv_value($row, $indexes, 'Status (*)') ?: 'Active',
+                'state'             => self::normalize_member_state(self::csv_value($row, $indexes, 'Status (*)')),
                 'paid_until'        => self::normalize_date(self::csv_value($row, $indexes, 'Paid Until')),
                 'pathways_enrolled' => $pathways_enrolled,
             ]);
@@ -1050,6 +1050,20 @@ class TMP_REST_API {
         // If level N is completed, member is working on level N+1 (or stays at N if already at max)
         $working_level = min($completed + 1, 5);
         return ['pathway' => $pathway, 'level' => $working_level, 'level_completed' => $completed];
+    }
+
+    private static function normalize_member_state($ti_state) {
+        // Only map values confirmed to exist in TI CSV exports for this club.
+        // Add entries here if a new TI status appears in a future import.
+        $map = [
+            'paidmember'   => 'Active',
+            'unpaidmember' => 'Inactive',
+            'active'       => 'Active',   // manually-added members
+            'inactive'     => 'Inactive', // manually-added members
+            'resigned'     => 'Resigned', // manually-added members
+        ];
+        $key = strtolower(trim((string) $ti_state));
+        return $map[$key] ?? ($ti_state ?: 'Active');
     }
 
     private static function normalize_date($value) {

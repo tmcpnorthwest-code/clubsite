@@ -405,11 +405,6 @@ class TMP_Shortcodes {
         ?>
         <div class="tmp-portal" data-tmp-vpe>
             <?php echo self::portal_topbar(); ?>
-            <div class="tmp-panel">
-                <p class="tmp-eyebrow">VP Education</p>
-                <h2>Schedule roles, speeches, and meeting agendas</h2>
-                <p>Create meetings, assign roles, add speech titles, and publish a usable agenda view.</p>
-            </div>
 
             <!-- Tab navigation -->
             <nav class="tmp-tab-nav" data-tmp-tab-nav>

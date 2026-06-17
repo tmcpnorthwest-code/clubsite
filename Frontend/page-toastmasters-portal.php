@@ -40,16 +40,8 @@ $diversity_leaders = [];
 if (class_exists('TMP_Repository')) {
     $all_members = TMP_Repository::members();
 
-    $today_str = gmdate('Y-m-d');
-    $active_members = array_filter($all_members, function ($m) use ($today_str) {
-        return strtolower($m['state'] ?? '') === 'active'
-            && (
-                !empty($m['is_exempt_from_unpaid_block'])
-                || empty($m['paid_until'])
-                || $m['paid_until'] >= $today_str
-            );
-    });
-    $active_count = count($active_members);
+    $active_members = array_filter($all_members, fn($m) => !empty($m['is_eligible']));
+    $active_count   = count($active_members);
 
     foreach ($active_members as $m) {
         $l = max(0, min(5, (int) ($m['level_completed'] ?? 0)));

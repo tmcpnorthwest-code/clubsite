@@ -16,6 +16,7 @@ class TMP_Activator {
         self::migrate_v120_pathway_tables();
         self::migrate_v130_level_completed();
         self::migrate_v132_enforce_level_invariant();
+        self::migrate_v133_normalize_states();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -50,6 +51,7 @@ class TMP_Activator {
         self::migrate_v120_pathway_tables();
         self::migrate_v130_level_completed();
         self::migrate_v132_enforce_level_invariant();
+        self::migrate_v133_normalize_states();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -561,6 +563,15 @@ class TMP_Activator {
 
         // Enforce: level is always min(level_completed + 1, 5) but at least 1
         $wpdb->query("UPDATE {$members} SET level = GREATEST(LEAST(level_completed + 1, 5), 1)");
+    }
+
+    private static function migrate_v133_normalize_states() {
+        global $wpdb;
+        $members = $wpdb->prefix . 'tmp_members';
+
+        // TI CSV exports 'PaidMember' and 'UnpaidMember'. Normalise to internal values.
+        $wpdb->query("UPDATE {$members} SET state = 'Active'   WHERE state = 'PaidMember'");
+        $wpdb->query("UPDATE {$members} SET state = 'Inactive' WHERE state = 'UnpaidMember'");
     }
 
     private static function seed_data() {
