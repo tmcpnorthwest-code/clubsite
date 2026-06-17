@@ -1354,6 +1354,9 @@
     if (!root) return;
 
     const meetingForm    = qs("[data-tmp-meeting-form]", root);
+    if (meetingForm?.elements.venue) {
+      meetingForm.elements.venue.defaultValue = TMPortal.clubVenue || "";
+    }
     const assignmentForm = qs("[data-tmp-assignment-form]", root);
     const meetingSelect  = qs("[data-tmp-meeting-select]", root);
     const roleSelect     = qs("[data-tmp-role-select]", root);
@@ -1734,7 +1737,7 @@
       html += dedupedSlots.map((s) =>
         `<option value="id:${esc(s.id)}">${esc(s.base)}${s.memberName ? ` (${esc(s.memberName)})` : " (Unassigned)"}</option>`
       ).join("");
-      roleSelect.innerHTML = html;
+      if (roleSelect) roleSelect.innerHTML = html;
     };
 
     function roleGateLevel(roleName) {
@@ -1763,14 +1766,14 @@
         .filter((a) => a.member_id && String(a.id) !== currentId)
         .map((a) => String(a.member_id));
 
-      const eligible   = root._allMembers.filter((m) => m.is_eligible && m.level >= minLevel && !takenIds.includes(String(m.id)));
-      const ineligible = roleName ? root._allMembers.filter((m) => m.is_eligible && m.level < minLevel) : [];
+      const eligible   = root._allMembers.filter((m) => m.is_eligible && m.level_completed >= minLevel && !takenIds.includes(String(m.id)));
+      const ineligible = roleName ? root._allMembers.filter((m) => m.is_eligible && m.level_completed < minLevel) : [];
 
       let html = '<option value="">Unassigned</option>';
-      html += eligible.map((m) => `<option value="${esc(m.id)}">${esc(m.full_name)} (L${m.level})</option>`).join("");
+      html += eligible.map((m) => `<option value="${esc(m.id)}">${esc(m.full_name)} (L${m.level_completed})</option>`).join("");
       if (ineligible.length) {
         html += `<optgroup label="Not eligible — Level ${minLevel}+ required">`;
-        html += ineligible.map((m) => `<option disabled value="">${esc(m.full_name)} (L${m.level})</option>`).join("");
+        html += ineligible.map((m) => `<option disabled value="">${esc(m.full_name)} (L${m.level_completed})</option>`).join("");
         html += `</optgroup>`;
       }
       memberSelect.innerHTML = html;
@@ -1850,7 +1853,7 @@
             .flatMap(([, g]) => g.filter((a) => a.member_id).map((a) => String(a.member_id)))
         );
 
-        const eligible = (root._allMembers || []).filter((m) => m.is_eligible && m.level >= minLevel);
+        const eligible = (root._allMembers || []).filter((m) => m.is_eligible && m.level_completed >= minLevel);
         const overdueEligible = eligible.filter((m) => dueRoleMap[String(m.id)])
           .sort((a, b) => Number(dueRoleMap[String(b.id)].days_since_role) - Number(dueRoleMap[String(a.id)].days_since_role));
         const regularEligible = eligible.filter((m) => !dueRoleMap[String(m.id)]);
@@ -1861,13 +1864,13 @@
             overdueEligible.map((m) => {
               const note = takenIds.has(String(m.id)) ? " (other role)" : "";
               const days = dueRoleMap[String(m.id)].days_since_role;
-              return `<option value="${esc(m.id)}" ${String(m.id) === String(primary.member_id) ? "selected" : ""}>${esc(m.full_name)} (L${m.level}) — ${days}d${note}</option>`;
+              return `<option value="${esc(m.id)}" ${String(m.id) === String(primary.member_id) ? "selected" : ""}>${esc(m.full_name)} (L${m.level_completed}) — ${days}d${note}</option>`;
             }).join("") + `</optgroup>`;
         }
         opts += `<optgroup label="All eligible">` +
           regularEligible.map((m) => {
             const note = takenIds.has(String(m.id)) ? " (other role)" : "";
-            return `<option value="${esc(m.id)}" ${String(m.id) === String(primary.member_id) ? "selected" : ""}>${esc(m.full_name)} (L${m.level})${note}</option>`;
+            return `<option value="${esc(m.id)}" ${String(m.id) === String(primary.member_id) ? "selected" : ""}>${esc(m.full_name)} (L${m.level_completed})${note}</option>`;
           }).join("") + `</optgroup>`;
 
         const notes = [];
@@ -1879,6 +1882,9 @@
           <td data-label="Role" style="white-space:nowrap;">${esc(baseRole)}</td>
           <td data-label="Member">
             <select data-assign-roles="${esc(allIds)}" style="width:100%;max-width:220px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">${opts}</select>
+          </td>
+          <td data-label="Dur (min)" style="width:80px;">
+            <input type="number" min="0" data-assign-duration="${esc(primary.id)}" value="${esc(primary.duration || '')}" placeholder="—" style="width:60px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;" />
           </td>
           <td data-label="Notes" style="font-size:11px;">${notes.join(" ") || "—"}</td>
           <td data-label="Action"><button class="tmp-small-button tmp-danger" type="button" data-delete-roles="${esc(allIds)}" data-role-name="${esc(baseRole)}">Remove slot</button></td>
@@ -1899,10 +1905,10 @@
           <strong style="font-size:13px;">${esc(meeting.meeting_date)} — ${esc(meeting.theme)}</strong>
           <span class="tmp-tag" style="background:${badgeBg};color:#fff;">${esc(badgeLabel)}</span>
         </div>
-        <div style="font-size:12px;color:var(--tmp-muted);margin-bottom:10px;">Select a member in any row to assign. Use the form above only for new slots, durations, or speech titles.</div>
+        <div style="font-size:12px;color:var(--tmp-muted);margin-bottom:10px;">Select a member in any row to assign. Edit the Dur column to revise slot duration.</div>
         <div class="tmp-table-wrap">
           <table class="tmp-table" style="font-size:0.88rem;">
-            <thead><tr><th>Role</th><th>Member</th><th>Notes</th><th>Action</th></tr></thead>
+            <thead><tr><th>Role</th><th>Member</th><th>Dur (min)</th><th>Notes</th><th>Action</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>`;
@@ -1912,20 +1918,35 @@
         panel._listenersAdded = true;
 
         panel.addEventListener("change", async (e) => {
-          const sel = e.target.closest("[data-assign-roles]");
-          if (!sel) return;
-          const ids      = sel.dataset.assignRoles.split(",");
-          const memberId = sel.value || null;
-          sel.disabled   = true;
-          try {
-            for (const id of ids) {
-              await api("/assignments", { method: "POST", body: JSON.stringify({ id: parseInt(id), member_id: memberId, status: memberId ? "Confirmed" : "Planned" }) });
+          const sel      = e.target.closest("[data-assign-roles]");
+          const durInput = e.target.matches("[data-assign-duration]") ? e.target : null;
+
+          if (sel) {
+            const ids      = sel.dataset.assignRoles.split(",");
+            const memberId = sel.value || null;
+            sel.disabled   = true;
+            try {
+              for (const id of ids) {
+                await api("/assignments", { method: "POST", body: JSON.stringify({ id: parseInt(id), member_id: memberId, status: memberId ? "Confirmed" : "Planned" }) });
+              }
+              await renderMeetings(meetingSelect.value);
+              updateMemberDashboard().catch(() => {});
+            } catch (err) {
+              alert("Failed to assign: " + err.message);
+              sel.disabled = false;
             }
-            await renderMeetings(meetingSelect.value);
-            updateMemberDashboard().catch(() => {});
-          } catch (err) {
-            alert("Failed to assign: " + err.message);
-            sel.disabled = false;
+          } else if (durInput) {
+            const assignId = parseInt(durInput.dataset.assignDuration);
+            const dur      = Number(durInput.value) || 0;
+            durInput.disabled = true;
+            try {
+              await api("/assignments", { method: "POST", body: JSON.stringify({ id: assignId, duration: dur }) });
+              await renderMeetings(meetingSelect.value);
+            } catch (err) {
+              alert("Failed to update duration: " + err.message);
+            } finally {
+              durInput.disabled = false;
+            }
           }
         });
 
@@ -1998,7 +2019,7 @@
       });
     }
 
-    roleSelect.addEventListener("change", () => {
+    roleSelect?.addEventListener("change", () => {
       const val = roleSelect.value;
       const mid = meetingSelect.value;
 
@@ -2369,7 +2390,7 @@
             ? '<option value="">-- No eligible mentors (need Level 2+ Active member) --</option>'
             : '<option value="">-- No mentor / Remove --</option>' +
               mentors.map((m) =>
-                `<option value="${esc(m.id)}" ${String(m.id) === currentMentorId ? "selected" : ""}>${esc(m.full_name)} — Level ${m.level} (${esc(m.pathway)})</option>`
+                `<option value="${esc(m.id)}" ${String(m.id) === currentMentorId ? "selected" : ""}>${esc(m.full_name)} — Level ${m.level_completed} (${esc(m.pathway)})</option>`
               ).join("");
         }
       });
@@ -2574,6 +2595,11 @@
             <button class="tmp-small-button tmp-primary" id="tmp-venue-save">Save</button>
             <span id="tmp-venue-status" style="font-size:12px;color:var(--tmp-muted);"></span>
           </div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+            <input id="tmp-default-maps-url" type="url" value="${esc(clubSettings.default_maps_url || "")}" placeholder="Google Maps link (shown on home page with published agenda)" style="flex:1;padding:5px 8px;" />
+            <button class="tmp-small-button tmp-primary" id="tmp-maps-url-save">Save</button>
+            <span id="tmp-maps-url-status" style="font-size:12px;color:var(--tmp-muted);"></span>
+          </div>
         </div>
         <p style="font-size:12px;color:var(--tmp-muted);margin-bottom:10px;">
           Enter times as M:SS (e.g. <strong>5:00</strong>). These defaults auto-fill when you create a new meeting.
@@ -2603,6 +2629,22 @@
         try {
           await api("/settings/club", { method: "POST", body: JSON.stringify({ default_venue: val }) });
           TMPortal.clubVenue = val;
+          if (status) { status.textContent = "Saved!"; status.style.color = "#2e7d32"; }
+          setTimeout(() => { if (status) status.textContent = ""; }, 2000);
+        } catch (err) {
+          if (status) { status.textContent = "Error: " + err.message; status.style.color = "#c62828"; }
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      qs("#tmp-maps-url-save", root)?.addEventListener("click", async () => {
+        const btn    = qs("#tmp-maps-url-save", root);
+        const status = qs("#tmp-maps-url-status", root);
+        const val    = qs("#tmp-default-maps-url", root)?.value || "";
+        btn.disabled = true;
+        try {
+          await api("/settings/club", { method: "POST", body: JSON.stringify({ default_maps_url: val }) });
           if (status) { status.textContent = "Saved!"; status.style.color = "#2e7d32"; }
           setTimeout(() => { if (status) status.textContent = ""; }, 2000);
         } catch (err) {

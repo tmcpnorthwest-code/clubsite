@@ -17,12 +17,19 @@ class TMP_Activator {
         self::migrate_v130_level_completed();
         self::migrate_v132_enforce_level_invariant();
         self::migrate_v133_normalize_states();
+        self::migrate_v140_gate_levels();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
         if (!get_option('tmp_role_gate_levels')) {
             update_option('tmp_role_gate_levels', TMP_Repository::default_gate_levels());
+        }
+        if (!get_option('tmp_default_venue')) {
+            update_option('tmp_default_venue', 'Room 106, MM Polytechnic, Thergaon, Pimpri Chinchwad');
+        }
+        if (!get_option('tmp_default_maps_url')) {
+            update_option('tmp_default_maps_url', 'https://maps.app.goo.gl/oHWqSrXgNsCBcwv28');
         }
         flush_rewrite_rules();
         self::log('Activation hook completed');
@@ -52,11 +59,18 @@ class TMP_Activator {
         self::migrate_v130_level_completed();
         self::migrate_v132_enforce_level_invariant();
         self::migrate_v133_normalize_states();
+        self::migrate_v140_gate_levels();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
         if (!get_option('tmp_role_gate_levels')) {
             update_option('tmp_role_gate_levels', TMP_Repository::default_gate_levels());
+        }
+        if (!get_option('tmp_default_venue')) {
+            update_option('tmp_default_venue', 'Room 106, MM Polytechnic, Thergaon, Pimpri Chinchwad');
+        }
+        if (!get_option('tmp_default_maps_url')) {
+            update_option('tmp_default_maps_url', 'https://maps.app.goo.gl/oHWqSrXgNsCBcwv28');
         }
         update_option('tmp_plugin_version', TMP_VERSION);
         self::log('Upgrade completed');
@@ -572,6 +586,38 @@ class TMP_Activator {
         // TI CSV exports 'PaidMember' and 'UnpaidMember'. Normalise to internal values.
         $wpdb->query("UPDATE {$members} SET state = 'Active'   WHERE state = 'PaidMember'");
         $wpdb->query("UPDATE {$members} SET state = 'Inactive' WHERE state = 'UnpaidMember'");
+    }
+
+    /**
+     * v0.14.0: Clean up role gate level keys.
+     * Removes non-role entries (introductory mentor, intro mentor, table topics speaker)
+     * and renames patterns to match actual role names (toastmaster of the day, table topics master).
+     */
+    private static function migrate_v140_gate_levels() {
+        $stored = (array) get_option('tmp_role_gate_levels', []);
+        if (empty($stored)) {
+            return;
+        }
+
+        $remove  = ['introductory mentor', 'intro mentor', 'table topics speaker', 'ah counter', 'topics master', 'toastmaster'];
+        $renamed = [
+            'toastmaster' => 'toastmaster of the day',
+            'topics master' => 'table topics master',
+        ];
+
+        $updated = $stored;
+        foreach ($renamed as $old => $new) {
+            if (isset($updated[$old]) && !isset($updated[$new])) {
+                $updated[$new] = $updated[$old];
+            }
+        }
+        foreach ($remove as $key) {
+            unset($updated[$key]);
+        }
+
+        if ($updated !== $stored) {
+            update_option('tmp_role_gate_levels', $updated);
+        }
     }
 
     private static function seed_data() {

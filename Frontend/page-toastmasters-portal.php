@@ -319,8 +319,15 @@ if ($next_meeting) {
       <?php if (!empty($published_agenda['theme'])) : ?>
         <span class="upcoming-theme">&ldquo;<?php echo esc_html($published_agenda['theme']); ?>&rdquo;</span>
       <?php endif; ?>
-      <?php if (!empty($published_agenda['venue'])) : ?>
-        <span class="upcoming-venue"><?php echo esc_html($published_agenda['venue']); ?></span>
+      <?php
+        $pa_venue    = $published_agenda['venue'] ?? '';
+        $pa_maps_url = get_option('tmp_default_maps_url', '');
+      ?>
+      <?php if (!empty($pa_venue)) : ?>
+        <span class="upcoming-venue"><?php echo esc_html($pa_venue); ?></span>
+      <?php endif; ?>
+      <?php if (!empty($pa_maps_url)) : ?>
+        <a class="upcoming-directions" href="<?php echo esc_url($pa_maps_url); ?>" target="_blank" rel="noopener noreferrer">Get directions &#x2197;</a>
       <?php endif; ?>
       <?php if (!empty($published_agenda['start_time'])) : ?>
         <span class="upcoming-time"><?php echo esc_html(substr($published_agenda['start_time'], 0, 5)); ?></span>

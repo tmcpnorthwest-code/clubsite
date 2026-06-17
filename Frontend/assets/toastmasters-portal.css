@@ -1529,6 +1529,17 @@ textarea {
   content: "📍 ";
 }
 
+.upcoming-directions {
+  font-size: 0.85rem;
+  color: var(--teal);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.upcoming-directions:hover {
+  text-decoration: underline;
+}
+
 .upcoming-agenda-wrap {
   max-width: 760px;
 }

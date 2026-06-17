@@ -1287,7 +1287,8 @@ class TMP_REST_API {
 
     public static function get_club_settings() {
         return rest_ensure_response([
-            'default_venue' => get_option('tmp_default_venue', ''),
+            'default_venue'    => get_option('tmp_default_venue', ''),
+            'default_maps_url' => get_option('tmp_default_maps_url', ''),
         ]);
     }
 
@@ -1295,6 +1296,9 @@ class TMP_REST_API {
         $body = $request->get_json_params();
         if (isset($body['default_venue'])) {
             update_option('tmp_default_venue', sanitize_text_field($body['default_venue']));
+        }
+        if (isset($body['default_maps_url'])) {
+            update_option('tmp_default_maps_url', esc_url_raw($body['default_maps_url']));
         }
         return rest_ensure_response(['success' => true]);
     }

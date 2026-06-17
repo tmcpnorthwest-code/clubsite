@@ -560,60 +560,43 @@ class TMP_Shortcodes {
                     </div>
                 </section>
 
-                <form class="tmp-panel tmp-form" data-tmp-assignment-form>
+                <section class="tmp-panel">
+                    <p class="tmp-eyebrow">Role assignments</p>
+                    <label style="display:block;margin-bottom:14px;">
+                        Meeting
+                        <select name="meeting_id" required data-tmp-meeting-select style="display:block;width:100%;max-width:520px;margin-top:4px;"></select>
+                    </label>
+                    <div data-tmp-role-status-panel></div>
+                </section>
+
+                <form data-tmp-assignment-form style="display:none;">
                     <input type="hidden" name="id" />
                     <input type="hidden" name="role_name" />
-                    <label>Meeting <select name="meeting_id" required data-tmp-meeting-select></select></label>
-                    <div class="tmp-wide"><small>Add a new role slot, change duration, or set a speech title. To assign members to existing slots, use the Role Assignments table below.</small></div>
-                    <label>Role <select data-tmp-role-select required></select></label>
-                    <div data-tmp-role-suggestions class="tmp-wide" style="display:none;"></div>
-                    <label>Member <select name="member_id" data-tmp-member-select></select></label>
-                    <div data-tmp-cooloff-warning style="display:none;" class="tmp-wide"></div>
-                    <label data-tmp-speech-title-wrapper>Speech title <input name="speech_title" placeholder="Optional speech title" /></label>
-                    <label data-tmp-pres-series-wrapper style="display:none;">
-                        Presentation Series
-                        <select name="presentation_series">
-                            <option value="">Not applicable</option>
-                            <option value="Successful Club Series">Successful Club Series</option>
-                            <option value="Better Speaker Series">Better Speaker Series</option>
-                            <option value="Leadership Excellence Series">Leadership Excellence Series</option>
-                        </select>
-                    </label>
-                    <label>Duration (mins) <input type="number" name="duration" min="0" placeholder="e.g. 7" /></label>
-                    <div data-tmp-timing-wrap class="tmp-wide" style="display:none;padding:10px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:4px;">
-                        <p class="tmp-eyebrow" style="margin:0 0 8px;">Timer Guidance (M:SS)</p>
-                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
-                            <label><span style="color:#2e7d32;font-weight:700;">● Green</span><input type="text" name="time_green"  placeholder="5:00" style="display:block;width:100%;margin-top:4px;" /></label>
-                            <label><span style="color:#f9a825;font-weight:700;">● Yellow</span><input type="text" name="time_yellow" placeholder="6:00" style="display:block;width:100%;margin-top:4px;" /></label>
-                            <label><span style="color:#c62828;font-weight:700;">● Red</span><input type="text" name="time_red"    placeholder="7:00" style="display:block;width:100%;margin-top:4px;" /></label>
-                        </div>
-                    </div>
-                    <label style="display:none;">Status
-                        <select name="status">
-                            <option>Planned</option>
-                            <option>Requested</option>
-                            <option>Confirmed</option>
-                            <option>Needs replacement</option>
-                            <option>Completed</option>
-                        </select>
-                    </label>
-                    <div data-tmp-cooloff-override-wrapper class="tmp-wide" style="display:none;padding:10px;background:#fff8e1;border:1px solid #ffd54f;border-radius:4px;">
-                        <label style="display:flex;align-items:center;gap:8px;font-weight:bold;">
-                            <input type="checkbox" name="cooloff_override" value="1"> Override cooloff period
-                        </label>
-                        <label style="margin-top:6px;">
-                            Override reason <input type="text" name="override_reason" placeholder="Brief reason for the exception" />
-                        </label>
-                    </div>
-                    <div class="tmp-form-actions tmp-wide">
-                        <button class="tmp-button tmp-primary" type="submit">Save Assignment</button>
-                        <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-assignment>Clear</button>
-                    </div>
+                    <input type="hidden" name="meeting_id" />
+                    <input type="hidden" name="speech_title" data-tmp-speech-title-wrapper />
+                    <select name="presentation_series" data-tmp-pres-series-wrapper style="display:none;">
+                        <option value="">Not applicable</option>
+                        <option value="Successful Club Series">Successful Club Series</option>
+                        <option value="Better Speaker Series">Better Speaker Series</option>
+                        <option value="Leadership Excellence Series">Leadership Excellence Series</option>
+                    </select>
+                    <input type="text" name="time_green" style="display:none;" />
+                    <input type="text" name="time_yellow" style="display:none;" />
+                    <input type="text" name="time_red" style="display:none;" />
+                    <select name="status" style="display:none;">
+                        <option>Planned</option>
+                        <option>Requested</option>
+                        <option>Confirmed</option>
+                        <option>Needs replacement</option>
+                        <option>Completed</option>
+                    </select>
+                    <input type="checkbox" name="cooloff_override" value="1" style="display:none;" />
+                    <input type="text" name="override_reason" style="display:none;" />
+                    <div data-tmp-cooloff-warning style="display:none;"></div>
+                    <div data-tmp-cooloff-override-wrapper style="display:none;"></div>
+                    <div data-tmp-timing-wrap style="display:none;"></div>
+                    <div data-tmp-role-suggestions style="display:none;"></div>
                 </form>
-
-                <section class="tmp-panel" data-tmp-role-status-panel style="display:none;">
-                    <p class="tmp-eyebrow">Role assignments</p>
-                </section>
 
                 <section class="tmp-panel">
                     <div class="tmp-card-head">

@@ -56,21 +56,17 @@ class TMP_Repository {
      */
     public static function default_gate_levels() {
         return [
-            'general evaluator'   => 2,  // L2+ only
-            'toastmaster'         => 2,  // L2+ only
-            'presiding officer'   => 1,  // L1+ only
-            'introductory mentor' => 1,  // L1+ only
-            'intro mentor'        => 1,  // L1+ only
-            'evaluator'           => 1,  // L1+ only (covers Evaluator, Evaluator 1, Evaluator 2, etc.)
-            'speaker'             => 0,  // L0+ (any level) — covers all Speaker roles by default
-            'topics master'       => 0,  // L0+ (any level)
-            'table topics speaker'=> 0,  // L0+ (any level)
-            'grammarian'          => 0,  // L0+ (any level)
-            'ah counter'          => 0,  // L0+ (any level)
-            'ah-counter'          => 0,  // L0+ (any level)
-            'timer'               => 0,  // L0+ (any level)
-            'sergeant at arms'    => 0,  // L0+ (any level)
-            'active listener'     => 0,  // L0+ (any level)
+            'general evaluator'      => 2,  // L2+ only
+            'toastmaster of the day' => 2,  // L2+ only
+            'presiding officer'      => 1,  // L1+ only
+            'evaluator'              => 1,  // L1+ only (covers Evaluator, Evaluator 1, Evaluator 2, etc.)
+            'speaker'                => 0,  // L0+ (any level) — covers all Speaker roles
+            'table topics master'    => 0,  // L0+ (any level)
+            'grammarian'             => 0,  // L0+ (any level)
+            'ah-counter'             => 0,  // L0+ (any level)
+            'timer'                  => 0,  // L0+ (any level)
+            'sergeant at arms'       => 0,  // L0+ (any level)
+            'active listener'        => 0,  // L0+ (any level)
         ];
     }
 
@@ -88,7 +84,6 @@ class TMP_Repository {
             'Timer'                  => 'Timer',
             'Ah-Counter'             => 'Ah-Counter',
             'Grammarian'             => 'Grammarian',
-            'Introductory Mentor'    => 'Intro Mentor',
             'Educational Presentation' => 'Edu Presentation',
             'Active Listener'        => 'Active Listener',
         ];
@@ -371,9 +366,10 @@ class TMP_Repository {
             $is_exempt = !empty($row['is_exempt_from_unpaid_block']);
 
             $row['level']                         = (int) $row['level'];
+            $row['level_completed']               = (int) ($row['level_completed'] ?? 0);
             $row['mentor_id']                     = !empty($row['mentor_id']) ? (int) $row['mentor_id'] : null;
             $row['is_eligible']                   = (!$is_unpaid || $is_exempt);
-            $row['formatted_name']                = sprintf("%s (%s Level %d)", $row['full_name'], $row['pathway'], $row['level']);
+            $row['formatted_name']                = sprintf("%s (%s Level %d)", $row['full_name'], $row['pathway'], $row['level_completed']);
             $row['recent_participation_count']    = $participation_map[$row['id']] ?? 0;
             $row['total_recent_meetings_checked'] = count($last_3_meeting_ids);
         }
