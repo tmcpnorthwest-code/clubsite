@@ -23,8 +23,8 @@ define('TMC_YT_CHANNEL_ID_OVERRIDE', 'UCC-9rVEwrTuDV4oQpjTyybw');
 
 $template_dir = get_stylesheet_directory_uri();
 
-wp_enqueue_style('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.css', [], '2.1.0');
-wp_enqueue_script('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.js', [], '2.1.0', true);
+wp_enqueue_style('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.css', [], '2.1.1');
+wp_enqueue_script('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.js', [], '2.1.1', true);
 wp_localize_script('toastmasters-portal', 'TMCPublic', [
     'restUrl' => esc_url_raw(rest_url('toastmasters/v1')),
 ]);
@@ -225,11 +225,13 @@ if ($next_meeting) {
 
   <!-- ══════════════════════════════════════════════════════════ HERO -->
   <section class="hero" id="tmc-top">
-    <img
-      src="<?php echo esc_url($template_dir . '/assets/hero-photo.jpeg'); ?>"
-      alt="Toastmasters Club of Pune North West members at a meeting"
-      loading="eager"
-    />
+    <a class="hero-img-link" href="#tmc-membership" aria-label="Join Us – scroll to membership section">
+      <img
+        src="<?php echo esc_url($template_dir . '/assets/hero-photo.jpeg'); ?>"
+        alt="Toastmasters Club of Pune North West members at a meeting"
+        loading="eager"
+      />
+    </a>
     <?php if ($next_meeting) :
       $nm_dt = new DateTime($next_meeting['meeting_date']); ?>
       <div class="hero-meeting-chip">
@@ -245,12 +247,6 @@ if ($next_meeting) {
         <?php endif; ?>
       </div>
     <?php endif; ?>
-    <a class="hero-join-btn" href="#tmc-membership" aria-label="Join Us – scroll to membership section">
-      <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18" aria-hidden="true">
-        <path d="M9 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM17.32 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 0 0-1.5-4.33A5 5 0 0 1 19 16v1h-6.07ZM6 11a5 5 0 0 1 5 5v1H1v-1a5 5 0 0 1 5-5Z"/>
-      </svg>
-      Join Us
-    </a>
   </section>
 
   <!-- ══════════════════════════════════════════════════════ STATS BAND -->
