@@ -26,8 +26,9 @@
     const em = n.match(/^evaluator\s*(\d+)$/);
     if (sm) return 100 + (parseInt(sm[1], 10) - 1) * 2;
     if (em) return 101 + (parseInt(em[1], 10) - 1) * 2;
-    if (n.includes("table topics master"))  return 90;
-    if (n.includes("table topics"))         return 91;
+    if (n.includes("table topics master"))    return 90;
+    if (n.includes("table topics evaluator")) return 92;
+    if (n.includes("table topics"))           return 91;
     if (n.includes("presiding officer"))    return 0;
     if (n === "saa" || n.includes("sergeant at arms")) return 1;
     if (n.includes("toastmaster"))          return 2;
@@ -801,27 +802,9 @@
           return true;
         })
         .map((s) => {
-          const role = s.role_name.toLowerCase();
-          let qualified   = true;
-          let requirement = "";
-
-          const gates = TMPortal.roleGateLevels || {};
-          for (const [pattern, minLevel] of Object.entries(gates)) {
-            if (role.includes(pattern)) {
-              const gate = Number(minLevel);
-              if (gate > 0) {
-                qualified   = memberLevel >= gate;
-                requirement = `Level ${gate}+ required`;
-              }
-              break;
-            }
-          }
-
-          // Defensive: ensure Evaluator X roles are gated correctly even if pattern doesn't match
-          if (!role.includes('general evaluator') && role.match(/evaluator/i) && memberLevel < 1) {
-            qualified = false;
-            requirement = 'Level 1+ required';
-          }
+          // Use server-computed qualification (based on level_completed, not working level)
+          let qualified   = !!s.qualified;
+          let requirement = s.requirement || "";
 
           const base = s.role_name.replace(/\s*\(.*?\)\s*/g, "").replace(/\s+\d+$/, "").trim();
           const cooloff = s.cooloff || null;
@@ -1156,6 +1139,45 @@
         btn.disabled = false;
       }
     });
+
+    // Change password collapsible
+    const pwToggle = qs("[data-tmp-change-password-toggle]", root);
+    const pwBody   = qs("[data-tmp-change-password-body]",   root);
+    pwToggle?.addEventListener("click", () => {
+      const open = pwToggle.getAttribute("aria-expanded") === "true";
+      pwToggle.setAttribute("aria-expanded", String(!open));
+      if (pwBody) pwBody.style.display = open ? "none" : "block";
+      const chevron = qs(".tmp-chevron", pwToggle);
+      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+    });
+
+    qs("[data-tmp-change-password-form]", root)?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form   = e.currentTarget;
+      const status = qs("[data-tmp-change-password-status]", root);
+      const newPw  = form.elements.new_password.value;
+      const confPw = form.elements.confirm_password.value;
+      if (newPw !== confPw) {
+        if (status) { status.textContent = "Passwords do not match."; status.style.color = "#c62828"; }
+        return;
+      }
+      const btn = form.querySelector("button[type=submit]");
+      btn.disabled = true;
+      if (status) { status.textContent = "Saving…"; status.style.color = ""; }
+      try {
+        await api("/me/change-password", {
+          method: "POST",
+          body: JSON.stringify({ current_password: form.elements.current_password.value, new_password: newPw }),
+        });
+        if (status) { status.textContent = "Password updated!"; status.style.color = "#2e7d32"; }
+        form.reset();
+        setTimeout(() => { if (status) status.textContent = ""; }, 3000);
+      } catch (err) {
+        if (status) { status.textContent = err.message; status.style.color = "#c62828"; }
+      } finally {
+        btn.disabled = false;
+      }
+    });
   }
 
   // ===========================================================================
@@ -1230,7 +1252,21 @@
           <td>${esc(m.state)}</td>
           <td style="${inactive ? "color:#ef6c00;font-weight:bold;" : ""}">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
           <td>${m.is_exempt_from_unpaid_block ? "Yes" : "No"}</td>
-          <td><div class="tmp-row-actions"><button class="tmp-small-button tmp-danger" type="button" data-delete-member="${esc(m.id)}">Delete</button></div></td>
+          <td><div class="tmp-row-actions">
+            <button class="tmp-small-button tmp-secondary" type="button" data-reset-password="${esc(m.id)}">Reset PW</button>
+            <button class="tmp-small-button tmp-danger" type="button" data-delete-member="${esc(m.id)}">Delete</button>
+          </div></td>
+        </tr>
+        <tr data-pw-row="${esc(m.id)}" style="display:none;">
+          <td colspan="9" style="background:#f9f9f9;padding:10px 16px;border-bottom:1px solid var(--tmp-line);">
+            <form data-pw-form="${esc(m.id)}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <input type="password" placeholder="New password (min 8 chars)" minlength="8" required
+                     style="padding:6px 10px;border:1px solid var(--tmp-line);border-radius:4px;font-size:0.88rem;flex:1;min-width:180px;" />
+              <button class="tmp-small-button tmp-primary" type="submit">Set Password</button>
+              <button class="tmp-small-button" type="button" data-cancel-pw="${esc(m.id)}">Cancel</button>
+              <span data-pw-status="${esc(m.id)}" style="font-size:12px;"></span>
+            </form>
+          </td>
         </tr>`;
       };
 
@@ -1293,6 +1329,47 @@
         ev.target.closest("tr")?.remove();
         await api(`/members/${del.dataset.deleteMember}`, { method: "DELETE" });
         await render(true);
+        return;
+      }
+
+      const resetBtn = ev.target.closest("[data-reset-password]");
+      if (resetBtn) {
+        const id  = resetBtn.dataset.resetPassword;
+        const row = table.querySelector(`[data-pw-row="${id}"]`);
+        if (row) row.style.display = row.style.display === "none" ? "" : "none";
+        return;
+      }
+
+      const cancelBtn = ev.target.closest("[data-cancel-pw]");
+      if (cancelBtn) {
+        const row = table.querySelector(`[data-pw-row="${cancelBtn.dataset.cancelPw}"]`);
+        if (row) row.style.display = "none";
+      }
+    });
+
+    table.addEventListener("submit", async (ev) => {
+      const form = ev.target.closest("[data-pw-form]");
+      if (!form) return;
+      ev.preventDefault();
+      const id     = form.dataset.pwForm;
+      const pw     = form.querySelector("input[type=password]").value;
+      const status = table.querySelector(`[data-pw-status="${id}"]`);
+      const btn    = form.querySelector("button[type=submit]");
+      btn.disabled = true;
+      if (status) { status.textContent = "Saving…"; status.style.color = ""; }
+      try {
+        await api(`/members/${id}/reset-password`, { method: "POST", body: JSON.stringify({ new_password: pw }) });
+        if (status) { status.textContent = "Password set!"; status.style.color = "#2e7d32"; }
+        form.reset();
+        setTimeout(() => {
+          if (status) status.textContent = "";
+          const row = table.querySelector(`[data-pw-row="${id}"]`);
+          if (row) row.style.display = "none";
+        }, 2000);
+      } catch (err) {
+        if (status) { status.textContent = err.message; status.style.color = "#c62828"; }
+      } finally {
+        btn.disabled = false;
       }
     });
 
@@ -1562,7 +1639,7 @@
         const mentorBtn = m.level_completed === 0
           ? `<button class="tmp-small-button" type="button" data-assign-mentor="${m.id}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">${m.mentor_name ? "Change" : "Assign"} Mentor</button>`
           : "";
-        const actionCell = `<div style="display:flex;gap:6px;align-items:center;">${mentorBtn}<button class="tmp-small-button" data-expand-lp="${m.id}" style="min-width:28px;">&#9658;</button></div>`;
+        const actionCell = `<div style="display:flex;gap:6px;align-items:center;">${mentorBtn}<button class="tmp-small-button tmp-secondary" type="button" data-vpe-reset-pw="${m.id}">Reset PW</button><button class="tmp-small-button" data-expand-lp="${m.id}" style="min-width:28px;">&#9658;</button></div>`;
         return `<tr data-lp-member="${m.id}" data-m-level="${m.level_completed}"${inactive ? ' style="background:#fff8e1"' : ""}>
           <td><strong>${esc(m.full_name)}</strong>${inactive ? `<br><small style="color:#ef6c00;font-weight:bold">Inactive</small>` : ""}<br><small style="color:var(--tmp-muted)">${esc(m.pathway)}</small></td>
           <td>Level ${m.level_completed}</td>
@@ -1572,6 +1649,16 @@
           <td>${statusCell}</td>
           <td>${actionCell}</td>
         </tr>
+        <tr data-vpe-pw-row="${m.id}" style="display:none;"><td colspan="7" style="padding:0;background:#f9f9f9;">
+          <form data-vpe-pw-form="${m.id}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px;">
+            <span style="font-size:0.88rem;font-weight:600;">${esc(m.full_name)}:</span>
+            <input type="password" placeholder="New password (min 8 chars)" minlength="8" required
+                   style="padding:6px 10px;border:1px solid var(--tmp-line);border-radius:4px;font-size:0.88rem;flex:1;min-width:180px;" />
+            <button class="tmp-small-button tmp-primary" type="submit">Set Password</button>
+            <button class="tmp-small-button" type="button" data-vpe-cancel-pw="${m.id}">Cancel</button>
+            <span data-vpe-pw-status="${m.id}" style="font-size:12px;"></span>
+          </form>
+        </td></tr>
         <tr data-lp-detail="${m.id}" style="display:none;"><td colspan="7" style="padding:0;"></td></tr>`;
       }).join("");
     }
@@ -1978,7 +2065,17 @@
       if (val === "new") {
         const formHadId = !!(meetingForm?.elements.id?.value);
         if (formHadId) clearForm(meetingForm);
-        if (rolesSetup) rolesSetup.style.display = "";
+        if (rolesSetup) {
+          rolesSetup.style.display = "";
+          const lbl       = qs("[data-tmp-roles-setup-label]", root);
+          const hint      = qs("[data-tmp-roles-setup-hint]", root);
+          const customBtn = qs("[data-tmp-customise-roles]", root);
+          const rolesGrid = qs("[data-tmp-roles-grid]", root);
+          if (lbl) lbl.textContent = "Role Slots";
+          if (hint) hint.textContent = "Using standard agenda with all roles.";
+          if (customBtn) { customBtn.style.display = ""; customBtn.textContent = "Customise roles ▾"; }
+          if (rolesGrid) rolesGrid.style.display = "none";
+        }
         if (formLabel) formLabel.textContent = "Schedule New Meeting";
         if (submitBtn) submitBtn.textContent = "Save Meeting";
         if (deleteBtn) deleteBtn.style.display = "none";
@@ -1995,7 +2092,20 @@
         const m = (root._meetings || []).find((x) => String(x.id) === val);
         if (m && meetingForm) {
           fillForm(meetingForm, m);
-          if (rolesSetup) rolesSetup.style.display = "none";
+          if (rolesSetup) {
+            rolesSetup.style.display = "";
+            rolesSetup.querySelectorAll("input[type=checkbox]").forEach((cb) => { cb.checked = false; });
+            const slotInput = rolesSetup.querySelector("input[name=speech_slots]");
+            if (slotInput) slotInput.value = "0";
+            const lbl       = qs("[data-tmp-roles-setup-label]", root);
+            const hint      = qs("[data-tmp-roles-setup-hint]", root);
+            const customBtn = qs("[data-tmp-customise-roles]", root);
+            const rolesGrid = qs("[data-tmp-roles-grid]", root);
+            if (lbl) lbl.textContent = "Add Role Slots";
+            if (hint) hint.textContent = "Check roles to add them if not already in this meeting. Set Speech Slots > 0 to append extra Speaker + Evaluator pairs.";
+            if (customBtn) customBtn.style.display = "none";
+            if (rolesGrid) rolesGrid.style.display = "grid";
+          }
           if (formLabel) formLabel.textContent = "Edit Meeting";
           if (submitBtn) submitBtn.textContent = "Update Meeting";
           if (deleteBtn) deleteBtn.style.display = "";
@@ -2528,11 +2638,26 @@
       renderMembers();
     });
 
-    // Unified table: expand detail + offset controls
+    // Unified table: expand detail + offset controls + Reset PW
     unifiedRows?.addEventListener("click", async (e) => {
-      const expandBtn = e.target.closest("[data-expand-lp]");
-      const incBtn    = e.target.closest("[data-offset-inc]");
-      const decBtn    = e.target.closest("[data-offset-dec]");
+      const expandBtn  = e.target.closest("[data-expand-lp]");
+      const incBtn     = e.target.closest("[data-offset-inc]");
+      const decBtn     = e.target.closest("[data-offset-dec]");
+      const resetPwBtn = e.target.closest("[data-vpe-reset-pw]");
+      const cancelPwBtn = e.target.closest("[data-vpe-cancel-pw]");
+
+      if (resetPwBtn) {
+        const id  = resetPwBtn.dataset.vpeResetPw;
+        const row = unifiedRows.querySelector(`[data-vpe-pw-row="${id}"]`);
+        if (row) row.style.display = row.style.display === "none" ? "" : "none";
+        return;
+      }
+
+      if (cancelPwBtn) {
+        const row = unifiedRows.querySelector(`[data-vpe-pw-row="${cancelPwBtn.dataset.vpeCancelPw}"]`);
+        if (row) row.style.display = "none";
+        return;
+      }
 
       if (expandBtn) {
         await loadUnifiedDetail(expandBtn.dataset.expandLp);
@@ -2564,6 +2689,33 @@
         } catch (err) {
           alert("Could not save offset: " + err.message);
         }
+      }
+    });
+
+    // VPE table: reset password submit
+    unifiedRows?.addEventListener("submit", async (e) => {
+      const form = e.target.closest("[data-vpe-pw-form]");
+      if (!form) return;
+      e.preventDefault();
+      const id     = form.dataset.vpePwForm;
+      const pw     = form.querySelector("input[type=password]").value;
+      const status = unifiedRows.querySelector(`[data-vpe-pw-status="${id}"]`);
+      const btn    = form.querySelector("button[type=submit]");
+      btn.disabled = true;
+      if (status) { status.textContent = "Saving…"; status.style.color = ""; }
+      try {
+        await api(`/members/${id}/reset-password`, { method: "POST", body: JSON.stringify({ new_password: pw }) });
+        if (status) { status.textContent = "Password set!"; status.style.color = "#2e7d32"; }
+        form.reset();
+        setTimeout(() => {
+          if (status) status.textContent = "";
+          const row = unifiedRows.querySelector(`[data-vpe-pw-row="${id}"]`);
+          if (row) row.style.display = "none";
+        }, 2000);
+      } catch (err) {
+        if (status) { status.textContent = err.message; status.style.color = "#c62828"; }
+      } finally {
+        btn.disabled = false;
       }
     });
 

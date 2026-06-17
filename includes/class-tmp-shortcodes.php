@@ -277,6 +277,25 @@ class TMP_Shortcodes {
                 <h3>My Mentees</h3>
                 <div data-tmp-mentee-list>Loading mentees...</div>
             </div>
+
+            <!-- Change Password -->
+            <div class="tmp-panel" data-tmp-change-password-panel>
+                <button class="tmp-collapsible-toggle" data-tmp-change-password-toggle aria-expanded="false" style="width:100%;text-align:left;">
+                    <span>Change Password</span>
+                    <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+                </button>
+                <div data-tmp-change-password-body style="display:none;margin-top:16px;">
+                    <form data-tmp-change-password-form class="tmp-form" style="background:none;border:none;padding:0;max-width:400px;">
+                        <label>Current password <input type="password" name="current_password" required autocomplete="current-password" /></label>
+                        <label>New password (min 8 chars) <input type="password" name="new_password" required autocomplete="new-password" minlength="8" /></label>
+                        <label>Confirm new password <input type="password" name="confirm_password" required autocomplete="new-password" /></label>
+                        <div class="tmp-form-actions tmp-wide">
+                            <button class="tmp-button tmp-primary" type="submit">Update Password</button>
+                            <span data-tmp-change-password-status style="margin-left:10px;font-size:13px;"></span>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
         <?php
         return ob_get_clean();
@@ -545,9 +564,9 @@ class TMP_Shortcodes {
                             <label>Theme <input name="theme" required placeholder="Meeting theme" /></label>
                             <label>Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
                             <div class="tmp-wide tmp-roles-setup" style="margin:10px 0;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;">
-                                <p class="tmp-eyebrow">Meeting Template (New meetings only)</p>
+                                <p class="tmp-eyebrow" data-tmp-roles-setup-label>Role Slots</p>
                                 <p style="font-size:12px;color:#555;margin:0 0 8px;">
-                                    Using standard agenda with all roles.
+                                    <span data-tmp-roles-setup-hint>Using standard agenda with all roles.</span>
                                     <button type="button" class="tmp-link-button" data-tmp-customise-roles style="margin-left:6px;font-size:12px;">Customise roles ▾</button>
                                 </p>
                                 <div data-tmp-roles-grid style="display:none;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px;">

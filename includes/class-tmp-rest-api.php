@@ -53,6 +53,12 @@ class TMP_REST_API {
             'permission_callback' => 'is_user_logged_in',
         ]);
 
+        register_rest_route('toastmasters/v1', '/me/change-password', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'change_password'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
         // ── Role requests ──────────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/requests', [
             'methods'             => WP_REST_Server::CREATABLE,
@@ -121,6 +127,12 @@ class TMP_REST_API {
         register_rest_route('toastmasters/v1', '/members/import', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [__CLASS__, 'import_members'],
+            'permission_callback' => [__CLASS__, 'can_manage_members'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/members/(?P<id>\d+)/reset-password', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'reset_member_password'],
             'permission_callback' => [__CLASS__, 'can_manage_members'],
         ]);
 
@@ -1519,5 +1531,47 @@ class TMP_REST_API {
 
         update_option('tmp_new_member_spotlight', wp_json_encode(compact('member_id', 'blurb', 'photo_url', 'active')));
         return rest_ensure_response(['ok' => true]);
+    }
+
+    // ── Password management ────────────────────────────────────────────────────
+
+    public static function change_password(WP_REST_Request $request) {
+        $body             = $request->get_json_params();
+        $current_password = $body['current_password'] ?? '';
+        $new_password     = $body['new_password']     ?? '';
+
+        if (strlen($new_password) < 8) {
+            return new WP_Error('tmp_invalid', 'New password must be at least 8 characters.', ['status' => 400]);
+        }
+
+        $user = wp_get_current_user();
+        if (!wp_check_password($current_password, $user->user_pass, $user->ID)) {
+            return new WP_Error('tmp_invalid', 'Current password is incorrect.', ['status' => 400]);
+        }
+
+        wp_set_password($new_password, $user->ID);
+        return rest_ensure_response(['success' => true]);
+    }
+
+    public static function reset_member_password(WP_REST_Request $request) {
+        $body         = $request->get_json_params();
+        $new_password = $body['new_password'] ?? '';
+
+        if (strlen($new_password) < 8) {
+            return new WP_Error('tmp_invalid', 'Password must be at least 8 characters.', ['status' => 400]);
+        }
+
+        $member = TMP_Repository::get_member(absint($request->get_param('id')));
+        if (!$member) {
+            return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
+        }
+
+        $wp_user_id = (int) ($member['user_id'] ?? 0);
+        if (!$wp_user_id) {
+            return new WP_Error('tmp_not_found', 'No WordPress account linked to this member.', ['status' => 404]);
+        }
+
+        wp_set_password($new_password, $wp_user_id);
+        return rest_ensure_response(['success' => true]);
     }
 }

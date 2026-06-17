@@ -59,7 +59,8 @@ class TMP_Repository {
             'general evaluator'      => 2,  // L2+ only
             'toastmaster of the day' => 2,  // L2+ only
             'presiding officer'      => 1,  // L1+ only
-            'evaluator'              => 1,  // L1+ only (covers Evaluator, Evaluator 1, Evaluator 2, etc.)
+            'table topics evaluator' => 1,  // L1+ only
+            'evaluator'              => 1,  // L1+ only (covers Evaluator 1, Evaluator 2, etc.)
             'speaker'                => 0,  // L0+ (any level) — covers all Speaker roles
             'table topics master'    => 0,  // L0+ (any level)
             'grammarian'             => 0,  // L0+ (any level)
@@ -71,7 +72,13 @@ class TMP_Repository {
     }
 
     public static function get_current_gate_levels() {
-        return (array) get_option('tmp_role_gate_levels', self::default_gate_levels());
+        $stored   = get_option('tmp_role_gate_levels', null);
+        $defaults = self::default_gate_levels();
+        if ($stored === null) return $defaults;
+        // Merge so that new role patterns added to defaults always appear,
+        // while admin-saved values override the defaults for existing patterns.
+        // array_merge preserves default key order; stored values win on conflicts.
+        return array_merge($defaults, (array) $stored);
     }
 
     public static function get_standard_roles() {
@@ -79,8 +86,9 @@ class TMP_Repository {
             'Sergeant at Arms'       => 'SAA',
             'Presiding Officer'      => 'Presiding Officer',
             'Toastmaster of the Day' => 'TMOD',
-            'Table Topics Master'    => 'Topics Master',
-            'General Evaluator'      => 'GE',
+            'Table Topics Master'     => 'Topics Master',
+            'Table Topics Evaluator'  => 'TT Evaluator',
+            'General Evaluator'       => 'GE',
             'Timer'                  => 'Timer',
             'Ah-Counter'             => 'Ah-Counter',
             'Grammarian'             => 'Grammarian',
@@ -1230,8 +1238,8 @@ class TMP_Repository {
                     break;
                 }
             }
-            $slot['qualified'] = $member_level_completed >= $min_level;
-            $slot['requirement'] = $min_level > 0 ? "Level {$min_level}+ required" : "Level 0+ (open to all)";
+            $slot['qualified']   = $member_level_completed >= $min_level;
+            $slot['requirement'] = $min_level > 0 ? "Level {$min_level}+ completed required" : "";
 
             // Cooloff only for Speaker / TMOD / GE — not for Timer, Grammarian, etc.
             $slot['cooloff'] = self::is_cooloff_role($base_role) ? ($cooloff_info[$base_role] ?? null) : null;
@@ -2028,6 +2036,48 @@ class TMP_Repository {
         if (!empty($data['id'])) {
             $wpdb->update($table, $record, array('id' => absint($data['id'])));
             $id = absint($data['id']);
+
+            // Add any missing role slots the user checked in edit mode
+            $selected_roles = is_array($data['roles'] ?? null) ? array_map('sanitize_text_field', $data['roles']) : [];
+            $new_slot_count = isset($data['speech_slots']) ? absint($data['speech_slots']) : 0;
+
+            if (!empty($selected_roles) || $new_slot_count > 0) {
+                $atbl = self::assignment_table();
+                $existing_names = $wpdb->get_col($wpdb->prepare(
+                    "SELECT role_name FROM {$atbl} WHERE meeting_id = %d ORDER BY sort_order", $id
+                ));
+                $existing_bases = array_map([self::class, 'get_base_role_name'], $existing_names);
+
+                $max_order = (int) ($wpdb->get_var($wpdb->prepare(
+                    "SELECT MAX(sort_order) FROM {$atbl} WHERE meeting_id = %d", $id
+                )) ?? 0);
+                $order = $max_order + 10;
+
+                foreach ($selected_roles as $role) {
+                    if (!in_array($role, $existing_bases, true)) {
+                        [$tg, $ty, $tr] = self::get_timing_for_role($role, 5);
+                        self::save_assignment([
+                            'meeting_id' => $id, 'role_name' => $role,
+                            'duration'   => 5,   'status'    => 'Planned',
+                            'sort_order' => $order,
+                            'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr,
+                        ]);
+                        $order += 10;
+                    }
+                }
+
+                if ($new_slot_count > 0) {
+                    $current_speakers = count(array_filter($existing_bases, fn($b) => (bool) preg_match('/^Speaker\s+\d+$/i', $b)));
+                    for ($i = $current_speakers + 1; $i <= $new_slot_count; $i++) {
+                        [$tg, $ty, $tr] = self::get_timing_for_role("Evaluator $i", 1);
+                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Evaluator $i", 'duration' => 1, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
+                        $order += 10;
+                        [$tg, $ty, $tr] = self::get_timing_for_role("Speaker $i", 8);
+                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Speaker $i", 'duration' => 8, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
+                        $order += 10;
+                    }
+                }
+            }
         } else {
             $record['created_at'] = $now;
             $wpdb->insert($table, $record);
@@ -2045,7 +2095,7 @@ class TMP_Repository {
             if (in_array('Toastmaster of the Day', $selected_roles)) {
                 $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Intro of theme', 'dur' => 5];
             }
-            $intro_roles = ['Grammarian', 'Timer', 'Ah-Counter', 'General Evaluator'];
+            $intro_roles = ['Grammarian', 'Timer', 'Ah-Counter', 'Table Topics Evaluator', 'General Evaluator'];
             foreach ($intro_roles as $r) {
                 if (in_array($r, $selected_roles)) {
                     $agenda[] = ['role' => $r, 'note' => 'Introduction of role', 'dur' => 2];
@@ -2073,8 +2123,10 @@ class TMP_Repository {
             if (in_array('Table Topics Master', $selected_roles)) {
                 $agenda[] = ['role' => 'Table Topics Master', 'note' => 'Runs Table Topics', 'dur' => 15];
             }
+            if (in_array('Table Topics Evaluator', $selected_roles)) {
+                $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'TT Session Evaluation', 'dur' => 3];
+            }
 
-            
             for ($i = 1; $i <= $speech_slots; $i++) {
                 $agenda[] = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
             }
@@ -2122,6 +2174,7 @@ class TMP_Repository {
             ['key' => 'intro',          'label' => 'Role Introductions (short intro slots)',    'green' => 60,  'yellow' => 90,  'red' => 120],
             ['key' => 'tmod_intro',     'label' => 'TMOD – Intro of Theme',                    'green' => 120, 'yellow' => 180, 'red' => 240],
             ['key' => 'ttm',            'label' => 'Table Topics Master',                       'green' => 600, 'yellow' => 720, 'red' => 840],
+            ['key' => 'tt_evaluator',   'label' => 'Table Topics Evaluator',                    'green' => 120, 'yellow' => 180, 'red' => 240],
             ['key' => 'presiding',      'label' => 'Presiding Officer',                         'green' => 180, 'yellow' => 240, 'red' => 300],
             ['key' => 'speaker',        'label' => 'Prepared Speech',                           'green' => 300, 'yellow' => 360, 'red' => 420],
             ['key' => 'evaluator_eval', 'label' => 'Evaluator (Evaluation speech)',             'green' => 180, 'yellow' => 240, 'red' => 300],
@@ -2146,6 +2199,7 @@ class TMP_Repository {
         if (str_contains($lower, 'sergeant') || str_contains($lower, 'saa'))                 return $pick('saa');
         if (str_contains($lower, 'presiding officer'))                                        return $pick('presiding');
         if (str_contains($lower, 'table topics master'))                                      return $pick('ttm');
+        if (str_contains($lower, 'table topics evaluator'))                                   return $pick('tt_evaluator');
         if (str_contains($lower, 'table topics'))                                             return [null, null, null];
         if (str_contains($lower, 'toastmaster of the day') || str_contains($lower, 'tmod')) {
             if (str_contains($lower, 'intro of theme')) return $pick('tmod_intro');
