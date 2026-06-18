@@ -562,6 +562,40 @@
   flex-shrink: 0;
 }
 
+/* ── Password field with reveal toggle ───────────────────────────────────── */
+
+.tmp-pw-field-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tmp-pw-field-wrap input {
+  flex: 1;
+  padding-right: 44px !important;
+}
+
+.tmp-pw-reveal {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--tmp-muted);
+  cursor: pointer;
+  border-radius: 0 8px 8px 0;
+  transition: color .15s;
+}
+
+.tmp-pw-reveal:hover {
+  color: var(--tmp-ink);
+}
+
 .tmp-meeting-section {
   padding-top: 20px;
   margin-top: 20px;

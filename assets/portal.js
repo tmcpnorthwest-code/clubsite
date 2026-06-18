@@ -1151,7 +1151,54 @@
       if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
     });
 
-    qs("[data-tmp-change-password-form]", root)?.addEventListener("submit", async (e) => {
+    // Show/hide password toggles
+    qs("[data-tmp-change-password-panel]", root)?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-pw-reveal]");
+      if (!btn) return;
+      const wrap  = btn.closest(".tmp-pw-field-wrap");
+      const input = wrap?.querySelector("input");
+      if (!input) return;
+      const isText = input.type === "text";
+      input.type = isText ? "password" : "text";
+      btn.querySelector(".tmp-eye-open").style.display = isText ? "" : "none";
+      btn.querySelector(".tmp-eye-shut").style.display = isText ? "none" : "";
+    });
+
+    // Password strength meter
+    const newPwInput    = qs("[data-tmp-new-password]", root);
+    const strengthWrap  = qs("[data-tmp-pw-strength]", root);
+    const strengthLabel = qs("[data-pw-strength-label]", root);
+    const bars          = strengthWrap ? Array.from(strengthWrap.querySelectorAll("[data-pw-bar]")) : [];
+    const levels = [
+      { label: "Too short",  color: "#e53935" },
+      { label: "Weak",       color: "#fb8c00" },
+      { label: "Fair",       color: "#fdd835" },
+      { label: "Good",       color: "#43a047" },
+      { label: "Strong",     color: "#00897b" },
+    ];
+    function scorePassword(pw) {
+      if (pw.length < 8) return 0;
+      let s = 1;
+      if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) s++;
+      if (/\d/.test(pw)) s++;
+      if (/[^a-zA-Z0-9]/.test(pw)) s++;
+      if (pw.length >= 12) s = Math.min(s + 1, 4);
+      return Math.min(s, 4);
+    }
+    newPwInput?.addEventListener("input", () => {
+      const score = scorePassword(newPwInput.value);
+      const lvl   = newPwInput.value.length === 0 ? -1 : score;
+      bars.forEach((bar, i) => {
+        bar.style.background = lvl >= 0 && i <= lvl ? levels[lvl].color : "var(--tmp-line)";
+      });
+      if (strengthLabel) {
+        strengthLabel.textContent = lvl >= 0 ? levels[lvl].label : "";
+        strengthLabel.style.color = lvl >= 0 ? levels[lvl].color : "var(--tmp-muted)";
+      }
+    });
+
+    const cpForm = qs("[data-tmp-change-password-form]", root);
+    cpForm?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const form   = e.currentTarget;
       const status = qs("[data-tmp-change-password-status]", root);
@@ -1163,14 +1210,16 @@
       }
       const btn = form.querySelector("button[type=submit]");
       btn.disabled = true;
-      if (status) { status.textContent = "Saving…"; status.style.color = ""; }
+      if (status) { status.textContent = "Saving…"; status.style.color = "var(--tmp-muted)"; }
       try {
         await api("/me/change-password", {
           method: "POST",
           body: JSON.stringify({ current_password: form.elements.current_password.value, new_password: newPw }),
         });
-        if (status) { status.textContent = "Password updated!"; status.style.color = "#2e7d32"; }
+        if (status) { status.textContent = "✓ Password updated!"; status.style.color = "#2e7d32"; }
         form.reset();
+        bars.forEach((b) => { b.style.background = "var(--tmp-line)"; });
+        if (strengthLabel) strengthLabel.textContent = "";
         setTimeout(() => { if (status) status.textContent = ""; }, 3000);
       } catch (err) {
         if (status) { status.textContent = err.message; status.style.color = "#c62828"; }
