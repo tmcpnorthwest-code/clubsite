@@ -772,41 +772,37 @@ class TMP_Repository {
         $meeting_id = absint($meeting_id);
         $atbl       = self::assignment_table();
 
-        // Step 1: Snapshot existing assignments keyed by base role.
-        // For singular roles that appear multiple times (TMOD), the first
-        // row with a member_id wins.
+        // Step 1: Snapshot member assignments only — keyed by base role.
+        // Rebuild always resets durations/timing to template defaults; only who plays
+        // each role is preserved. VPE can adjust durations after rebuild if needed.
         $existing = $wpdb->get_results($wpdb->prepare(
-            "SELECT role_name, member_id, speech_title, presentation_series, status, duration, timer_duration
+            "SELECT role_name, member_id, speech_title, presentation_series, status
              FROM {$atbl} WHERE meeting_id = %d ORDER BY sort_order",
             $meeting_id
         ), ARRAY_A);
 
-        $saved       = []; // base_role → {member_id, speech_title, presentation_series, status, duration}
+        $saved        = []; // base_role → {member_id, speech_title, presentation_series, status}
         $speech_slots = 0;
-        $role_set    = [];
+        $role_set     = [];
 
         foreach ($existing as $row) {
             $base = self::get_base_role_name($row['role_name']);
 
-            // Track max speaker number for speech_slots
             if (preg_match('/^Speaker\s+(\d+)$/i', $base, $m)) {
                 $speech_slots = max($speech_slots, (int) $m[1]);
             }
 
-            // Collect which standard roles were present
             if (array_key_exists($base, self::get_standard_roles())) {
                 $role_set[$base] = true;
             }
 
-            // Save assignment — prefer the first row that has a member_id
+            // Prefer the first row that has a member_id
             if (!isset($saved[$base]) || (!$saved[$base]['member_id'] && $row['member_id'])) {
                 $saved[$base] = [
-                    'member_id'          => $row['member_id'] ? absint($row['member_id']) : null,
-                    'speech_title'       => $row['speech_title'] ?? null,
-                    'presentation_series'=> $row['presentation_series'] ?? null,
-                    'status'             => $row['status'] ?? 'Planned',
-                    'duration'           => isset($row['duration']) ? absint($row['duration']) : null,
-                    'timer_duration'     => isset($row['timer_duration']) ? absint($row['timer_duration']) : null,
+                    'member_id'           => $row['member_id'] ? absint($row['member_id']) : null,
+                    'speech_title'        => $row['speech_title'] ?? null,
+                    'presentation_series' => $row['presentation_series'] ?? null,
+                    'status'              => $row['status'] ?? 'Planned',
                 ];
             }
         }
@@ -816,15 +812,15 @@ class TMP_Repository {
         // Step 2: Delete all existing assignment rows for this meeting
         $wpdb->delete($atbl, ['meeting_id' => $meeting_id]);
 
-        // Step 3: Build prescribed agenda (identical order to new-meeting creation)
+        // Step 3: Prescribed agenda — durations are always reset to these template values on rebuild.
         $agenda = [];
 
         if (in_array('Sergeant at Arms', $selected_roles))
-            $agenda[] = ['role' => 'Sergeant at Arms', 'note' => 'Starts meeting', 'dur' => 2];
+            $agenda[] = ['role' => 'Sergeant at Arms',        'note' => 'Starts meeting',                          'dur' => 2];
         if (in_array('Presiding Officer', $selected_roles))
-            $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Address and guests', 'dur' => 5];
+            $agenda[] = ['role' => 'Presiding Officer',       'note' => 'Address and guests',                      'dur' => 5];
         if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Intro of theme', 'dur' => 5];
+            $agenda[] = ['role' => 'Toastmaster of the Day',  'note' => 'Intro of theme',                          'dur' => 5];
 
         foreach (['Grammarian', 'Timer', 'Ah-Counter', 'Table Topics Evaluator', 'General Evaluator'] as $r) {
             if (in_array($r, $selected_roles))
@@ -832,54 +828,50 @@ class TMP_Repository {
         }
 
         if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduce segments of the meeting', 'dur' => 3];
+            $agenda[] = ['role' => 'Toastmaster of the Day',  'note' => 'Introduce segments of the meeting',       'dur' => 3];
 
         for ($i = 1; $i <= $speech_slots; $i++) {
-            $agenda[] = ['role' => "Evaluator $i", 'note' => 'Introduces speaker', 'dur' => 1];
-            $agenda[] = ['role' => "Speaker $i",   'note' => 'Speech',             'dur' => 8];
-            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Speaker Feedback', 'dur' => 1];
+            $agenda[] = ['role' => "Evaluator $i",            'note' => 'Introduces speaker',                      'dur' => 2];
+            $agenda[] = ['role' => "Speaker $i",              'note' => 'Speech',                                  'dur' => 8, 'timer_dur' => 7];
+            $agenda[] = ['role' => 'Toastmaster of the Day',  'note' => 'Speaker Feedback',                        'dur' => 1];
         }
 
-        $agenda[] = ['role' => 'Break', 'note' => 'Networking', 'dur' => 5];
+        $agenda[] =    ['role' => 'Break',                    'note' => 'Networking',                              'dur' => 5];
 
         if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Discuss theme', 'dur' => 3];
+            $agenda[] = ['role' => 'Toastmaster of the Day',  'note' => 'Discuss theme',                           'dur' => 3];
         if (in_array('Table Topics Master', $selected_roles))
-            $agenda[] = ['role' => 'Table Topics Master', 'note' => 'Runs Table Topics', 'dur' => 15];
+            $agenda[] = ['role' => 'Table Topics Master',     'note' => 'Runs Table Topics',                       'dur' => 15];
         if (in_array('Table Topics Evaluator', $selected_roles))
-            $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'TT Session Evaluation', 'dur' => 3];
+            $agenda[] = ['role' => 'Table Topics Evaluator',  'note' => 'TT Session Evaluation',                   'dur' => 3];
 
         for ($i = 1; $i <= $speech_slots; $i++) {
-            $agenda[] = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
+            $agenda[] = ['role' => "Evaluator $i",            'note' => 'Evaluation',                              'dur' => 3];
         }
 
         if (in_array('Timer', $selected_roles))
-            $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 2];
+            $agenda[] = ['role' => 'Timer',                   'note' => 'Report',                                  'dur' => 1];
         if (in_array('Ah-Counter', $selected_roles))
-            $agenda[] = ['role' => 'Ah-Counter', 'note' => 'Report', 'dur' => 3];
+            $agenda[] = ['role' => 'Ah-Counter',              'note' => 'Report',                                  'dur' => 3];
         if (in_array('Grammarian', $selected_roles))
-            $agenda[] = ['role' => 'Grammarian', 'note' => 'Report', 'dur' => 3];
+            $agenda[] = ['role' => 'Grammarian',              'note' => 'Report',                                  'dur' => 3];
         if (in_array('Active Listener', $selected_roles))
-            $agenda[] = ['role' => 'Active Listener', 'note' => 'Report', 'dur' => 3];
+            $agenda[] = ['role' => 'Active Listener',         'note' => 'Report',                                  'dur' => 3];
         if (in_array('General Evaluator', $selected_roles))
-            $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 5];
+            $agenda[] = ['role' => 'General Evaluator',       'note' => 'Final Report',                            'dur' => 5];
         if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Audience Feedback for Moment of Glory', 'dur' => 1];
+            $agenda[] = ['role' => 'Toastmaster of the Day',  'note' => 'Audience Feedback for Moment of Glory',   'dur' => 1];
         if (in_array('Presiding Officer', $selected_roles))
-            $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Closing address and Guest feedback', 'dur' => 4];
+            $agenda[] = ['role' => 'Presiding Officer',       'note' => 'Closing address and Guest feedback',      'dur' => 4];
 
         // Step 4: Insert rows in prescribed order, re-applying saved assignments
         $order = 10;
         foreach ($agenda as $item) {
-            $full_name  = sanitize_text_field($item['role'] . " ({$item['note']})");
-            $base       = self::get_base_role_name($full_name);
-            $s          = $saved[$base] ?? null;
-            $dur        = ($s && $s['duration'])       ? $s['duration']       : $item['dur'];
-            $timer_dur  = ($s && $s['timer_duration']) ? $s['timer_duration'] : ($item['timer_dur'] ?? null);
-            // Default timer_duration for speaker slots: one minute less than the agenda slot
-            if ($timer_dur === null && preg_match('/^Speaker\s+\d+\s*\(/i', $full_name)) {
-                $timer_dur = max(1, $dur - 1);
-            }
+            $full_name = sanitize_text_field($item['role'] . " ({$item['note']})");
+            $base      = self::get_base_role_name($full_name);
+            $s         = $saved[$base] ?? null;
+            $dur       = $item['dur'];
+            $timer_dur = $item['timer_dur'] ?? null;
             [$tg, $ty, $tr] = self::get_timing_for_role($full_name, $dur, $timer_dur);
 
             self::save_assignment([
@@ -2213,8 +2205,8 @@ class TMP_Repository {
                 if ($new_slot_count > 0) {
                     $current_speakers = count(array_filter($existing_bases, fn($b) => (bool) preg_match('/^Speaker\s+\d+$/i', $b)));
                     for ($i = $current_speakers + 1; $i <= $new_slot_count; $i++) {
-                        [$tg, $ty, $tr] = self::get_timing_for_role("Evaluator $i (Introduces speaker)", 1);
-                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Evaluator $i (Introduces speaker)", 'duration' => 1, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
+                        [$tg, $ty, $tr] = self::get_timing_for_role("Evaluator $i (Introduces speaker)", 2);
+                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Evaluator $i (Introduces speaker)", 'duration' => 2, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
                         $order += 10;
                         [$tg, $ty, $tr] = self::get_timing_for_role("Speaker $i (Speech)", 8, 7);
                         self::save_assignment(['meeting_id' => $id, 'role_name' => "Speaker $i (Speech)", 'duration' => 8, 'timer_duration' => 7, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
@@ -2255,7 +2247,7 @@ class TMP_Repository {
             
             $speech_slots = absint($data['speech_slots'] ?? 0);
             for ($i = 1; $i <= $speech_slots; $i++) {
-                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Introduces speaker', 'dur' => 1];
+                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Introduces speaker', 'dur' => 2];
                 $agenda[] = ['role' => "Speaker $i",   'note' => 'Speech',             'dur' => 8, 'timer_dur' => 7];
                 $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Speaker Feedback', 'dur' => 1];
             }
@@ -2277,7 +2269,7 @@ class TMP_Repository {
             for ($i = 1; $i <= $speech_slots; $i++) {
                 $agenda[] = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
             }
-            if (in_array('Timer', $selected_roles))    $agenda[] = ['role' => 'Timer',              'note' => 'Report',       'dur' => 2];
+            if (in_array('Timer', $selected_roles))    $agenda[] = ['role' => 'Timer',              'note' => 'Report',       'dur' => 1];
             if (in_array('Ah-Counter', $selected_roles)) $agenda[] = ['role' => 'Ah-Counter',        'note' => 'Report',       'dur' => 3];
             if (in_array('Grammarian', $selected_roles)) $agenda[] = ['role' => 'Grammarian',        'note' => 'Report',       'dur' => 3];
             if (in_array('Active Listener', $selected_roles)) $agenda[] = ['role' => 'Active Listener', 'note' => 'Report',      'dur' => 3];
@@ -2335,16 +2327,34 @@ class TMP_Repository {
     }
 
     /**
-     * Formula-based timer defaults: green = max((effective-2)×60, 60s), red = effective×60, yellow = midpoint.
-     * $timer_duration overrides $duration as the effective speech time (allows 8-min agenda slot with 7-min speech timer).
-     * Slots ≤ 1 min or "Break" return null (no timer shown).
+     * Formula-based timer defaults.
+     * $timer_duration overrides $duration as the effective timed duration (e.g. 7-min speech in an 8-min agenda slot).
+     *
+     * Special cases (role-name driven, not formula):
+     *   - Timer (Report) → 0:30 / 0:45 / 1:00  (TI sub-minute reporting standard)
+     *   - Table Topics Master → 10:00 / 15:00 / 20:00  (TI-mandated session limits)
+     *
+     * Formula for everything else:
+     *   X ≤ 3 min  → green = (X−1) min, so 3-min slots give 2:00 / 2:30 / 3:00
+     *   X ≥ 4 min  → green = (X−2) min, so 5-min slots give 3:00 / 4:00 / 5:00
+     *   yellow = midpoint of green and red in both cases
+     *   X ≤ 1 min or Break → null (no timer)
      */
     public static function get_timing_for_role($role_name, $duration = 0, $timer_duration = null) {
+        $lower     = strtolower($role_name);
         $effective = (int) ($timer_duration ?? $duration);
-        if ($effective <= 1 || str_contains(strtolower($role_name), 'break')) {
-            return [null, null, null];
-        }
-        $green  = max(($effective - 2) * 60, 60);
+
+        if (str_contains($lower, 'break')) return [null, null, null];
+
+        // Timer Report: sub-minute TI standard regardless of slot duration
+        if (preg_match('/\btimer\b/i', $role_name) && str_contains($lower, 'report')) return [30, 45, 60];
+
+        // Table Topics Master session: TI-mandated 10/15/20
+        if (str_contains($lower, 'table topics master')) return [600, 900, 1200];
+
+        if ($effective <= 1) return [null, null, null];
+
+        $green  = ($effective <= 3) ? ($effective - 1) * 60 : max(($effective - 2) * 60, 60);
         $red    = $effective * 60;
         $yellow = intdiv($green + $red, 2);
         return [$green, $yellow, $red];
