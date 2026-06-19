@@ -206,6 +206,13 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_view_all_members'],
         ]);
 
+        // ── Rebuild agenda ────────────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/rebuild-agenda', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'rebuild_agenda'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
         // ── Agenda reorder ────────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/agenda-order', [
             'methods'             => WP_REST_Server::CREATABLE,
@@ -776,6 +783,11 @@ class TMP_REST_API {
 
     public static function delete_meeting(WP_REST_Request $request) {
         return rest_ensure_response(['deleted' => TMP_Repository::delete_meeting((int) $request['id'])]);
+    }
+
+    public static function rebuild_agenda(WP_REST_Request $request) {
+        $result = TMP_Repository::rebuild_meeting_agenda((int) $request['id']);
+        return rest_ensure_response(array_merge(['success' => true], $result));
     }
 
     public static function get_all_requests() {

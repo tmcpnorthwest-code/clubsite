@@ -18,6 +18,7 @@ class TMP_Activator {
         self::migrate_v132_enforce_level_invariant();
         self::migrate_v133_normalize_states();
         self::migrate_v140_gate_levels();
+        self::migrate_v150_timer_duration();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -60,6 +61,7 @@ class TMP_Activator {
         self::migrate_v132_enforce_level_invariant();
         self::migrate_v133_normalize_states();
         self::migrate_v140_gate_levels();
+        self::migrate_v150_timer_duration();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -190,6 +192,7 @@ class TMP_Activator {
             role_name VARCHAR(120) NOT NULL,
             speech_title VARCHAR(190) NULL,
             duration INT UNSIGNED NOT NULL DEFAULT 0,
+            timer_duration TINYINT UNSIGNED NULL,
             status VARCHAR(80) NOT NULL DEFAULT 'Planned',
             sort_order INT UNSIGNED NOT NULL DEFAULT 0,
             presentation_series VARCHAR(100) NULL,
@@ -617,6 +620,14 @@ class TMP_Activator {
 
         if ($updated !== $stored) {
             update_option('tmp_role_gate_levels', $updated);
+        }
+    }
+
+    private static function migrate_v150_timer_duration() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmp_role_assignments';
+        if (empty($wpdb->get_results("SHOW COLUMNS FROM {$table} LIKE 'timer_duration'"))) {
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN timer_duration TINYINT UNSIGNED NULL AFTER duration");
         }
     }
 

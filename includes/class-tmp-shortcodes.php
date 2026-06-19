@@ -634,10 +634,13 @@ class TMP_Shortcodes {
 
                     <!-- Role Assignment collapsible -->
                     <div data-tmp-role-assignment-wrap style="display:none;margin-top:4px;">
-                        <button class="tmp-collapsible-toggle" data-tmp-role-assignment-toggle aria-expanded="true" style="width:100%;text-align:left;">
-                            <span>Role Assignment</span>
-                            <span class="tmp-chevron" aria-hidden="true" style="transform:rotate(90deg);">&#9658;</span>
-                        </button>
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                            <button class="tmp-collapsible-toggle" data-tmp-role-assignment-toggle aria-expanded="true" style="flex:1;text-align:left;">
+                                <span>Role Assignment</span>
+                                <span class="tmp-chevron" aria-hidden="true" style="transform:rotate(90deg);">&#9658;</span>
+                            </button>
+                            <button type="button" class="tmp-small-button" data-tmp-rebuild-agenda title="Rebuild the agenda in the standard prescribed order, preserving all member assignments">Rebuild Agenda</button>
+                        </div>
                         <div data-tmp-role-assignment-body style="display:block;margin-top:14px;">
                             <div data-tmp-role-status-panel></div>
                         </div>

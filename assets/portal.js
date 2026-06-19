@@ -2000,6 +2000,13 @@
         if (primary.cooloff_override == 1) notes.push(`<span class="tmp-tag" style="background:#ff9800;color:#fff;font-size:10px;" title="${esc(primary.override_reason || "")}">Cooloff override</span>`);
         if (primary.suitability && !primary.suitability.suitable) notes.push(`<span class="tmp-tag" style="background:#ffebee;color:#b71c1c;font-size:10px;">${esc(primary.suitability.reason)}</span>`);
 
+        const isSpeakerSlot = /^Speaker\s+\d+$/i.test(baseRole);
+        const timerDurVal   = primary.timer_duration != null
+          ? primary.timer_duration
+          : (isSpeakerSlot ? Math.max(1, (Number(primary.duration) || 8) - 1) : "");
+        const timerCell = isSpeakerSlot
+          ? `<td data-label="Timer (min)" style="width:80px;"><input type="number" min="1" data-assign-timer-duration="${esc(primary.id)}" value="${esc(timerDurVal)}" placeholder="—" style="width:60px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;" /></td>`
+          : `<td></td>`;
         return `<tr>
           <td data-label="Role" style="white-space:nowrap;">${esc(baseRole)}</td>
           <td data-label="Member">
@@ -2008,6 +2015,7 @@
           <td data-label="Dur (min)" style="width:80px;">
             <input type="number" min="0" data-assign-duration="${esc(primary.id)}" value="${esc(primary.duration || '')}" placeholder="—" style="width:60px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;" />
           </td>
+          ${timerCell}
           <td data-label="Notes" style="font-size:11px;">${notes.join(" ") || "—"}</td>
           <td data-label="Action"><button class="tmp-small-button tmp-danger" type="button" data-delete-roles="${esc(allIds)}" data-role-name="${esc(baseRole)}">Remove slot</button></td>
         </tr>`;
@@ -2029,7 +2037,7 @@
         </p>
         <div class="tmp-table-wrap">
           <table class="tmp-table" style="font-size:0.88rem;">
-            <thead><tr><th>Role</th><th>Member</th><th>Dur (min)</th><th>Notes</th><th>Action</th></tr></thead>
+            <thead><tr><th>Role</th><th>Member</th><th>Dur (min)</th><th>Timer (min)</th><th>Notes</th><th>Action</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>`;
@@ -2039,8 +2047,9 @@
         panel._listenersAdded = true;
 
         panel.addEventListener("change", async (e) => {
-          const sel      = e.target.closest("[data-assign-roles]");
-          const durInput = e.target.matches("[data-assign-duration]") ? e.target : null;
+          const sel           = e.target.closest("[data-assign-roles]");
+          const durInput      = e.target.matches("[data-assign-duration]")       ? e.target : null;
+          const timerDurInput = e.target.matches("[data-assign-timer-duration]") ? e.target : null;
 
           if (sel) {
             const ids      = sel.dataset.assignRoles.split(",");
@@ -2067,6 +2076,18 @@
               alert("Failed to update duration: " + err.message);
             } finally {
               durInput.disabled = false;
+            }
+          } else if (timerDurInput) {
+            const assignId = parseInt(timerDurInput.dataset.assignTimerDuration);
+            const timerDur = Number(timerDurInput.value) || null;
+            timerDurInput.disabled = true;
+            try {
+              await api("/assignments", { method: "POST", body: JSON.stringify({ id: assignId, timer_duration: timerDur }) });
+              await renderMeetings(meetingSelect.value);
+            } catch (err) {
+              alert("Failed to update timer duration: " + err.message);
+            } finally {
+              timerDurInput.disabled = false;
             }
           }
         });
@@ -2196,6 +2217,24 @@
       if (body) body.style.display = open ? "none" : "block";
       const chevron = qs(".tmp-chevron", btn);
       if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+    });
+
+    qs("[data-tmp-rebuild-agenda]", root)?.addEventListener("click", async () => {
+      const mid = meetingForm?.elements.id?.value;
+      if (!mid) { alert("Select a meeting first."); return; }
+      if (!confirm("Rebuild the agenda in the prescribed order?\n\nAll role slots will be recreated in the standard sequence. Existing member assignments are preserved.")) return;
+      const btn = qs("[data-tmp-rebuild-agenda]", root);
+      if (btn) { btn.disabled = true; btn.textContent = "Rebuilding…"; }
+      try {
+        const result = await api(`/meetings/${mid}/rebuild-agenda`, { method: "POST", body: JSON.stringify({}) });
+        await renderMeetings(mid);
+        updateRoles();
+        alert(`✓ Agenda rebuilt — ${result.rebuilt} slots in prescribed order.`);
+      } catch (err) {
+        alert("Error: " + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "Rebuild Agenda"; }
+      }
     });
 
     qs("[data-tmp-delete-meeting]", root)?.addEventListener("click", async () => {
