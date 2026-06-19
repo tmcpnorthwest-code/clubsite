@@ -2069,11 +2069,14 @@ class TMP_Repository {
                 if ($new_slot_count > 0) {
                     $current_speakers = count(array_filter($existing_bases, fn($b) => (bool) preg_match('/^Speaker\s+\d+$/i', $b)));
                     for ($i = $current_speakers + 1; $i <= $new_slot_count; $i++) {
-                        [$tg, $ty, $tr] = self::get_timing_for_role("Evaluator $i", 1);
-                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Evaluator $i", 'duration' => 1, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
+                        [$tg, $ty, $tr] = self::get_timing_for_role("Evaluator $i (Introduces speaker)", 1);
+                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Evaluator $i (Introduces speaker)", 'duration' => 1, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
                         $order += 10;
-                        [$tg, $ty, $tr] = self::get_timing_for_role("Speaker $i", 8);
-                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Speaker $i", 'duration' => 8, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
+                        [$tg, $ty, $tr] = self::get_timing_for_role("Speaker $i (Speech)", 8);
+                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Speaker $i (Speech)", 'duration' => 8, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
+                        $order += 10;
+                        [$tg, $ty, $tr] = self::get_timing_for_role("Evaluator $i (Evaluation)", 3);
+                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Evaluator $i (Evaluation)", 'duration' => 3, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
                         $order += 10;
                     }
                 }

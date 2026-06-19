@@ -1692,9 +1692,9 @@
         return `<tr data-lp-member="${m.id}" data-m-level="${m.level_completed}"${inactive ? ' style="background:#fff8e1"' : ""}>
           <td><strong>${esc(m.full_name)}</strong>${inactive ? `<br><small style="color:#ef6c00;font-weight:bold">Inactive</small>` : ""}<br><small style="color:var(--tmp-muted)">${esc(m.pathway)}</small></td>
           <td>Level ${m.level_completed}</td>
-          <td>${spCell}</td>
-          <td>${roleCell}</td>
-          <td>${mentorCell}</td>
+          <td${spCell === "—" ? ' data-empty' : ""}>${spCell}</td>
+          <td${roleCell === "—" ? ' data-empty' : ""}>${roleCell}</td>
+          <td${mentorCell === "—" ? ' data-empty' : ""}>${mentorCell}</td>
           <td>${statusCell}</td>
           <td>${actionCell}</td>
         </tr>
@@ -3066,53 +3066,94 @@
     if (approveBtn) approveBtn.style.display = "block";
     if (body) { body.style.display = ""; if (toggleBtn) { toggleBtn.setAttribute("aria-expanded", "true"); const ch = toggleBtn.querySelector(".tmp-chevron"); if (ch) ch.style.transform = "rotate(90deg)"; } }
 
-    let html = '<div style="display:flex;flex-direction:column;gap:12px;">';
+    // Pivot: group all requests by role across all meetings
+    const roleMap = new Map();
     for (const meeting of meetings) {
-      html += `<div style="border:1px solid #e0e0e0;border-radius:4px;padding:12px;background:#fafafa;">
-        <div style="font-weight:bold;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
-          <span>${esc(meeting.meetingDate)} — ${esc(meeting.theme)}</span>
-          <span style="font-size:12px;color:#666;">${meeting.totalRequests} request${meeting.totalRequests !== 1 ? 's' : ''}</span>
-        </div>`;
-
-      for (const role of meeting.roles.slice().sort((a, b) => roleSort(a.roleName) - roleSort(b.roleName))) {
-        html += `<div style="margin-left:12px;padding:8px;background:#fff;border-left:3px solid #01579b;margin-bottom:8px;">
-          <div style="font-weight:600;margin-bottom:6px;">${esc(role.roleName)}</div>`;
-
+      for (const role of meeting.roles) {
+        if (!roleMap.has(role.roleName)) roleMap.set(role.roleName, []);
         for (const req of role.requests) {
-          const scoreColor = req.score >= 100 ? '#2e7d32' : req.score >= 75 ? '#ef6c00' : '#999';
-          const recommendedBadge = req.isRecommended
-            ? '<span class="tmp-tag" style="background:#2e7d32;color:#fff;font-weight:bold;margin-left:4px;">✓ RECOMMENDED</span>'
-            : '';
-          const reasonsHtml = req.reasons && req.reasons.length > 0
-            ? req.reasons.map((r) => `<span class="tmp-tag" style="background:#e3f2fd;color:#01579b;font-size:11px;margin:2px;">${esc(r)}</span>`).join('')
-            : '';
-
-          html += `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:8px;border-bottom:1px solid #eee;background:#fafafa;">
-            <div style="flex:1;">
-              <div style="font-size:13px;margin-bottom:4px;">
-                <strong>${esc(req.memberName)}</strong> (L${req.memberLevel}, ${esc(req.pathway)})
-                <span class="tmp-tag" style="background:#f5f5f5;margin:0 4px;">P${req.priority}</span>
-                ${recommendedBadge}
-              </div>
-              <div style="font-size:11px;color:#666;">
-                <span style="font-weight:bold;color:${scoreColor};">Score: ${req.score}</span>
-                ${reasonsHtml}
-              </div>
-            </div>
-            <button class="tmp-small-button" data-approve-request="${req.requestId}" data-member-id="${req.memberId}" data-meeting-id="${meeting.meetingId}" data-role-name="${esc(role.roleName)}" style="white-space:nowrap;margin-left:8px;">
-              Approve
-            </button>
-          </div>`;
+          roleMap.get(role.roleName).push({ ...req, meetingDate: meeting.meetingDate, theme: meeting.theme, meetingId: meeting.meetingId });
         }
+      }
+    }
+    const sortedRoles = [...roleMap.keys()].sort((a, b) => roleSort(a) - roleSort(b));
 
-        html += `</div>`;
+    let html = '<div class="tmp-role-accordion">';
+    for (const roleName of sortedRoles) {
+      const reqs   = roleMap.get(roleName);
+      const roleId = 'racc-' + roleName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+      html += `<div class="tmp-role-accordion-item" data-accordion-item>
+        <button class="tmp-role-accordion-header" data-accordion-toggle aria-expanded="false" aria-controls="${esc(roleId)}">
+          <span>${esc(roleName)}</span>
+          <span style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:12px;color:#666;">${reqs.length} request${reqs.length !== 1 ? 's' : ''}</span>
+            <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+          </span>
+        </button>
+        <div id="${esc(roleId)}" class="tmp-role-accordion-body" style="display:none;">`;
+
+      for (const req of reqs) {
+        const scoreColor = req.score >= 100 ? '#2e7d32' : req.score >= 75 ? '#ef6c00' : '#999';
+        const recommendedBadge = req.isRecommended
+          ? '<span class="tmp-tag" style="background:#2e7d32;color:#fff;font-weight:bold;margin-left:4px;">✓ RECOMMENDED</span>'
+          : '';
+        const reasonsHtml = req.reasons && req.reasons.length > 0
+          ? req.reasons.map((r) => `<span class="tmp-tag" style="background:#e3f2fd;color:#01579b;font-size:11px;margin:2px;">${esc(r)}</span>`).join('')
+          : '';
+
+        html += `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:8px;border-bottom:1px solid #eee;background:#fafafa;">
+          <div style="flex:1;">
+            <div style="font-size:13px;margin-bottom:4px;">
+              <strong>${esc(req.memberName)}</strong> (L${req.memberLevel}, ${esc(req.pathway)})
+              <span class="tmp-tag" style="background:#f5f5f5;margin:0 4px;">P${req.priority}</span>
+              ${recommendedBadge}
+            </div>
+            <div style="font-size:11px;color:#666;">
+              <span style="font-weight:bold;color:${scoreColor};">Score: ${req.score}</span>
+              <span style="margin-left:6px;">${esc(req.meetingDate)}${req.theme ? ' — ' + esc(req.theme) : ''}</span>
+              ${reasonsHtml}
+            </div>
+          </div>
+          <button class="tmp-small-button" data-approve-request="${req.requestId}" data-member-id="${req.memberId}" data-meeting-id="${req.meetingId}" data-role-name="${esc(roleName)}" style="white-space:nowrap;margin-left:8px;">
+            Approve
+          </button>
+        </div>`;
       }
 
-      html += `</div>`;
+      html += `</div></div>`;
     }
     html += `</div>`;
 
     list.innerHTML = html;
+
+    // Accordion: one panel open at a time. Guard prevents stacking listeners across re-renders.
+    if (!root._accordionListenerAdded) {
+      root._accordionListenerAdded = true;
+      list.addEventListener("click", (e) => {
+        const hdr = e.target.closest("[data-accordion-toggle]");
+        if (!hdr) return;
+        const item  = hdr.closest("[data-accordion-item]");
+        const panel = item?.querySelector(".tmp-role-accordion-body");
+        if (!item || !panel) return;
+        const isOpen = hdr.getAttribute("aria-expanded") === "true";
+        // Close all
+        qsa("[data-accordion-item]", list).forEach((i) => {
+          const h = i.querySelector("[data-accordion-toggle]");
+          const p = i.querySelector(".tmp-role-accordion-body");
+          if (h) h.setAttribute("aria-expanded", "false");
+          if (p) p.style.display = "none";
+          const ch = h?.querySelector(".tmp-chevron");
+          if (ch) ch.style.transform = "";
+        });
+        // Open clicked one if it was closed
+        if (!isOpen) {
+          hdr.setAttribute("aria-expanded", "true");
+          panel.style.display = "";
+          const ch = hdr.querySelector(".tmp-chevron");
+          if (ch) ch.style.transform = "rotate(90deg)";
+        }
+      });
+    }
 
     // Register the approve-click handler only once per root element.
     // renderPendingRequests is called after every approval, so without this guard
