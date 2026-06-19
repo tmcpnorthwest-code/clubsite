@@ -6,7 +6,12 @@
       "Bash(php -l includes/class-tmp-rest-api.php)",
       "PowerShell(php -l \"c:\\\\Toast Masters\\\\clubsite\\\\includes\\\\class-tmp-repository.php\" 2>&1)",
       "PowerShell(php -l \"c:\\\\Toast Masters\\\\clubsite\\\\includes\\\\class-tmp-shortcodes.php\" 2>&1)",
-      "PowerShell(php -l \"c:\\\\Toast Masters\\\\clubsite\\\\includes\\\\class-tmp-rest-api.php\" 2>&1)"
+      "PowerShell(php -l \"c:\\\\Toast Masters\\\\clubsite\\\\includes\\\\class-tmp-rest-api.php\" 2>&1)",
+      "WebFetch(domain:d3toastmasters.org)",
+      "Bash(mkdir -p /tmp/xlsx_extract)",
+      "Read(//tmp/**)",
+      "Bash(unzip -o \"c:/Toast Masters/clubsite/Mentor Mentee Tracker.xlsx\" -d /tmp/xlsx_extract)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }

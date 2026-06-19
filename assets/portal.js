@@ -2628,7 +2628,7 @@
             ? '<option value="">-- No eligible mentors (need Level 2+ Active member) --</option>'
             : '<option value="">-- No mentor / Remove --</option>' +
               mentors.map((m) =>
-                `<option value="${esc(m.id)}" ${String(m.id) === currentMentorId ? "selected" : ""}>${esc(m.full_name)} — Level ${m.level_completed} (${esc(m.pathway)})</option>`
+                `<option value="${esc(m.id)}" ${String(m.id) === currentMentorId ? "selected" : ""}>${esc(m.full_name)} — Level ${m.level} (${esc(m.pathway)})</option>`
               ).join("");
         }
       });
