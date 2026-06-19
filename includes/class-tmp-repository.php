@@ -815,54 +815,85 @@ class TMP_Repository {
         // Step 3: Prescribed agenda — durations are always reset to these template values on rebuild.
         $agenda = [];
 
+        // ── Opening ──────────────────────────────────────────────────────────────
         if (in_array('Sergeant at Arms', $selected_roles))
-            $agenda[] = ['role' => 'Sergeant at Arms',        'note' => 'Starts meeting',                          'dur' => 2];
+            $agenda[] = ['role' => 'Sergeant at Arms',       'note' => 'Starts meeting',              'dur' => 2];
         if (in_array('Presiding Officer', $selected_roles))
-            $agenda[] = ['role' => 'Presiding Officer',       'note' => 'Address and guests',                      'dur' => 5];
-        if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day',  'note' => 'Intro of theme',                          'dur' => 5];
-
-        foreach (['Grammarian', 'Timer', 'Ah-Counter', 'Table Topics Evaluator', 'General Evaluator'] as $r) {
-            if (in_array($r, $selected_roles))
-                $agenda[] = ['role' => $r, 'note' => 'Introduction of role', 'dur' => 2];
+            $agenda[] = ['role' => 'Presiding Officer',      'note' => 'Address and Guest Introduction', 'dur' => 5];
+        if (in_array('Toastmaster of the Day', $selected_roles)) {
+            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces the theme',        'dur' => 2];
+            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces the segments',     'dur' => 2];
         }
 
-        if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day',  'note' => 'Introduce segments of the meeting',       'dur' => 3];
-
-        for ($i = 1; $i <= $speech_slots; $i++) {
-            $agenda[] = ['role' => "Evaluator $i",            'note' => 'Introduces speaker',                      'dur' => 2];
-            $agenda[] = ['role' => "Speaker $i",              'note' => 'Speech',                                  'dur' => 8, 'timer_dur' => 7];
-            $agenda[] = ['role' => 'Toastmaster of the Day',  'note' => 'Speaker Feedback',                        'dur' => 1];
+        // TMOD introduces each functional role, then role player explains
+        $role_intro_map = [
+            'Timer'             => ['explain' => 'Explains role',             'dur' => 2],
+            'Ah-Counter'        => ['explain' => 'Explains role',             'dur' => 2],
+            'Grammarian'        => ['explain' => 'Explains role and WOD/POD', 'dur' => 3],
+            'General Evaluator' => ['explain' => 'Explains role',             'dur' => 2],
+        ];
+        foreach ($role_intro_map as $r => $meta) {
+            if (!in_array($r, $selected_roles)) continue;
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces {$r}", 'dur' => 1];
+            $agenda[]     = ['role' => $r, 'note' => $meta['explain'], 'dur' => $meta['dur']];
         }
-
-        $agenda[] =    ['role' => 'Break',                    'note' => 'Networking',                              'dur' => 5];
-
-        if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day',  'note' => 'Discuss theme',                           'dur' => 3];
-        if (in_array('Table Topics Master', $selected_roles))
-            $agenda[] = ['role' => 'Table Topics Master',     'note' => 'Runs Table Topics',                       'dur' => 15];
         if (in_array('Table Topics Evaluator', $selected_roles))
-            $agenda[] = ['role' => 'Table Topics Evaluator',  'note' => 'TT Session Evaluation',                   'dur' => 3];
+            $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'Introduction of role',        'dur' => 2];
 
+        // ── Break ─────────────────────────────────────────────────────────────
+        $agenda[] = ['role' => 'Break', 'note' => 'Networking', 'dur' => 5];
+
+        // ── Prepared Speeches ─────────────────────────────────────────────────
         for ($i = 1; $i <= $speech_slots; $i++) {
-            $agenda[] = ['role' => "Evaluator $i",            'note' => 'Evaluation',                              'dur' => 3];
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Evaluator {$i} and Speaker {$i}", 'dur' => 1];
+            $agenda[]     = ['role' => "Speaker $i",             'note' => 'Speech',    'dur' => 7];
+            $agenda[]     = ['role' => 'Toastmaster of the Day', 'note' => 'Feedback',  'dur' => 1];
         }
-
-        if (in_array('Timer', $selected_roles))
-            $agenda[] = ['role' => 'Timer',                   'note' => 'Report',                                  'dur' => 1];
-        if (in_array('Ah-Counter', $selected_roles))
-            $agenda[] = ['role' => 'Ah-Counter',              'note' => 'Report',                                  'dur' => 3];
-        if (in_array('Grammarian', $selected_roles))
-            $agenda[] = ['role' => 'Grammarian',              'note' => 'Report',                                  'dur' => 3];
-        if (in_array('Active Listener', $selected_roles))
-            $agenda[] = ['role' => 'Active Listener',         'note' => 'Report',                                  'dur' => 3];
-        if (in_array('General Evaluator', $selected_roles))
-            $agenda[] = ['role' => 'General Evaluator',       'note' => 'Final Report',                            'dur' => 5];
         if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day',  'note' => 'Audience Feedback for Moment of Glory',   'dur' => 1];
-        if (in_array('Presiding Officer', $selected_roles))
-            $agenda[] = ['role' => 'Presiding Officer',       'note' => 'Closing address and Guest feedback',      'dur' => 4];
+            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme interlude', 'dur' => 2];
+        if (in_array('Timer', $selected_roles))
+            $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
+
+        // ── Table Topics ──────────────────────────────────────────────────────
+        if (in_array('Table Topics Master', $selected_roles)) {
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Table Topics Master', 'dur' => 1];
+            $agenda[]     = ['role' => 'Table Topics Master',    'note' => 'Table Topics Session',           'dur' => 20];
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme interlude', 'dur' => 2];
+        }
+        if (in_array('Table Topics Evaluator', $selected_roles))
+            $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'TT Session Evaluation', 'dur' => 3];
+
+        // ── Evaluation Session ────────────────────────────────────────────────
+        if (in_array('Toastmaster of the Day', $selected_roles))
+            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Evaluation Session', 'dur' => 1];
+        for ($i = 1; $i <= $speech_slots; $i++) {
+            $agenda[]     = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
+        }
+        if (in_array('Timer', $selected_roles))
+            $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
+
+        // ── Role-player Reports ───────────────────────────────────────────────
+        if (in_array('Grammarian', $selected_roles))
+            $agenda[] = ['role' => 'Grammarian',       'note' => 'Report', 'dur' => 4];
+        if (in_array('Ah-Counter', $selected_roles))
+            $agenda[] = ['role' => 'Ah-Counter',       'note' => 'Report', 'dur' => 3];
+        if (in_array('Active Listener', $selected_roles))
+            $agenda[] = ['role' => 'Active Listener',  'note' => 'Report', 'dur' => 3];
+        if (in_array('General Evaluator', $selected_roles))
+            $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 9];
+
+        // ── Theme Closure + Conclusion ────────────────────────────────────────
+        if (in_array('Toastmaster of the Day', $selected_roles))
+            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme Closure', 'dur' => 2];
+        if (in_array('Presiding Officer', $selected_roles)) {
+            $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Address and Guest Feedback',        'dur' => 5];
+            $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Guest Feedback and Announcements',  'dur' => 5];
+            $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Concludes the meeting',             'dur' => 1];
+        }
 
         // Step 4: Insert rows in prescribed order, re-applying saved assignments
         $order = 10;
@@ -2225,57 +2256,86 @@ class TMP_Repository {
             $selected_roles = $data['roles'] ?? [];
             $agenda = [];
 
-            if (in_array('Sergeant at Arms', $selected_roles)) {
-                $agenda[] = ['role' => 'Sergeant at Arms', 'note' => 'Starts meeting', 'dur' => 2];
-            }
-            if (in_array('Presiding Officer', $selected_roles)) {
-                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Address and guests', 'dur' => 5];
-            }
+            // ── Opening ──────────────────────────────────────────────────────────
+            if (in_array('Sergeant at Arms', $selected_roles))
+                $agenda[] = ['role' => 'Sergeant at Arms',       'note' => 'Starts meeting',               'dur' => 2];
+            if (in_array('Presiding Officer', $selected_roles))
+                $agenda[] = ['role' => 'Presiding Officer',      'note' => 'Address and Guest Introduction', 'dur' => 5];
             if (in_array('Toastmaster of the Day', $selected_roles)) {
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Intro of theme', 'dur' => 5];
-            }
-            $intro_roles = ['Grammarian', 'Timer', 'Ah-Counter', 'Table Topics Evaluator', 'General Evaluator'];
-            foreach ($intro_roles as $r) {
-                if (in_array($r, $selected_roles)) {
-                    $agenda[] = ['role' => $r, 'note' => 'Introduction of role', 'dur' => 2];
-                }
-            }
-            if (in_array('Toastmaster of the Day', $selected_roles)) {
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduce segments of the meeting', 'dur' => 3];
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces the theme',         'dur' => 2];
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces the segments',      'dur' => 2];
             }
 
-            
-            $speech_slots = absint($data['speech_slots'] ?? 0);
-            for ($i = 1; $i <= $speech_slots; $i++) {
-                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Introduces speaker', 'dur' => 2];
-                $agenda[] = ['role' => "Speaker $i",   'note' => 'Speech',             'dur' => 8, 'timer_dur' => 7];
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Speaker Feedback', 'dur' => 1];
+            // TMOD introduces each functional role, then role player explains
+            $role_intro_map = [
+                'Timer'             => ['explain' => 'Explains role',             'dur' => 2],
+                'Ah-Counter'        => ['explain' => 'Explains role',             'dur' => 2],
+                'Grammarian'        => ['explain' => 'Explains role and WOD/POD', 'dur' => 3],
+                'General Evaluator' => ['explain' => 'Explains role',             'dur' => 2],
+            ];
+            foreach ($role_intro_map as $r => $meta) {
+                if (!in_array($r, $selected_roles)) continue;
+                if (in_array('Toastmaster of the Day', $selected_roles))
+                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces {$r}", 'dur' => 1];
+                $agenda[]     = ['role' => $r, 'note' => $meta['explain'], 'dur' => $meta['dur']];
             }
+            if (in_array('Table Topics Evaluator', $selected_roles))
+                $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'Introduction of role', 'dur' => 2];
 
+            // ── Break ─────────────────────────────────────────────────────────
             $agenda[] = ['role' => 'Break', 'note' => 'Networking', 'dur' => 5];
 
-            if (in_array('Toastmaster of the Day', $selected_roles)) {
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Discuss theme', 'dur' => 3];
-            }
-            
-            // Table Topics section — TTM is a role; speakers are called live and managed via voting panel
-            if (in_array('Table Topics Master', $selected_roles)) {
-                $agenda[] = ['role' => 'Table Topics Master', 'note' => 'Runs Table Topics', 'dur' => 15];
-            }
-            if (in_array('Table Topics Evaluator', $selected_roles)) {
-                $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'TT Session Evaluation', 'dur' => 3];
-            }
-
+            // ── Prepared Speeches ─────────────────────────────────────────────
+            $speech_slots = absint($data['speech_slots'] ?? 0);
             for ($i = 1; $i <= $speech_slots; $i++) {
-                $agenda[] = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
+                if (in_array('Toastmaster of the Day', $selected_roles))
+                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Evaluator {$i} and Speaker {$i}", 'dur' => 1];
+                $agenda[]     = ['role' => "Speaker $i",             'note' => 'Speech',   'dur' => 7];
+                $agenda[]     = ['role' => 'Toastmaster of the Day', 'note' => 'Feedback', 'dur' => 1];
             }
-            if (in_array('Timer', $selected_roles))    $agenda[] = ['role' => 'Timer',              'note' => 'Report',       'dur' => 1];
-            if (in_array('Ah-Counter', $selected_roles)) $agenda[] = ['role' => 'Ah-Counter',        'note' => 'Report',       'dur' => 3];
-            if (in_array('Grammarian', $selected_roles)) $agenda[] = ['role' => 'Grammarian',        'note' => 'Report',       'dur' => 3];
-            if (in_array('Active Listener', $selected_roles)) $agenda[] = ['role' => 'Active Listener', 'note' => 'Report',      'dur' => 3];
-            if (in_array('General Evaluator', $selected_roles)) $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 5];
-            if (in_array('Toastmaster of the Day', $selected_roles)) $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Audience Feedback for Moment of Glory', 'dur' => 1];
-            if (in_array('Presiding Officer', $selected_roles)) $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Closing address and Guest feedback', 'dur' => 4];
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme interlude', 'dur' => 2];
+            if (in_array('Timer', $selected_roles))
+                $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
+
+            // ── Table Topics ──────────────────────────────────────────────────
+            if (in_array('Table Topics Master', $selected_roles)) {
+                if (in_array('Toastmaster of the Day', $selected_roles))
+                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Table Topics Master', 'dur' => 1];
+                $agenda[]     = ['role' => 'Table Topics Master',    'note' => 'Table Topics Session',           'dur' => 20];
+                if (in_array('Toastmaster of the Day', $selected_roles))
+                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme interlude', 'dur' => 2];
+            }
+            if (in_array('Table Topics Evaluator', $selected_roles))
+                $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'TT Session Evaluation', 'dur' => 3];
+
+            // ── Evaluation Session ────────────────────────────────────────────
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Evaluation Session', 'dur' => 1];
+            for ($i = 1; $i <= $speech_slots; $i++) {
+                $agenda[]     = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
+            }
+            if (in_array('Timer', $selected_roles))
+                $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
+
+            // ── Role-player Reports ───────────────────────────────────────────
+            if (in_array('Grammarian', $selected_roles))
+                $agenda[] = ['role' => 'Grammarian',       'note' => 'Report', 'dur' => 4];
+            if (in_array('Ah-Counter', $selected_roles))
+                $agenda[] = ['role' => 'Ah-Counter',       'note' => 'Report', 'dur' => 3];
+            if (in_array('Active Listener', $selected_roles))
+                $agenda[] = ['role' => 'Active Listener',  'note' => 'Report', 'dur' => 3];
+            if (in_array('General Evaluator', $selected_roles))
+                $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 9];
+
+            // ── Theme Closure + Conclusion ────────────────────────────────────
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme Closure', 'dur' => 2];
+            if (in_array('Presiding Officer', $selected_roles)) {
+                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Address and Guest Feedback',       'dur' => 5];
+                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Guest Feedback and Announcements', 'dur' => 5];
+                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Concludes the meeting',            'dur' => 1];
+            }
 
             $order = 10;
             foreach ($agenda as $item) {

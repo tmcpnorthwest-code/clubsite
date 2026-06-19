@@ -7,19 +7,6 @@
   menuButton?.addEventListener('click', () => nav.classList.toggle('open'));
   nav?.addEventListener('click', (e) => { if (e.target.tagName === 'A') nav.classList.remove('open'); });
 
-  // ── Enrolment form ───────────────────────────────────────────────────────────
-  const enrolForm  = document.querySelector('[data-tmc-enrol-form]');
-  const formStatus = document.querySelector('[data-tmc-form-status]');
-  enrolForm?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(enrolForm).entries());
-    if (formStatus) {
-      formStatus.textContent = `Application received for ${data.name}. Our VP Membership will contact you at ${data.email}.`;
-      formStatus.style.color = '#0f766e';
-    }
-    enrolForm.reset();
-  });
-
   // ── Meeting-day voting card ───────────────────────────────────────────────────
   const voteSection = document.querySelector('[data-tmc-vote-meeting]');
   if (voteSection) {

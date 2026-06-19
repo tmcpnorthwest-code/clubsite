@@ -215,7 +215,6 @@ if ($next_meeting) {
       <strong>Toastmasters Club of Pune North West</strong>
     </a>
     <div class="nav">
-      <a href="#tmc-recognition">Recognition</a>
       <a href="#tmc-gallery">Gallery</a>
       <a href="#tmc-pathways">Pathways</a>
       <a href="#tmc-membership">Join</a>
@@ -228,13 +227,12 @@ if ($next_meeting) {
 
   <!-- ══════════════════════════════════════════════════════════ HERO -->
   <section class="hero" id="tmc-top">
-    <a class="hero-img-link" href="#tmc-membership" aria-label="Join Us – scroll to membership section">
-      <img
-        src="<?php echo esc_url($template_dir . '/assets/hero-photo.jpeg'); ?>"
-        alt="Toastmasters Club of Pune North West members at a meeting"
-        loading="eager"
-      />
-    </a>
+    <img
+      class="hero-img-link"
+      src="<?php echo esc_url($template_dir . '/assets/hero-photo.jpeg'); ?>"
+      alt="Toastmasters Club of Pune North West members at a meeting"
+      loading="eager"
+    />
     <?php if ($next_meeting) :
       $nm_dt = new DateTime($next_meeting['meeting_date']); ?>
       <div class="hero-meeting-chip">
@@ -296,20 +294,28 @@ if ($next_meeting) {
 
   <!-- ═══════════════════════════════════════════ UPCOMING MEETING AGENDA -->
   <?php if ($published_agenda) :
-    $pa_dt = new DateTime($published_agenda['meeting_date']);
-    $pa_assignments = array_filter($published_agenda['assignments'] ?? [], function($a) {
-        return strtolower($a['role_name']) !== 'break';
-    });
-    // De-duplicate multi-segment roles (TMOD, Evaluator intro vs eval shown once each)
-    $seen_bases = [];
-    $pa_rows = [];
-    foreach ($pa_assignments as $a) {
-        $base = preg_replace('/\s*\(.*?\)\s*/u', '', $a['role_name']);
-        $base = trim(preg_replace('/\s+\d+$/', '', $base));
-        if (in_array($base, $seen_bases, true)) continue;
-        $seen_bases[] = $base;
-        $pa_rows[] = $a;
+    $pa_dt   = new DateTime($published_agenda['meeting_date']);
+    $pa_rows = $published_agenda['assignments'] ?? [];
+
+    // Pre-compute each slot's wall-clock start time from meeting start_time + cumulative durations
+    $pa_clock = null;
+    if (!empty($published_agenda['start_time'])) {
+        try { $pa_clock = new DateTime('2000-01-01 ' . $published_agenda['start_time']); }
+        catch (Exception $e) { $pa_clock = null; }
     }
+    $pa_row_times = [];
+    foreach ($pa_rows as $a) {
+        $pa_row_times[] = $pa_clock ? clone $pa_clock : null;
+        $slot_dur = max(0, (int)($a['duration'] ?? 0));
+        if ($pa_clock && $slot_dur > 0) $pa_clock->modify("+{$slot_dur} minutes");
+    }
+    $pa_end_clock = $pa_clock;
+
+    $pa_venue    = $published_agenda['venue'] ?? '';
+    $pa_maps_url = get_option('tmp_default_maps_url', '');
+    $pa_start_fmt = (!empty($published_agenda['start_time']))
+        ? date('g:i A', strtotime($published_agenda['start_time']))
+        : '';
   ?>
   <section class="section upcoming-agenda-section" id="tmc-upcoming">
     <p class="eyebrow">Coming Up Next</p>
@@ -319,36 +325,56 @@ if ($next_meeting) {
       <?php if (!empty($published_agenda['theme'])) : ?>
         <span class="upcoming-theme">&ldquo;<?php echo esc_html($published_agenda['theme']); ?>&rdquo;</span>
       <?php endif; ?>
-      <?php
-        $pa_venue    = $published_agenda['venue'] ?? '';
-        $pa_maps_url = get_option('tmp_default_maps_url', '');
-      ?>
       <?php if (!empty($pa_venue)) : ?>
         <span class="upcoming-venue"><?php echo esc_html($pa_venue); ?></span>
       <?php endif; ?>
       <?php if (!empty($pa_maps_url)) : ?>
         <a class="upcoming-directions" href="<?php echo esc_url($pa_maps_url); ?>" target="_blank" rel="noopener noreferrer">Get directions &#x2197;</a>
       <?php endif; ?>
-      <?php if (!empty($published_agenda['start_time'])) : ?>
-        <span class="upcoming-time"><?php echo esc_html(substr($published_agenda['start_time'], 0, 5)); ?></span>
+      <?php if ($pa_start_fmt) : ?>
+        <span class="upcoming-time"><?php echo esc_html($pa_start_fmt); ?><?php
+          if ($pa_end_clock) echo ' &ndash; ' . esc_html($pa_end_clock->format('g:i A'));
+        ?></span>
       <?php endif; ?>
     </div>
     <?php if (!empty($pa_rows)) : ?>
     <div class="upcoming-agenda-wrap">
       <table class="upcoming-agenda-table">
-        <thead><tr><th>Agenda Item</th><th>Member</th><th>Duration</th></tr></thead>
-        <tbody>
-          <?php foreach ($pa_rows as $a) :
-            $dur_display = '';
-            if (!empty($a['time_green']) && (int) $a['time_green'] > 0) {
-                $g = (int) round($a['time_green'] / 60);
-                $r = (int) round($a['time_red']   / 60);
-                $dur_display = $g === $r ? "{$g} min" : "{$g}–{$r} min";
-            } elseif (!empty($a['duration']) && (int) $a['duration'] > 0) {
-                $dur_display = (int) $a['duration'] . ' min';
-            }
-          ?>
+        <thead>
           <tr>
+            <th class="col-time">Time</th>
+            <th>Agenda Item</th>
+            <th>Member</th>
+            <th class="col-dur">Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($pa_rows as $idx => $a) :
+            $slot_base  = strtolower(trim(preg_replace('/\s*\(.*\)/u', '', $a['role_name'])));
+            $is_break   = ($slot_base === 'break');
+            $time_str   = isset($pa_row_times[$idx]) ? $pa_row_times[$idx]->format('g:i A') : '';
+            $slot_dur   = max(0, (int)($a['duration'] ?? 0));
+
+            if ($is_break) : ?>
+          <tr class="upcoming-break-row">
+            <td class="upcoming-slot-time"><?php echo esc_html($time_str); ?></td>
+            <td colspan="3" class="upcoming-break-label">
+              &#9749; Break &mdash; Networking
+              <?php if ($slot_dur > 0) echo '<span class="upcoming-break-dur">(' . $slot_dur . ' min)</span>'; ?>
+            </td>
+          </tr>
+            <?php else :
+              $dur_display = '';
+              if (!empty($a['time_green']) && (int) $a['time_green'] > 0) {
+                  $g = (int) round($a['time_green'] / 60);
+                  $r = (int) round($a['time_red']   / 60);
+                  $dur_display = $g === $r ? "{$g} min" : "{$g}–{$r} min";
+              } elseif ($slot_dur > 0) {
+                  $dur_display = $slot_dur . ' min';
+              }
+            ?>
+          <tr>
+            <td class="upcoming-slot-time"><?php echo esc_html($time_str); ?></td>
             <td>
               <?php echo esc_html($a['role_name']); ?>
               <?php if (!empty($a['speech_title'])) : ?>
@@ -358,6 +384,7 @@ if ($next_meeting) {
             <td><?php echo !empty($a['member_name']) ? esc_html($a['member_name']) : '<em class="upcoming-tba">TBA</em>'; ?></td>
             <td class="upcoming-dur"><?php echo esc_html($dur_display); ?></td>
           </tr>
+            <?php endif; ?>
           <?php endforeach; ?>
         </tbody>
       </table>
@@ -701,12 +728,12 @@ if ($next_meeting) {
     </div>
   </section>
 
-  <!-- ══════════════════════════════════════════════ ENROLMENT FORM -->
+  <!-- ══════════════════════════════════════════════ JOIN / WHATSAPP -->
   <section class="section enrolment" id="tmc-membership">
     <div>
       <p class="eyebrow">New Members</p>
       <h2>Join Toastmasters Club of<br>Pune North West</h2>
-      <p>Share your details and speaking goals. Our VP Membership will reach out to schedule your first visit and guide you through the joining process.</p>
+      <p>Visit us as a guest first. Join our WhatsApp group to get notified about upcoming meetings and connect with members.</p>
       <ul class="join-perks">
         <li>Weekly structured meeting practice</li>
         <li>Dedicated mentor for your first year</li>
@@ -715,26 +742,9 @@ if ($next_meeting) {
       </ul>
       <a class="wa-cta" href="https://chat.whatsapp.com/H3eiLPexTTbCPrbKqsvBvQ" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg>
-        Join our WhatsApp guest group first
+        Join our WhatsApp guest group
       </a>
     </div>
-    <form class="enrol-form" data-tmc-enrol-form>
-      <label>Full name <input name="name" required placeholder="Your name" /></label>
-      <label>Email <input type="email" name="email" required placeholder="you@example.com" /></label>
-      <label>Phone <input name="phone" required placeholder="+91 98765 43210" /></label>
-      <label class="wide">Speaking goals
-        <textarea name="goals" rows="4" placeholder="What do you want to improve — confidence, clarity, leadership?"></textarea>
-      </label>
-      <label>Meeting preference
-        <select name="preference">
-          <option>In person</option>
-          <option>Online</option>
-          <option>Hybrid</option>
-        </select>
-      </label>
-      <button class="button primary wide" type="submit">Submit Application</button>
-      <p class="form-status wide" role="status" data-tmc-form-status></p>
-    </form>
   </section>
 
 </main>
@@ -763,7 +773,6 @@ if ($next_meeting) {
     </div>
     <nav class="footer-links">
       <a href="#tmc-top">Home</a>
-      <a href="#tmc-recognition">Recognition</a>
       <a href="#tmc-gallery">Gallery</a>
       <a href="#tmc-pathways">Pathways</a>
       <a href="<?php echo esc_url(home_url('/member-dashboard/')); ?>">Member Login</a>
