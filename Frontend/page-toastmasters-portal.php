@@ -337,6 +337,9 @@ if ($next_meeting) {
         ?></span>
       <?php endif; ?>
     </div>
+    <?php if (!empty($published_agenda['agenda_notes'])) : ?>
+    <p class="upcoming-agenda-notes"><?php echo nl2br(esc_html($published_agenda['agenda_notes'])); ?></p>
+    <?php endif; ?>
     <?php if (!empty($pa_rows)) : ?>
     <div class="upcoming-agenda-wrap">
       <table class="upcoming-agenda-table">

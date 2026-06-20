@@ -1730,6 +1730,7 @@
       if (selectedId) meetingSelect.value = selectedId;
       else if (prevMeetingVal) meetingSelect.value = prevMeetingVal;
       updateRoles();
+      applyMeetingSelection(meetingSelect.value);
 
       if (compactList) {
         compactList.innerHTML = meetings.length

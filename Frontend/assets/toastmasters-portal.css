@@ -1570,6 +1570,17 @@ textarea {
   text-decoration: underline;
 }
 
+.upcoming-agenda-notes {
+  margin: 0 0 24px;
+  font-size: 1rem;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 680px;
+  font-style: italic;
+  border-left: 3px solid var(--teal);
+  padding-left: 16px;
+}
+
 .upcoming-agenda-wrap {
   max-width: 900px;
 }
