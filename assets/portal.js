@@ -1823,6 +1823,8 @@
             <button class="tmp-button tmp-secondary tmp-small" data-print-agenda="${meeting.id}">Print Agenda</button>
             <button class="tmp-button ${String(meeting.is_published) === "1" ? "tmp-primary" : "tmp-secondary"} tmp-small" data-publish-agenda="${meeting.id}">${String(meeting.is_published) === "1" ? "Unpublish" : "Publish to Website"}</button>
             ${String(meeting.is_published) === "1" ? '<span class="tmp-tag" style="background:#2e7d32;color:#fff;padding:3px 8px;font-size:11px;">● Live on website</span>' : ""}
+            <button class="tmp-button tmp-secondary tmp-small" data-notify-members="${meeting.id}" title="Send email to all assigned members with their roles">&#9993; Notify Members</button>
+            <span data-notify-status="${meeting.id}" style="font-size:12px;color:var(--tmp-muted);"></span>
           </div>
         </article>`;
       }).join("")}</div>`;
@@ -2525,6 +2527,31 @@
           await renderMeetings(meetingSelect.value);
         } catch (err) {
           alert("Could not update publish status: " + err.message);
+        }
+        return;
+      }
+
+      const notifyMembers = e.target.closest("[data-notify-members]");
+      if (notifyMembers) {
+        const mid       = notifyMembers.dataset.notifyMembers;
+        const statusEl  = qs(`[data-notify-status="${mid}"]`);
+        const confirmed = confirm("Send role assignment emails to all assigned members for this meeting?");
+        if (!confirmed) return;
+        notifyMembers.disabled = true;
+        if (statusEl) { statusEl.textContent = "Sending…"; statusEl.style.color = "var(--tmp-muted)"; }
+        try {
+          const res = await api(`/meetings/${mid}/notify-members`, { method: "POST" });
+          if (statusEl) {
+            statusEl.textContent = res.found === 0
+              ? "No assigned members found."
+              : `✓ ${res.sent}/${res.found} sent.`;
+            statusEl.style.color = res.sent === res.found && res.found > 0 ? "#2e7d32" : "#e65100";
+            setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 6000);
+          }
+        } catch (err) {
+          if (statusEl) { statusEl.textContent = "Failed: " + err.message; statusEl.style.color = "#c62828"; }
+        } finally {
+          notifyMembers.disabled = false;
         }
         return;
       }

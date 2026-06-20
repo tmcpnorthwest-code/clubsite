@@ -220,6 +220,13 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
+        // ── Notify assigned members ───────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/notify-members', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'notify_assigned_members'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
         // ── Publish agenda ────────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/publish', [
             'methods'             => WP_REST_Server::CREATABLE,
@@ -1292,6 +1299,13 @@ class TMP_REST_API {
         }
         $wpdb->update($meetings, ['is_published' => $new_state], ['id' => $id]);
         return rest_ensure_response(['is_published' => $new_state]);
+    }
+
+    public static function notify_assigned_members(WP_REST_Request $request) {
+        $test_email = sanitize_email($request->get_param('test_email') ?? '');
+        $result = TMP_Repository::notify_assigned_members((int) $request['id'], $test_email ?: null);
+        if (is_wp_error($result)) return $result;
+        return rest_ensure_response($result);
     }
 
     public static function get_published_agenda(WP_REST_Request $request) {

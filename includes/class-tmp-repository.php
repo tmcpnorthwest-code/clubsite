@@ -3195,6 +3195,122 @@ class TMP_Repository {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Notify all assigned members for a meeting
+    // -------------------------------------------------------------------------
+
+    public static function notify_assigned_members(int $meeting_id, ?string $test_email = null) {
+        global $wpdb;
+
+        $meeting = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM " . self::meeting_table() . " WHERE id = %d", $meeting_id
+        ), ARRAY_A);
+        if (!$meeting) return new WP_Error('not_found', 'Meeting not found', ['status' => 404]);
+
+        // Collect roles grouped by member_id, skip unassigned and Break slots
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT a.role_name, m.id AS member_id, m.full_name, m.email
+             FROM " . self::assignment_table() . " a
+             JOIN " . self::member_table() . " m ON m.id = a.member_id
+             WHERE a.meeting_id = %d AND a.member_id IS NOT NULL
+             ORDER BY a.sort_order ASC",
+            $meeting_id
+        ), ARRAY_A);
+
+        if (empty($rows)) return ['found' => 0, 'sent' => 0];
+
+        $by_member = [];
+        foreach ($rows as $row) {
+            $base = self::get_base_role_name($row['role_name']);
+            if (strtolower($base) === 'break') continue;
+            $mid = $row['member_id'];
+            if (!isset($by_member[$mid])) {
+                $by_member[$mid] = [
+                    'name'  => $row['full_name'],
+                    'email' => $row['email'],
+                    'roles' => [],
+                ];
+            }
+            // Avoid listing the same base role twice (e.g. TMOD appears in multiple sub-slots)
+            if (!in_array($base, $by_member[$mid]['roles'], true)) {
+                $by_member[$mid]['roles'][] = $base;
+            }
+        }
+
+        $date_fmt   = date('l, F j, Y', strtotime($meeting['meeting_date']));
+        $start_fmt  = !empty($meeting['start_time']) ? date('g:i A', strtotime($meeting['start_time'])) : '';
+        $theme      = $meeting['theme'] ?? '';
+        $venue      = $meeting['venue'] ?? '';
+        $dashboard  = home_url('/member-dashboard/');
+        $found      = count($by_member);
+        $sent       = 0;
+
+        if ($test_email) {
+            // Test mode: one summary email listing every member + their roles
+            $lines = [];
+            foreach ($by_member as $member) {
+                $lines[] = "{$member['name']}: " . implode(', ', $member['roles']);
+            }
+            $subject = "[TEST] Role notification preview — {$date_fmt}";
+            $message = "TEST PREVIEW — this is what each member will receive.\n\n"
+                . "Meeting : {$date_fmt}\n"
+                . ($start_fmt ? "Time    : {$start_fmt}\n" : '')
+                . ($venue     ? "Venue   : {$venue}\n"     : '')
+                . "Theme   : {$theme}\n\n"
+                . "Members to be notified ({$found}):\n"
+                . implode("\n", array_map(fn($l) => "  • {$l}", $lines)) . "\n\n"
+                . "In production each member gets a personalised email with only their own roles.\n"
+                . "Dashboard link sent: {$dashboard}";
+            $sent = wp_mail($test_email, $subject, $message) ? $found : 0;
+        } else {
+            // Production: one personalised email per member, then one BCC blast for
+            // any that failed (catches hosting per-execution mail() limits).
+            $failed_emails = [];
+            foreach ($by_member as $member) {
+                if (empty($member['email'])) continue;
+                $role_list  = implode("\n  • ", $member['roles']);
+                $time_line  = $start_fmt ? "  Time    : {$start_fmt}\n" : '';
+                $venue_line = $venue     ? "  Venue   : {$venue}\n"     : '';
+                $subject    = "Your Toastmasters role — {$date_fmt}";
+                $message    = "Hi {$member['name']},\n\n"
+                    . "You have been assigned the following role(s) for our upcoming meeting:\n\n"
+                    . "  • {$role_list}\n\n"
+                    . "Meeting details:\n"
+                    . "  Date    : {$date_fmt}\n"
+                    . $time_line . $venue_line
+                    . "  Theme   : {$theme}\n\n"
+                    . "Please visit your dashboard to view the full agenda and prepare accordingly:\n"
+                    . "{$dashboard}\n\n"
+                    . "Looking forward to seeing you there!\n\n"
+                    . "Regards,\nVP Education\nToastmasters Club of Pune North West";
+                if (wp_mail($member['email'], $subject, $message)) {
+                    $sent++;
+                } else {
+                    $failed_emails[] = $member['email'];
+                }
+            }
+
+            // Fallback BCC for any that the host's mail() limit dropped
+            if (!empty($failed_emails)) {
+                $fallback_subject = "Toastmasters meeting roles — {$date_fmt} ({$theme})";
+                $fallback_message = "Hi,\n\n"
+                    . "This is a reminder that you have been assigned a role for our meeting on {$date_fmt}.\n"
+                    . ($start_fmt ? "Time  : {$start_fmt}\n" : '')
+                    . ($venue     ? "Venue : {$venue}\n"     : '')
+                    . "Theme : {$theme}\n\n"
+                    . "Please log in to your dashboard to see your specific role and the full agenda:\n"
+                    . "{$dashboard}\n\n"
+                    . "Regards,\nVP Education\nToastmasters Club of Pune North West";
+                $headers = ['Bcc: ' . implode(', ', $failed_emails)];
+                if (wp_mail('', $fallback_subject, $fallback_message, $headers)) {
+                    $sent += count($failed_emails);
+                }
+            }
+        }
+
+        return ['found' => $found, 'sent' => $sent];
+    }
+
     // =========================================================================
     // VOTING
     // =========================================================================
