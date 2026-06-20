@@ -53,15 +53,11 @@ a {
   text-decoration: none;
 }
 
-.brand-mark {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--burgundy);
-  color: white;
-  font-weight: 800;
+.brand-torch {
+  flex-shrink: 0;
+  display: block;
+  height: 44px;
+  width: auto;
 }
 
 .brand small {
@@ -827,6 +823,40 @@ article p {
   padding: 0 0 0 18px;
   color: var(--muted);
   line-height: 2;
+}
+
+/* ── TI brand panel (right column of join section) ───────────────────────── */
+
+.ti-brand-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 32px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(160deg, #fff8f8 0%, #fff 60%);
+  box-shadow: 0 8px 32px rgba(196,18,48,0.06);
+  gap: 12px;
+}
+
+.ti-torch {
+  width: 140px;
+  height: auto;
+  margin-bottom: 8px;
+}
+
+.ti-tagline {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--navy);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.ti-brand-panel .wa-cta {
+  margin-top: 12px;
 }
 
 /* ── Dashboard shell ──────────────────────────────────────────────────────── */
