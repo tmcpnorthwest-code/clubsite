@@ -743,15 +743,42 @@
         if (approved.length === 0) {
           asEl.innerHTML = "<p>No roles assigned to you.</p>";
         } else {
+          const now = Date.now();
           asEl.innerHTML = `<div class="tmp-table-wrap"><table class="tmp-table">
             <thead><tr><th>Meeting</th><th>Role</th><th>Status</th></tr></thead>
-            <tbody>${approved.map((r) => `<tr>
-              <td data-label="Meeting">${esc(r.meetingDate)} — ${esc(r.meetingTheme)}</td>
-              <td data-label="Role">${esc(r.roleName)}</td>
-              <td data-label="Status"><span class="tmp-tag" style="background:#2e7d32;color:#fff;font-weight:bold;">✓ Confirmed</span></td>
-            </tr>`).join("")}
+            <tbody>${approved.map((r) => {
+              const isSpeaker      = r.roleName.toLowerCase().startsWith("speaker");
+              const deadlinePassed = r.deadline && new Date(r.deadline).getTime() < now;
+              const isConfirmed    = r.assignmentStatus === "Confirmed";
+              const showTitleField = isSpeaker && deadlinePassed && isConfirmed;
+              const titleField     = showTitleField
+                ? `<div style="margin-top:6px;"><input type="text" data-member-speech-title="${esc(r.assignmentId)}" value="${esc(r.speechTitle || '')}" placeholder="Add your speech title…" style="width:100%;padding:5px 8px;border:1px solid var(--tmp-line);border-radius:5px;font-size:0.82rem;" /><span data-member-title-status="${esc(r.assignmentId)}" style="font-size:0.75rem;color:var(--tmp-muted);"></span></div>`
+                : "";
+              return `<tr>
+                <td data-label="Meeting">${esc(r.meetingDate)} — ${esc(r.meetingTheme)}</td>
+                <td data-label="Role">${esc(r.roleName)}${titleField}</td>
+                <td data-label="Status"><span class="tmp-tag" style="background:#2e7d32;color:#fff;font-weight:bold;">✓ Confirmed</span></td>
+              </tr>`;
+            }).join("")}
             </tbody>
           </table></div>`;
+
+          // Wire up speech title autosave (debounced on input)
+          asEl.querySelectorAll("[data-member-speech-title]").forEach((inp) => {
+            inp.addEventListener("input", () => {
+              clearTimeout(inp._timer);
+              const statusEl = asEl.querySelector(`[data-member-title-status="${inp.dataset.memberSpeechTitle}"]`);
+              inp._timer = setTimeout(async () => {
+                if (statusEl) statusEl.textContent = "Saving…";
+                try {
+                  await api("/me/speech-title", { method: "POST", body: JSON.stringify({ assignment_id: parseInt(inp.dataset.memberSpeechTitle), speech_title: inp.value }) });
+                  if (statusEl) { statusEl.textContent = "Saved"; setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000); }
+                } catch (err) {
+                  if (statusEl) statusEl.textContent = "Save failed";
+                }
+              }, 800);
+            });
+          });
         }
       }
 
@@ -2005,15 +2032,20 @@
         if (primary.cooloff_override == 1) notes.push(`<span class="tmp-tag" style="background:#ff9800;color:#fff;font-size:10px;" title="${esc(primary.override_reason || "")}">Cooloff override</span>`);
         if (primary.suitability && !primary.suitability.suitable) notes.push(`<span class="tmp-tag" style="background:#ffebee;color:#b71c1c;font-size:10px;">${esc(primary.suitability.reason)}</span>`);
 
-        const isSpeakerSlot = /^Speaker\s+\d+$/i.test(baseRole);
+        const isSpeakerSlot = baseRole.toLowerCase().startsWith("speaker");
         const timerDurVal   = primary.timer_duration != null
           ? primary.timer_duration
           : (isSpeakerSlot ? Math.max(1, (Number(primary.duration) || 8) - 1) : "");
         const timerCell = isSpeakerSlot
           ? `<td data-label="Timer (min)" style="width:80px;"><input type="number" min="1" data-assign-timer-duration="${esc(primary.id)}" value="${esc(timerDurVal)}" placeholder="—" style="width:60px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;" /></td>`
           : `<td></td>`;
+        const speakerExtras = isSpeakerSlot
+          ? `<div style="margin-top:6px;">
+               <input type="text" data-assign-speech-title="${esc(primary.id)}" value="${esc(primary.speech_title || '')}" placeholder="Speech title (optional)" style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.82rem;" />
+             </div>`
+          : "";
         return `<tr>
-          <td data-label="Role" style="white-space:nowrap;">${esc(baseRole)}</td>
+          <td data-label="Role" style="white-space:nowrap;">${esc(baseRole)}${speakerExtras}</td>
           <td data-label="Member">
             <select data-assign-roles="${esc(allIds)}" style="width:100%;max-width:220px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">${opts}</select>
           </td>
@@ -2098,21 +2130,38 @@
         });
 
         panel.addEventListener("click", async (e) => {
-          const btn = e.target.closest("[data-delete-roles]");
-          if (!btn) return;
-          const roleName = btn.dataset.roleName || "this role";
-          if (!confirm(`Remove the "${roleName}" slot from this meeting?\n\nThe agenda item will be deleted. Use this when a role won't be needed for this meeting.`)) return;
-          btn.disabled = true;
-          try {
-            for (const id of btn.dataset.deleteRoles.split(",")) {
-              await api(`/assignments/${id}`, { method: "DELETE" });
+          const deleteBtn = e.target.closest("[data-delete-roles]");
+          if (deleteBtn) {
+            const roleName = deleteBtn.dataset.roleName || "this role";
+            if (!confirm(`Remove the "${roleName}" slot from this meeting?\n\nThe agenda item will be deleted. Use this when a role won't be needed for this meeting.`)) return;
+            deleteBtn.disabled = true;
+            try {
+              for (const id of deleteBtn.dataset.deleteRoles.split(",")) {
+                await api(`/assignments/${id}`, { method: "DELETE" });
+              }
+              await renderMeetings(meetingSelect.value);
+              updateMemberDashboard().catch(() => {});
+            } catch (err) {
+              alert("Failed to remove: " + err.message);
+              deleteBtn.disabled = false;
             }
-            await renderMeetings(meetingSelect.value);
-            updateMemberDashboard().catch(() => {});
-          } catch (err) {
-            alert("Failed to remove: " + err.message);
-            btn.disabled = false;
+            return;
           }
+
+        });
+
+        panel.addEventListener("change", function speechTitleHandler(e) {
+          const inp = e.target.closest("[data-assign-speech-title]");
+          if (!inp) return;
+          clearTimeout(inp._saveTimer);
+          inp._saveTimer = setTimeout(async () => {
+            const aid = inp.dataset.assignSpeechTitle;
+            try {
+              await api("/assignments", { method: "POST", body: JSON.stringify({ id: parseInt(aid), speech_title: inp.value }) });
+            } catch (err) {
+              console.warn("Speech title save failed", err);
+            }
+          }, 800);
         });
       }
     }
@@ -3317,10 +3366,18 @@
     let currentMeetingId = null;
     let pollTimer        = null;
     let pollIsOpen       = false;
+    let votingMeetings   = [];
+
+    const rateSpeakerSection  = qs('[data-tmp-rate-speaker-section]', panel);
+    const speakerFeedbackList = qs('[data-tmp-speaker-feedback-list]', panel);
+    const feedbackEmailWrap   = qs('[data-tmp-speaker-feedback-email-wrap]', panel);
+    const sendFeedbackBtn     = qs('[data-tmp-send-speaker-feedback-btn]', panel);
+    const feedbackEmailStatus = qs('[data-tmp-speaker-feedback-email-status]', panel);
 
     // Populate meeting dropdown from existing meetings data
     api('/meetings').then(meetings => {
       if (!meetings || !meetings.length) return;
+      votingMeetings = meetings;
       const today = new Date().toISOString().slice(0, 10);
       meetings.forEach(m => {
         const opt = document.createElement('option');
@@ -3363,12 +3420,14 @@
       if (!currentMeetingId) {
         ttEntry.style.display = 'none';
         nomineesBlock.style.display = 'none';
+        if (rateSpeakerSection) rateSpeakerSection.style.display = 'none';
         return;
       }
       ttEntry.style.display = 'block';
       nomineesBlock.style.display = 'block';
       loadNominees();
       pollTimer = setInterval(loadNominees, 30000);
+      renderRateSpeakers(currentMeetingId);
     }
 
     function loadNominees() {
@@ -3383,7 +3442,7 @@
     function setPollOpenUI(isOpen) {
       pollIsOpen = isOpen;
       if (openPollBtn) {
-        openPollBtn.textContent = isOpen ? 'Close Poll' : 'Open Poll';
+        openPollBtn.textContent = isOpen ? 'Close Moment of Glory' : 'Moment of Glory';
         openPollBtn.style.background = isOpen ? '#a33' : '';
       }
       if (pollStatus) {
@@ -3578,6 +3637,118 @@
             }).join('')}
           </div>`;
         }).join('');
+    }
+
+    async function renderRateSpeakers(mid) {
+      if (!rateSpeakerSection || !speakerFeedbackList) return;
+      const meeting = votingMeetings.find(m => String(m.id) === String(mid));
+      if (!meeting) { rateSpeakerSection.style.display = 'none'; return; }
+
+      const speakers = (meeting.assignments || []).filter(a =>
+        a.role_name && a.role_name.toLowerCase().startsWith('speaker') && a.member_id
+      );
+      if (!speakers.length) { rateSpeakerSection.style.display = 'none'; return; }
+
+      rateSpeakerSection.style.display = 'block';
+      if (feedbackEmailWrap) feedbackEmailWrap.style.display = 'flex';
+
+      // Load counts (non-blocking)
+      const counts = await api(`/speech-feedback/counts/${mid}`).catch(() => ({}));
+
+      speakerFeedbackList.innerHTML = speakers.map(s => {
+        const cnt   = counts[s.id] || 0;
+        const title = s.speech_title ? `"${esc(s.speech_title)}"` : '';
+        const countLabel = cnt > 0 ? `${cnt} response${cnt !== 1 ? 's' : ''}` : 'No feedback yet';
+        return `<div class="tmp-speaker-feedback-card" data-sfcard="${s.id}"
+          style="border:1px solid var(--tmp-line);border-radius:6px;padding:12px;margin-bottom:10px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <strong>${esc(s.member_name || s.display_name || 'TBA')}</strong>
+              <span style="color:var(--tmp-muted);font-size:0.85rem;"> · ${esc(s.role_name)}</span>
+              ${title ? `<br><span style="font-size:0.82rem;color:var(--tmp-muted);">${title}</span>` : ''}
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-shrink:0;">
+              <button class="tmp-small-button" data-gen-fb-link="${s.id}">&#128279; Copy Link</button>
+              <span class="tmp-tag" data-sfcount="${s.id}"
+                style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:0.78rem;">${esc(countLabel)}</span>
+              <button class="tmp-small-button" data-show-fb="${s.id}">Show Feedback &#9660;</button>
+            </div>
+          </div>
+          <div data-fb-view="${s.id}" style="display:none;margin-top:10px;"></div>
+        </div>`;
+      }).join('');
+
+      speakerFeedbackList.querySelectorAll('[data-gen-fb-link]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const aid = btn.dataset.genFbLink;
+          btn.disabled = true; btn.textContent = 'Copying…';
+          try {
+            const res = await api(`/speech-feedback/link/${aid}`);
+            await navigator.clipboard.writeText(res.url);
+            btn.textContent = '✓ Copied!';
+            setTimeout(() => { btn.textContent = '&#128279; Copy Link'; btn.disabled = false; }, 2500);
+          } catch (err) {
+            alert('Failed: ' + (err.message || 'error'));
+            btn.textContent = '&#128279; Copy Link'; btn.disabled = false;
+          }
+        });
+      });
+
+      speakerFeedbackList.querySelectorAll('[data-show-fb]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const aid  = btn.dataset.showFb;
+          const view = speakerFeedbackList.querySelector(`[data-fb-view="${aid}"]`);
+          if (!view) return;
+          if (view.style.display !== 'none') {
+            view.style.display = 'none'; btn.textContent = 'Show Feedback ▾'; return;
+          }
+          btn.textContent = 'Loading…';
+          try {
+            const items = await api(`/speech-feedback/list/${aid}`);
+            if (!items.length) {
+              view.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No feedback submitted yet.</p>';
+            } else {
+              view.innerHTML = items.map((f, i) => `
+                <div style="padding:8px 10px;background:#f9f9f9;border-radius:4px;${i > 0 ? 'margin-top:6px;' : ''}">
+                  <strong style="font-size:0.82rem;">${esc(f.respondent_name || 'Anonymous')}</strong>
+                  <span style="font-size:0.75rem;color:var(--tmp-muted);margin-left:6px;">${esc(f.submitted_at)}</span>
+                  <p style="margin:4px 0 0;font-size:0.88rem;white-space:pre-wrap;">${esc(f.feedback_text)}</p>
+                </div>`).join('');
+
+              // Refresh count badge
+              const countEl = speakerFeedbackList.querySelector(`[data-sfcount="${aid}"]`);
+              if (countEl) { countEl.textContent = `${items.length} response${items.length !== 1 ? 's' : ''}`; }
+            }
+            view.style.display = 'block';
+            btn.textContent = 'Hide Feedback ▲';
+          } catch (err) {
+            view.innerHTML = `<p style="color:#c62828;font-size:0.85rem;">Failed to load: ${esc(err.message)}</p>`;
+            view.style.display = 'block';
+            btn.textContent = 'Show Feedback ▾';
+          }
+        });
+      });
+    }
+
+    if (sendFeedbackBtn) {
+      sendFeedbackBtn.addEventListener('click', async () => {
+        if (!currentMeetingId) return;
+        if (!confirm('Send feedback rollup emails to each speaker, VPE, and their mentor?')) return;
+        sendFeedbackBtn.disabled = true;
+        if (feedbackEmailStatus) { feedbackEmailStatus.textContent = 'Sending…'; feedbackEmailStatus.style.color = 'var(--tmp-muted)'; }
+        try {
+          const res = await api(`/speech-feedback/email-rollup/${currentMeetingId}`, { method: 'POST' });
+          if (feedbackEmailStatus) {
+            feedbackEmailStatus.textContent = `✓ ${res.sent} email${res.sent !== 1 ? 's' : ''} sent.`;
+            feedbackEmailStatus.style.color = '#2e7d32';
+            setTimeout(() => { if (feedbackEmailStatus) feedbackEmailStatus.textContent = ''; }, 8000);
+          }
+        } catch (err) {
+          if (feedbackEmailStatus) { feedbackEmailStatus.textContent = 'Failed: ' + err.message; feedbackEmailStatus.style.color = '#c62828'; }
+        } finally {
+          sendFeedbackBtn.disabled = false;
+        }
+      });
     }
   }
 
@@ -4090,7 +4261,7 @@
 
     function setPollOpenUI(isOpen) {
       pollIsOpen = isOpen;
-      openPollBtn.textContent  = isOpen ? 'Close Poll' : 'Open Poll';
+      openPollBtn.textContent  = isOpen ? 'Close Moment of Glory' : 'Moment of Glory';
       openPollBtn.className    = 'tmp-button ' + (isOpen ? 'tmp-secondary' : 'tmp-primary');
       pollStatusEl.textContent = isOpen ? '🟢 Poll is OPEN — members can vote' : '⚪ Poll is closed';
     }
@@ -5125,6 +5296,79 @@
     activateTab(saved || "members");
   }
 
+  // ===========================================================================
+  // FEEDBACK FORM (public speech feedback page)
+  // ===========================================================================
+  async function initFeedbackForm() {
+    const page = qs("[data-tmp-feedback-page]");
+    if (!page) return;
+
+    const aid    = page.dataset.tmpFeedbackAid;
+    const hash   = page.dataset.tmpFeedbackHash;
+    const header = qs("[data-tmp-feedback-header]", page);
+    const body   = qs("[data-tmp-feedback-body]", page);
+    const form   = qs("[data-tmp-feedback-form]", page);
+    const done   = qs("[data-tmp-feedback-done]", page);
+    const anonCb = qs("[data-tmp-feedback-anon]", page);
+    const nameIn = qs("[data-tmp-feedback-name]", page);
+    const status = qs("[data-tmp-feedback-status]", page);
+
+    // Already submitted this session?
+    let submitted = false;
+    try { submitted = !!sessionStorage.getItem(`tmp_feedback_${aid}`); } catch (_) {}
+
+    try {
+      const info = await apiPublic(`/speech-feedback/form/${aid}?hash=${encodeURIComponent(hash)}`);
+      const titleLine = info.speech_title ? `<br><span style="color:var(--tmp-muted);font-size:0.88rem;">"${esc(info.speech_title)}"</span>` : "";
+      if (header) header.innerHTML = `<h2 style="margin:0 0 4px;">${esc(info.speaker_name)}${titleLine}</h2>
+        <p style="color:var(--tmp-muted);margin:0;font-size:0.88rem;">${esc(info.meeting_date)} &middot; ${esc(info.meeting_theme)}</p>`;
+      if (body) body.style.display = "";
+      if (submitted) {
+        if (form) form.style.display = "none";
+        if (done) done.style.display = "";
+      }
+    } catch (err) {
+      if (header) header.innerHTML = `<p style="color:#c62828;">Could not load feedback form. ${esc(err.message)}</p>`;
+      return;
+    }
+
+    anonCb?.addEventListener("change", () => {
+      if (!nameIn) return;
+      nameIn.disabled = anonCb.checked;
+      if (anonCb.checked) nameIn.value = "";
+    });
+
+    form?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (status) { status.textContent = "Submitting…"; status.style.color = "var(--tmp-muted)"; }
+      const submitBtn = form.querySelector("button[type=submit]");
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const fd = formData(form);
+        await apiPublic(`/speech-feedback/submit/${aid}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hash, feedback_text: fd.feedback_text, respondent_name: anonCb?.checked ? "" : fd.respondent_name }),
+        });
+        try { sessionStorage.setItem(`tmp_feedback_${aid}`, "1"); } catch (_) {}
+        if (form) form.style.display = "none";
+        if (done) done.style.display = "";
+      } catch (err) {
+        if (status) { status.textContent = "Failed: " + err.message; status.style.color = "#c62828"; }
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  function apiPublic(path, opts = {}) {
+    const url = TMPortal.restUrl + path;
+    return fetch(url, opts).then(async (r) => {
+      const json = await r.json();
+      if (!r.ok) throw new Error(json.message || r.statusText);
+      return json;
+    });
+  }
+
   initMemberDashboard();
   initSAAAttendance();
   initSAAPollPanel();
@@ -5140,6 +5384,7 @@
   initMentorRating();
   initMyRecognition();
   initVPETabs();
+  initFeedbackForm();
 
   // Hide the WordPress page title (rendered by the theme above our portal shortcode)
   // and strip the theme's content-area top padding so the topbar starts flush.

@@ -523,6 +523,49 @@ class TMP_REST_API {
             ],
         ]);
 
+        // ── Speech Feedback ────────────────────────────────────────────────────
+        register_rest_route('toastmasters/v1', '/speech-feedback/link/(?P<assignment_id>\d+)', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_feedback_link'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/speech-feedback/form/(?P<assignment_id>\d+)', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_feedback_form'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/speech-feedback/submit/(?P<assignment_id>\d+)', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'submit_feedback'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route('toastmasters/v1', '/speech-feedback/counts/(?P<meeting_id>\d+)', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_feedback_counts'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/speech-feedback/email-rollup/(?P<meeting_id>\d+)', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'send_feedback_emails'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/speech-feedback/list/(?P<assignment_id>\d+)', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'list_feedback_for_assignment'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/me/speech-title', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'update_my_speech_title'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
         // Mentor ratings — submitted by the logged-in mentee
         register_rest_route('toastmasters/v1', '/mentor-ratings', [
             [
@@ -1151,11 +1194,10 @@ class TMP_REST_API {
     public static function get_vote_nominees(WP_REST_Request $req) {
         $meeting_id = (int) $req->get_param('meeting_id');
 
-        // Auto-populate main/aux nominees from role assignments on first fetch
-        $existing = TMP_Repository::get_vote_nominees($meeting_id);
-        if (empty($existing['main_role']) && empty($existing['aux_role'])) {
-            TMP_Repository::populate_vote_nominees($meeting_id);
-        }
+        // Always re-sync nominees from current assignments so stale entries
+        // (e.g. a speaker who was later unassigned) never linger.
+        // populate_vote_nominees() preserves VPE-added TT speakers.
+        TMP_Repository::populate_vote_nominees($meeting_id);
 
         $nominees = TMP_Repository::get_vote_nominees($meeting_id);
         $meeting  = TMP_Repository::get_meeting($meeting_id);
@@ -1656,5 +1698,122 @@ class TMP_REST_API {
 
         wp_set_password($new_password, $wp_user_id);
         return rest_ensure_response(['success' => true]);
+    }
+
+    // ── Speech Feedback handlers ──────────────────────────────────────────────
+
+    public static function get_feedback_link(WP_REST_Request $request) {
+        $assignment_id = (int) $request->get_param('assignment_id');
+        $data = TMP_Repository::get_feedback_form_data($assignment_id);
+        if (!$data) {
+            return new WP_Error('not_found', 'Speaker assignment not found.', ['status' => 404]);
+        }
+
+        $hash = TMP_Repository::generate_feedback_hash($assignment_id);
+        $page = null;
+        foreach (get_pages() as $p) {
+            if (has_shortcode($p->post_content, 'tm_feedback_form')) {
+                $page = $p;
+                break;
+            }
+        }
+        if (!$page) {
+            return new WP_Error('no_feedback_page', 'No page with [tm_feedback_form] shortcode found.', ['status' => 404]);
+        }
+
+        $url = add_query_arg(['aid' => $assignment_id, 'hash' => $hash], get_permalink($page->ID));
+        return rest_ensure_response([
+            'url'          => $url,
+            'speaker'      => $data['speaker_name'],
+            'speech_title' => $data['speech_title'],
+        ]);
+    }
+
+    public static function get_feedback_form(WP_REST_Request $request) {
+        $assignment_id = (int) $request->get_param('assignment_id');
+        $hash          = sanitize_text_field($request->get_param('hash') ?? '');
+
+        if (!TMP_Repository::validate_feedback_hash($assignment_id, $hash)) {
+            return new WP_Error('invalid_hash', 'Invalid or missing hash.', ['status' => 403]);
+        }
+
+        $data = TMP_Repository::get_feedback_form_data($assignment_id);
+        if (!$data) {
+            return new WP_Error('not_found', 'Speaker assignment not found.', ['status' => 404]);
+        }
+
+        return rest_ensure_response([
+            'assignment_id' => $assignment_id,
+            'speaker_name'  => $data['speaker_name'] ?: 'Unknown Speaker',
+            'speech_title'  => $data['speech_title'] ?: '',
+            'meeting_date'  => $data['meeting_date'],
+            'meeting_theme' => $data['theme'],
+        ]);
+    }
+
+    public static function submit_feedback(WP_REST_Request $request) {
+        $assignment_id = (int) $request->get_param('assignment_id');
+        $body          = $request->get_json_params();
+        $hash          = sanitize_text_field($body['hash'] ?? '');
+
+        if (!TMP_Repository::validate_feedback_hash($assignment_id, $hash)) {
+            return new WP_Error('invalid_hash', 'Invalid or missing hash.', ['status' => 403]);
+        }
+
+        $data = TMP_Repository::get_feedback_form_data($assignment_id);
+        if (!$data) {
+            return new WP_Error('not_found', 'Speaker assignment not found.', ['status' => 404]);
+        }
+
+        $feedback_text    = sanitize_textarea_field($body['feedback_text'] ?? '');
+        $respondent_name  = sanitize_text_field($body['respondent_name'] ?? '');
+
+        if (!$feedback_text) {
+            return new WP_Error('missing_feedback', 'Feedback text is required.', ['status' => 400]);
+        }
+
+        $id = TMP_Repository::insert_speech_feedback(
+            $assignment_id,
+            (int) $data['meeting_id'],
+            $respondent_name ?: null,
+            $feedback_text
+        );
+
+        return rest_ensure_response(['id' => $id]);
+    }
+
+    public static function get_feedback_counts(WP_REST_Request $request) {
+        $meeting_id = (int) $request->get_param('meeting_id');
+        return rest_ensure_response(TMP_Repository::get_feedback_counts_for_meeting($meeting_id));
+    }
+
+    public static function list_feedback_for_assignment(WP_REST_Request $request) {
+        $assignment_id = (int) $request->get_param('assignment_id');
+        return rest_ensure_response(TMP_Repository::get_feedback_for_assignment($assignment_id));
+    }
+
+    public static function send_feedback_emails(WP_REST_Request $request) {
+        $meeting_id = (int) $request->get_param('meeting_id');
+        $result     = TMP_Repository::send_speech_feedback_emails($meeting_id);
+        if (is_wp_error($result)) return $result;
+        return rest_ensure_response($result);
+    }
+
+    public static function update_my_speech_title(WP_REST_Request $request) {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_unauthorized', 'Not linked to a member.', ['status' => 401]);
+        }
+        $body          = $request->get_json_params();
+        $assignment_id = (int) ($body['assignment_id'] ?? 0);
+        $speech_title  = sanitize_text_field($body['speech_title'] ?? '');
+
+        if (!$assignment_id) {
+            return new WP_Error('tmp_invalid', 'assignment_id is required.', ['status' => 400]);
+        }
+
+        $result = TMP_Repository::update_speech_title_for_member($assignment_id, (int) $member['id'], $speech_title);
+        if (is_wp_error($result)) return $result;
+        return rest_ensure_response(['ok' => true]);
     }
 }

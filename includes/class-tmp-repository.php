@@ -3131,7 +3131,7 @@ class TMP_Repository {
                     r.status as request_status, r.reason,
                     r.created_at, r.updated_at,
                     m.id as meeting_id, m.meeting_date, m.theme, m.requests_close_at,
-                    a.role_name
+                    a.role_name, a.speech_title, a.status as assignment_status
              FROM {$requests} r
              JOIN {$meetings} m ON r.meeting_id = m.id
              LEFT JOIN {$assignments} a ON r.assignment_id = a.id
@@ -3145,17 +3145,20 @@ class TMP_Repository {
         $result = [];
         foreach ($rows as $row) {
             $result[] = [
-                'requestId'    => (int) $row['request_id'],
-                'meetingId'    => (int) $row['meeting_id'],
-                'meetingDate'  => $row['meeting_date'],
-                'meetingTheme' => $row['theme'],
-                'roleName'     => $row['role_name'] ?? 'Unknown Role',
-                'priority'     => (int) $row['priority'],
-                'status'       => $row['request_status'] ?? 'Pending',
-                'reason'       => $row['reason'],
-                'deadline'     => $row['requests_close_at'],
-                'submittedDate' => $row['created_at'],
-                'updatedAt'    => $row['updated_at'],
+                'requestId'        => (int) $row['request_id'],
+                'assignmentId'     => (int) $row['assignment_id'],
+                'meetingId'        => (int) $row['meeting_id'],
+                'meetingDate'      => $row['meeting_date'],
+                'meetingTheme'     => $row['theme'],
+                'roleName'         => $row['role_name'] ?? 'Unknown Role',
+                'speechTitle'      => $row['speech_title'] ?? '',
+                'assignmentStatus' => $row['assignment_status'] ?? 'Planned',
+                'priority'         => (int) $row['priority'],
+                'status'           => $row['request_status'] ?? 'Pending',
+                'reason'           => $row['reason'],
+                'deadline'         => $row['requests_close_at'],
+                'submittedDate'    => $row['created_at'],
+                'updatedAt'        => $row['updated_at'],
             ];
         }
 
@@ -4736,5 +4739,176 @@ class TMP_Repository {
             ['email_sent' => 1],
             ['id' => absint($award_id)]
         );
+    }
+
+    // ── Speech Feedback ───────────────────────────────────────────────────────
+
+    public static function speech_feedback_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_speech_feedback';
+    }
+
+    public static function generate_feedback_hash($assignment_id) {
+        return wp_hash('feedback:' . absint($assignment_id));
+    }
+
+    public static function validate_feedback_hash($assignment_id, $hash) {
+        return hash_equals(self::generate_feedback_hash(absint($assignment_id)), (string) $hash);
+    }
+
+    public static function get_feedback_form_data($assignment_id) {
+        global $wpdb;
+        $assignments = self::assignment_table();
+        $members_tbl = self::member_table();
+        $meetings    = self::meeting_table();
+
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT a.id, a.role_name, a.speech_title, a.status,
+                    m.id as meeting_id, m.meeting_date, m.theme,
+                    mem.full_name as speaker_name
+             FROM {$assignments} a
+             JOIN {$meetings} m ON a.meeting_id = m.id
+             LEFT JOIN {$members_tbl} mem ON a.member_id = mem.id
+             WHERE a.id = %d
+               AND a.role_name LIKE 'Speaker%%'",
+            absint($assignment_id)
+        ), ARRAY_A);
+    }
+
+    public static function insert_speech_feedback($assignment_id, $meeting_id, $respondent_name, $feedback_text) {
+        global $wpdb;
+        $wpdb->insert(self::speech_feedback_table(), [
+            'assignment_id'   => absint($assignment_id),
+            'meeting_id'      => absint($meeting_id),
+            'respondent_name' => $respondent_name ? sanitize_text_field($respondent_name) : null,
+            'feedback_text'   => sanitize_textarea_field($feedback_text),
+            'submitted_at'    => current_time('mysql'),
+        ]);
+        return $wpdb->insert_id;
+    }
+
+    public static function get_feedback_for_assignment($assignment_id) {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT id, respondent_name, feedback_text, submitted_at
+               FROM " . self::speech_feedback_table() . "
+              WHERE assignment_id = %d
+              ORDER BY submitted_at ASC",
+            absint($assignment_id)
+        ), ARRAY_A);
+    }
+
+    public static function get_feedback_counts_for_meeting($meeting_id) {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT assignment_id, COUNT(*) as cnt
+               FROM " . self::speech_feedback_table() . "
+              WHERE meeting_id = %d
+              GROUP BY assignment_id",
+            absint($meeting_id)
+        ), ARRAY_A);
+        $map = [];
+        foreach ($rows as $r) {
+            $map[(int) $r['assignment_id']] = (int) $r['cnt'];
+        }
+        return $map;
+    }
+
+    public static function update_speech_title_for_member($assignment_id, $member_id, $speech_title) {
+        global $wpdb;
+        $assignments = self::assignment_table();
+        $meetings    = self::meeting_table();
+        $members_tbl = self::member_table();
+
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT a.id, a.status, m.requests_close_at
+               FROM {$assignments} a
+               JOIN {$meetings} m ON a.meeting_id = m.id
+               JOIN {$members_tbl} mem ON a.member_id = mem.id
+              WHERE a.id = %d AND mem.id = %d",
+            absint($assignment_id), absint($member_id)
+        ), ARRAY_A);
+
+        if (!$row) return new WP_Error('not_found', 'Assignment not found or not yours.', ['status' => 404]);
+        if ($row['status'] !== 'Confirmed') return new WP_Error('not_confirmed', 'Role is not yet confirmed.', ['status' => 400]);
+        if (!$row['requests_close_at'] || strtotime($row['requests_close_at']) > time()) {
+            return new WP_Error('deadline_not_passed', 'Request deadline has not passed yet.', ['status' => 400]);
+        }
+
+        $wpdb->update($assignments, ['speech_title' => sanitize_text_field($speech_title)], ['id' => absint($assignment_id)]);
+        return true;
+    }
+
+    public static function send_speech_feedback_emails($meeting_id) {
+        global $wpdb;
+        $assignments = self::assignment_table();
+        $meetings    = self::meeting_table();
+        $members_tbl = self::member_table();
+
+        $meeting = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$meetings} WHERE id = %d", absint($meeting_id)
+        ), ARRAY_A);
+        if (!$meeting) return new WP_Error('not_found', 'Meeting not found.', ['status' => 404]);
+
+        $speaker_rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT a.id, a.role_name, a.speech_title, a.member_id,
+                    mem.full_name, mem.email, mem.mentor_id
+               FROM {$assignments} a
+               JOIN {$members_tbl} mem ON a.member_id = mem.id
+              WHERE a.meeting_id = %d AND a.role_name LIKE 'Speaker%%'
+              ORDER BY a.sort_order ASC",
+            absint($meeting_id)
+        ), ARRAY_A);
+
+        if (!$speaker_rows) return new WP_Error('no_speakers', 'No speaker assignments found for this meeting.', ['status' => 404]);
+
+        $vpe_email = '';
+        $vpe_rows  = $wpdb->get_results(
+            "SELECT u.user_email FROM {$wpdb->users} u
+               JOIN {$wpdb->usermeta} um ON u.ID = um.user_id
+              WHERE um.meta_key = '{$wpdb->prefix}capabilities'
+                AND um.meta_value LIKE '%tmp_manage_meetings%'
+              LIMIT 1"
+        , ARRAY_A);
+        if ($vpe_rows) $vpe_email = $vpe_rows[0]['user_email'];
+
+        $club_name   = get_bloginfo('name');
+        $date_label  = date('F j, Y', strtotime($meeting['meeting_date']));
+        $sent_count  = 0;
+
+        foreach ($speaker_rows as $speaker) {
+            $feedbacks = self::get_feedback_for_assignment((int) $speaker['id']);
+            if (!$feedbacks) continue;
+
+            $title = $speaker['speech_title'] ?: $speaker['role_name'];
+
+            $lines = array_map(function ($f) {
+                $name = $f['respondent_name'] ?: 'Anonymous';
+                return "{$name}:\n{$f['feedback_text']}";
+            }, $feedbacks);
+
+            $body = "Hi {$speaker['full_name']},\n\n"
+                . "Here is the feedback from your club members for your speech \"{$title}\" on {$date_label}.\n\n"
+                . "---\n\n"
+                . implode("\n\n---\n\n", $lines)
+                . "\n\n---\n\n"
+                . "This email was also sent to your VPE"
+                . ($speaker['mentor_id'] ? " and your mentor" : "") . ".\n\n"
+                . "Regards,\n{$club_name}";
+
+            $subject = "Speech Feedback — \"{$title}\" | {$date_label}";
+            $to      = [$speaker['email']];
+            if ($vpe_email) $to[] = $vpe_email;
+
+            if ($speaker['mentor_id']) {
+                $mentor = self::get_member((int) $speaker['mentor_id']);
+                if ($mentor && !empty($mentor['email'])) $to[] = $mentor['email'];
+            }
+
+            wp_mail($to, $subject, $body);
+            $sent_count++;
+        }
+
+        return ['sent' => $sent_count];
     }
 }

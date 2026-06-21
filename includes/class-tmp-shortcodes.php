@@ -13,6 +13,7 @@ class TMP_Shortcodes {
         add_shortcode('tm_recognition_wall',[__CLASS__, 'recognition_wall']);
         add_shortcode('tm_public_dashboard',[__CLASS__, 'public_dashboard']);
         add_shortcode('tm_voting',          [__CLASS__, 'voting_page']);
+        add_shortcode('tm_feedback_form',   [__CLASS__, 'feedback_form']);
         add_action('wp_enqueue_scripts',    [__CLASS__, 'register_assets']);
     }
 
@@ -185,7 +186,7 @@ class TMP_Shortcodes {
                     </div>
                     <div data-tmp-saa-nominees-summary></div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
-                        <button class="tmp-button tmp-primary" data-tmp-saa-open-poll style="flex-shrink:0;">Open Poll</button>
+                        <button class="tmp-button tmp-primary" data-tmp-saa-open-poll style="flex-shrink:0;">Moment of Glory</button>
                         <span data-tmp-saa-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                     </div>
                 </div>
@@ -748,7 +749,7 @@ class TMP_Shortcodes {
                     <input type="hidden" name="id" />
                     <input type="hidden" name="role_name" />
                     <input type="hidden" name="meeting_id" />
-                    <input type="hidden" name="speech_title" data-tmp-speech-title-wrapper />
+                    <input type="text" name="speech_title" placeholder="Speech title (optional)" data-tmp-speech-title-wrapper style="display:none;width:100%;margin-bottom:6px;" />
                     <select name="presentation_series" data-tmp-pres-series-wrapper style="display:none;">
                         <option value="">Not applicable</option>
                         <option value="Successful Club Series">Successful Club Series</option>
@@ -814,7 +815,7 @@ class TMP_Shortcodes {
                         </div>
                         <div data-tmp-nominees-summary></div>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
-                            <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Open Poll</button>
+                            <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Moment of Glory</button>
                             <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                         </div>
                         <button class="tmp-button" data-tmp-declare-winners-btn style="margin-top:8px;background:#1e4a6e;color:#fff;border:none;">&#127942; Declare Winners</button>
@@ -833,6 +834,17 @@ class TMP_Shortcodes {
                                 </div>
                                 <p data-tmp-vote-link-expiry style="font-size:0.78rem;color:var(--tmp-muted);margin:6px 0 0;"></p>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Rate the Speaker -->
+                    <div data-tmp-rate-speaker-section style="display:none;margin-top:24px;padding-top:20px;border-top:1px solid var(--tmp-line);">
+                        <p class="tmp-eyebrow" style="margin:0 0 4px;">Rate the Speaker</p>
+                        <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 12px;">Share feedback links with attendees during or after each speech. Review responses and email the rollup to each speaker, VPE, and mentor.</p>
+                        <div data-tmp-speaker-feedback-list></div>
+                        <div data-tmp-speaker-feedback-email-wrap style="display:none;margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                            <button class="tmp-button tmp-secondary" data-tmp-send-speaker-feedback-btn>&#9993; Send Feedback Emails</button>
+                            <span data-tmp-speaker-feedback-email-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                         </div>
                     </div>
                 </section>
@@ -1034,6 +1046,70 @@ class TMP_Shortcodes {
             <h2>Login required</h2>
             <p><?php echo esc_html($message); ?></p>
             <a class="tmp-button tmp-primary" href="<?php echo esc_url(wp_login_url(get_permalink())); ?>">Login with WordPress</a>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * [tm_feedback_form] — public speech feedback page.
+     * URL: /speech-feedback/?aid=42&hash=abc123
+     */
+    public static function feedback_form() {
+        self::enqueue();
+
+        $aid  = isset($_GET['aid'])  ? absint($_GET['aid'])                             : 0;
+        $hash = isset($_GET['hash']) ? sanitize_text_field(wp_unslash($_GET['hash']))   : '';
+
+        if (!$aid || !$hash || !TMP_Repository::validate_feedback_hash($aid, $hash)) {
+            ob_start();
+            ?>
+            <div class="tmp-portal">
+                <div class="tmp-panel" style="max-width:620px;margin:0 auto;text-align:center;padding:40px 24px;">
+                    <p style="font-size:2.4rem;margin:0 0 16px;">&#128279;</p>
+                    <h2 style="margin:0 0 10px;">Link Invalid or Expired</h2>
+                    <p style="color:var(--tmp-muted);margin:0;">This feedback link is not valid.<br>Ask the VPE or SAA to share a fresh link.</p>
+                </div>
+            </div>
+            <?php
+            return ob_get_clean();
+        }
+
+        ob_start();
+        ?>
+        <div class="tmp-portal" data-tmp-feedback-page data-tmp-feedback-aid="<?php echo esc_attr($aid); ?>" data-tmp-feedback-hash="<?php echo esc_attr($hash); ?>">
+            <div class="tmp-panel" style="max-width:620px;margin:0 auto;">
+                <p class="tmp-eyebrow" style="color:var(--tmp-teal);">Speech Feedback</p>
+                <div data-tmp-feedback-header>
+                    <p style="color:var(--tmp-muted);">Loading…</p>
+                </div>
+                <div data-tmp-feedback-body style="display:none;">
+                    <div style="background:#fff3e0;border:1px solid #ffcc02;border-radius:6px;padding:10px 14px;margin:14px 0;font-size:0.85rem;">
+                        <strong>Please note:</strong> Your feedback will be shared with the speaker, VPE, and their mentor.
+                    </div>
+                    <form data-tmp-feedback-form>
+                        <label style="display:block;margin-bottom:14px;">
+                            <span style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                                Your name
+                                <label style="font-size:0.82rem;font-weight:400;cursor:pointer;">
+                                    <input type="checkbox" data-tmp-feedback-anon style="margin-right:4px;" /> Submit anonymously
+                                </label>
+                            </span>
+                            <input type="text" name="respondent_name" placeholder="Your name" style="display:block;width:100%;" data-tmp-feedback-name />
+                        </label>
+                        <label style="display:block;margin-bottom:16px;">
+                            Your feedback
+                            <textarea name="feedback_text" rows="6" required placeholder="Share your thoughts on the speech…" style="display:block;width:100%;margin-top:4px;padding:8px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;"></textarea>
+                        </label>
+                        <button class="tmp-button tmp-primary" type="submit" style="width:100%;">Submit Feedback</button>
+                        <p data-tmp-feedback-status style="margin-top:10px;font-size:0.85rem;"></p>
+                    </form>
+                    <div data-tmp-feedback-done style="display:none;text-align:center;padding:20px 0;">
+                        <p style="font-size:2rem;">&#10003;</p>
+                        <p style="font-weight:600;color:var(--tmp-teal);">Thank you! Your feedback has been submitted.</p>
+                    </div>
+                </div>
+            </div>
         </div>
         <?php
         return ob_get_clean();

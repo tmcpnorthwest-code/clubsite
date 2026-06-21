@@ -19,6 +19,7 @@ class TMP_Activator {
         self::migrate_v133_normalize_states();
         self::migrate_v140_gate_levels();
         self::migrate_v150_timer_duration();
+        self::migrate_v160_speech_feedback();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -62,6 +63,7 @@ class TMP_Activator {
         self::migrate_v133_normalize_states();
         self::migrate_v140_gate_levels();
         self::migrate_v150_timer_duration();
+        self::migrate_v160_speech_feedback();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -631,6 +633,25 @@ class TMP_Activator {
         }
     }
 
+    /**
+     * v0.16.0: Create wp_tmp_speech_feedback table for per-speech written feedback.
+     */
+    private static function migrate_v160_speech_feedback() {
+        global $wpdb;
+        $charset = $wpdb->get_charset_collate();
+        $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}tmp_speech_feedback (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            assignment_id BIGINT UNSIGNED NOT NULL,
+            meeting_id BIGINT UNSIGNED NOT NULL,
+            respondent_name VARCHAR(100) NULL,
+            feedback_text LONGTEXT NOT NULL,
+            submitted_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY tmp_sf_assignment (assignment_id),
+            KEY tmp_sf_meeting (meeting_id)
+        ) {$charset}");
+    }
+
     private static function seed_data() {
         global $wpdb;
 
@@ -666,6 +687,7 @@ class TMP_Activator {
         self::maybe_create_page('club-admin', 'Club Admin', '[tm_admin_portal]');
         self::maybe_create_page('vp-education', 'VP Education', '[tm_vp_education]');
         self::maybe_create_page('club-home', 'Club Home', '[tm_public_dashboard]');
+        self::maybe_create_page('speech-feedback', 'Speech Feedback', '[tm_feedback_form]');
     }
 
     private static function maybe_create_page($slug, $title, $content) {
