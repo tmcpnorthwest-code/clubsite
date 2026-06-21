@@ -2471,8 +2471,8 @@ class TMP_Repository {
         $now   = current_time('mysql');
 
         $record = [];
-        if (isset($data['meeting_id']))         $record['meeting_id']         = absint($data['meeting_id']);
-        if (isset($data['member_id']))           $record['member_id']          = !empty($data['member_id']) ? absint($data['member_id']) : null;
+        if (isset($data['meeting_id']))              $record['meeting_id']         = absint($data['meeting_id']);
+        if (array_key_exists('member_id', $data))    $record['member_id']          = !empty($data['member_id']) ? absint($data['member_id']) : null;
         if (isset($data['role_name']))           $record['role_name']          = sanitize_text_field($data['role_name']);
         if (isset($data['speech_title']))        $record['speech_title']       = sanitize_text_field($data['speech_title']);
         if (isset($data['duration']))            $record['duration']           = absint($data['duration']);
@@ -2566,7 +2566,7 @@ class TMP_Repository {
 
                 // Only sync member_id/status across sub-slots when a member assignment
                 // was explicitly included in the payload — not for duration-only updates.
-                if (self::is_singular_role($base) && isset($data['member_id'])) {
+                if (self::is_singular_role($base) && array_key_exists('member_id', $data)) {
                     $new_member_id = !empty($record['member_id']) ? absint($record['member_id']) : 0;
                     $new_status_v  = sanitize_text_field($record['status'] ?? 'Confirmed');
 
