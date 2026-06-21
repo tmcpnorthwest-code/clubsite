@@ -782,14 +782,14 @@ class TMP_Repository {
         ), ARRAY_A);
 
         $saved        = []; // base_role → {member_id, speech_title, presentation_series, status}
-        $speech_slots = 0;
+        $speaker_nums = [];   // actual slot numbers that exist in the DB
         $role_set     = [];
 
         foreach ($existing as $row) {
             $base = self::get_base_role_name($row['role_name']);
 
             if (preg_match('/^Speaker\s+(\d+)$/i', $base, $m)) {
-                $speech_slots = max($speech_slots, (int) $m[1]);
+                $speaker_nums[(int) $m[1]] = true;
             }
 
             if (array_key_exists($base, self::get_standard_roles())) {
@@ -807,6 +807,22 @@ class TMP_Repository {
             }
         }
 
+        ksort($speaker_nums);
+        $speaker_nums = array_keys($speaker_nums);  // e.g. [1, 3] if Speaker 2 was removed
+
+        // Renumber to sequential: Speaker 3 → Speaker 2, carrying the saved member assignment
+        foreach ($speaker_nums as $new_zero_idx => $old_num) {
+            $new_num = $new_zero_idx + 1;
+            if ($old_num !== $new_num) {
+                foreach (['Speaker', 'Evaluator'] as $prefix) {
+                    if (isset($saved["{$prefix} {$old_num}"])) {
+                        $saved["{$prefix} {$new_num}"] = $saved["{$prefix} {$old_num}"];
+                        unset($saved["{$prefix} {$old_num}"]);
+                    }
+                }
+            }
+        }
+        $total_speeches = count($speaker_nums);
         $selected_roles = array_keys($role_set);
 
         // Step 2: Delete all existing assignment rows for this meeting
@@ -841,11 +857,18 @@ class TMP_Repository {
         if (in_array('Table Topics Evaluator', $selected_roles))
             $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'Introduction of role',        'dur' => 2];
 
+        // ── Educational Presentation ──────────────────────────────────────────
+        if (in_array('Educational Presentation', $selected_roles)) {
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Educational Presentation', 'dur' => 1];
+            $agenda[]     = ['role' => 'Educational Presentation', 'note' => 'Presentation', 'dur' => 5];
+        }
+
         // ── Break ─────────────────────────────────────────────────────────────
         $agenda[] = ['role' => 'Break', 'note' => 'Networking', 'dur' => 5];
 
         // ── Prepared Speeches ─────────────────────────────────────────────────
-        for ($i = 1; $i <= $speech_slots; $i++) {
+        for ($i = 1; $i <= $total_speeches; $i++) {
             if (in_array('Toastmaster of the Day', $selected_roles))
                 $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Evaluator {$i} and Speaker {$i}", 'dur' => 1];
             $agenda[]     = ['role' => "Speaker $i",             'note' => 'Speech',    'dur' => 7];
@@ -870,7 +893,7 @@ class TMP_Repository {
         // ── Evaluation Session ────────────────────────────────────────────────
         if (in_array('Toastmaster of the Day', $selected_roles))
             $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Evaluation Session', 'dur' => 1];
-        for ($i = 1; $i <= $speech_slots; $i++) {
+        for ($i = 1; $i <= $total_speeches; $i++) {
             $agenda[]     = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
         }
         if (in_array('Timer', $selected_roles))
@@ -922,7 +945,7 @@ class TMP_Repository {
             $order += 10;
         }
 
-        return ['rebuilt' => count($agenda), 'speech_slots' => $speech_slots];
+        return ['rebuilt' => count($agenda), 'speech_slots' => $total_speeches];
     }
 
     // -------------------------------------------------------------------------
@@ -3242,8 +3265,9 @@ class TMP_Repository {
         $theme      = $meeting['theme'] ?? '';
         $venue      = $meeting['venue'] ?? '';
         $dashboard  = home_url('/member-dashboard/');
-        $found      = count($by_member);
-        $sent       = 0;
+        $found         = count($by_member);
+        $sent          = 0;
+        $failed_emails = [];
 
         if ($test_email) {
             // Test mode: one summary email listing every member + their roles
@@ -3302,13 +3326,13 @@ class TMP_Repository {
                     . "{$dashboard}\n\n"
                     . "Regards,\nVP Education\nToastmasters Club of Pune North West";
                 $headers = ['Bcc: ' . implode(', ', $failed_emails)];
-                if (wp_mail('', $fallback_subject, $fallback_message, $headers)) {
+                if (wp_mail(get_option('admin_email'), $fallback_subject, $fallback_message, $headers)) {
                     $sent += count($failed_emails);
                 }
             }
         }
 
-        return ['found' => $found, 'sent' => $sent];
+        return ['found' => $found, 'sent' => $sent, 'failed' => $found - $sent];
     }
 
     // =========================================================================

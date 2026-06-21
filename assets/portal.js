@@ -117,13 +117,15 @@
       const isBreak = rLow.startsWith("break");
 
       // ── Section header injection ──
-      if (!shown.speeches && /\bspeaker\b/i.test(a.role_name) && !/table.?topics|feedback/i.test(rLow)) {
+      // Use \bspeaker\s+\d+\b / \bevaluator\s+\d+\b to match only numbered slots,
+      // preventing TMOD "Introduces … Speaker N" notes from firing these too early.
+      if (!shown.speeches && /\bspeaker\s+\d+\b/i.test(a.role_name)) {
         bodyRows += sectionRow("Prepared Speeches");
         shown.speeches = true;
       } else if (!shown.tabletopics && rLow.includes("table topics master")) {
         bodyRows += sectionRow("Table Topics Session");
         shown.tabletopics = true;
-      } else if (!shown.evaluation && /\bevaluator\b/i.test(a.role_name) && !rLow.includes("general") && !rLow.includes("intro") && !rLow.includes("introduces") && dur >= 2) {
+      } else if (!shown.evaluation && /\bevaluator\s+\d+\b/i.test(a.role_name)) {
         bodyRows += sectionRow("Evaluation Session");
         shown.evaluation = true;
       } else if (!shown.reports && (rLow.includes("timer") || rLow.includes("ah-counter") || rLow.includes("grammarian")) && rLow.includes("report")) {
