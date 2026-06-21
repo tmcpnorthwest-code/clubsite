@@ -427,6 +427,12 @@ class TMP_REST_API {
             'permission_callback' => '__return_true',
         ]);
 
+        register_rest_route('toastmasters/v1', '/voting/token', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'generate_vote_token'],
+            'permission_callback' => [__CLASS__, 'can_manage_poll'],
+        ]);
+
         register_rest_route('toastmasters/v1', '/voting/results/(?P<meeting_id>\d+)', [
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => [__CLASS__, 'get_vote_results'],
@@ -1227,6 +1233,24 @@ class TMP_REST_API {
 
     public static function get_active_poll() {
         return rest_ensure_response(TMP_Repository::get_active_poll());
+    }
+
+    public static function generate_vote_token() {
+        $voting_url = '';
+        foreach (get_pages() as $p) {
+            if (has_shortcode($p->post_content, 'tm_voting')) {
+                $voting_url = get_permalink($p->ID);
+                break;
+            }
+        }
+        if (!$voting_url) {
+            return new WP_Error('no_voting_page', 'No page with [tm_voting] shortcode found. Create one first.', ['status' => 404]);
+        }
+        $token = TMP_Repository::generate_vote_token();
+        return rest_ensure_response([
+            'url'        => add_query_arg('tmp_vote', $token, $voting_url),
+            'expires_at' => gmdate('Y-m-d H:i:s', time() + DAY_IN_SECONDS),
+        ]);
     }
 
     public static function get_vote_results(WP_REST_Request $req) {

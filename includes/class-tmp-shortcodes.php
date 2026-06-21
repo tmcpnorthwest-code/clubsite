@@ -197,26 +197,18 @@ class TMP_Shortcodes {
 
                 <div data-tmp-saa-results style="display:none;margin-top:12px;"></div>
 
-                <!-- Shareable voting link -->
-                <?php
-                $voting_page_url = '';
-                foreach (get_pages() as $p) {
-                    if (has_shortcode($p->post_content, 'tm_voting')) {
-                        $voting_page_url = get_permalink($p->ID);
-                        break;
-                    }
-                }
-                ?>
+                <!-- Shareable voting link — generated on demand -->
                 <div style="margin-top:18px;padding:12px;background:#f0f8ff;border-radius:6px;border:1px solid #cce5ff;">
-                    <p class="tmp-eyebrow" style="margin:0 0 6px;color:var(--tmp-teal);">Share Voting Link with Members</p>
-                    <?php if ($voting_page_url): ?>
-                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                        <code style="flex:1;background:#fff;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;word-break:break-all;"><?php echo esc_html($voting_page_url); ?></code>
-                        <button type="button" class="tmp-small-button" onclick="navigator.clipboard.writeText('<?php echo esc_js($voting_page_url); ?>').then(()=>this.textContent='Copied!').catch(()=>{})">Copy</button>
+                    <p class="tmp-eyebrow" style="margin:0 0 4px;color:var(--tmp-teal);">Share Voting Link with Members</p>
+                    <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 8px;">Generates a secure link valid for 24 hours.</p>
+                    <button type="button" class="tmp-small-button" data-tmp-saa-gen-link>Generate Link</button>
+                    <div data-tmp-saa-link-display style="display:none;margin-top:10px;">
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <code data-tmp-saa-link-url style="flex:1;background:#fff;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;word-break:break-all;"></code>
+                            <button type="button" class="tmp-small-button" data-tmp-saa-copy-link>Copy</button>
+                        </div>
+                        <p data-tmp-saa-link-expiry style="font-size:0.78rem;color:var(--tmp-muted);margin:6px 0 0;"></p>
                     </div>
-                    <?php else: ?>
-                    <p style="color:var(--tmp-muted);font-size:0.85rem;margin:0;">No voting page found. Create a page with the <code>[tm_voting]</code> shortcode.</p>
-                    <?php endif; ?>
                 </div>
             </article>
 
@@ -828,6 +820,20 @@ class TMP_Shortcodes {
                         <button class="tmp-button" data-tmp-declare-winners-btn style="margin-top:8px;background:#1e4a6e;color:#fff;border:none;">&#127942; Declare Winners</button>
                         <button class="tmp-small-button" data-tmp-voting-results-btn style="margin-top:14px;">Show Live Results</button>
                         <div data-tmp-voting-results style="display:none;margin-top:12px;"></div>
+
+                        <!-- Member voting link -->
+                        <div style="margin-top:18px;padding:12px;background:#f0f8ff;border-radius:6px;border:1px solid #cce5ff;">
+                            <p class="tmp-eyebrow" style="margin:0 0 4px;color:var(--tmp-teal);">Member Voting Link</p>
+                            <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 8px;">Generates a secure link valid for 24 hours. Share with members so they can vote without logging in.</p>
+                            <button type="button" class="tmp-small-button" data-tmp-gen-vote-link>Generate Link</button>
+                            <div data-tmp-vote-link-display style="display:none;margin-top:10px;">
+                                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                    <code data-tmp-vote-link-url style="flex:1;background:#fff;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;word-break:break-all;"></code>
+                                    <button type="button" class="tmp-small-button" data-tmp-copy-vote-link>Copy</button>
+                                </div>
+                                <p data-tmp-vote-link-expiry style="font-size:0.78rem;color:var(--tmp-muted);margin:6px 0 0;"></p>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -1039,6 +1045,22 @@ class TMP_Shortcodes {
      */
     public static function voting_page() {
         self::enqueue();
+
+        $token = isset($_GET['tmp_vote']) ? sanitize_text_field(wp_unslash($_GET['tmp_vote'])) : '';
+        if (!$token || !TMP_Repository::validate_vote_token($token)) {
+            ob_start();
+            ?>
+            <div class="tmp-vote-page">
+                <div class="tmp-panel" style="max-width:620px;margin:0 auto;text-align:center;padding:40px 24px;">
+                    <p style="font-size:2.4rem;margin:0 0 16px;">&#128279;</p>
+                    <h2 style="margin:0 0 10px;">Link Expired or Invalid</h2>
+                    <p style="color:var(--tmp-muted);margin:0;">This voting link has expired or is not valid.<br>Ask the SAA or VPE to share a fresh link for today&rsquo;s meeting.</p>
+                </div>
+            </div>
+            <?php
+            return ob_get_clean();
+        }
+
         ob_start();
         ?>
         <div class="tmp-vote-page" data-tmp-vote-page>

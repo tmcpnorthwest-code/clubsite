@@ -3308,6 +3308,11 @@
     const openPollBtn     = qs('[data-tmp-open-poll-btn]', panel);
     const pollStatus      = qs('[data-tmp-poll-status]', panel);
     const declareWinnersBtn = qs('[data-tmp-declare-winners-btn]', panel);
+    const genLinkBtn      = qs('[data-tmp-gen-vote-link]', panel);
+    const linkDisplay     = qs('[data-tmp-vote-link-display]', panel);
+    const linkUrlEl       = qs('[data-tmp-vote-link-url]', panel);
+    const copyLinkBtn     = qs('[data-tmp-copy-vote-link]', panel);
+    const linkExpiryEl    = qs('[data-tmp-vote-link-expiry]', panel);
 
     let currentMeetingId = null;
     let pollTimer        = null;
@@ -3497,6 +3502,31 @@
             resultsBtn.textContent = 'Hide Results';
           }).catch(err => alert('Declare winners failed: ' + err.message))
           .finally(() => { declareWinnersBtn.disabled = false; declareWinnersBtn.textContent = '🏆 Declare Winners'; });
+      });
+    }
+
+    // Generate member voting link
+    if (genLinkBtn) {
+      genLinkBtn.addEventListener('click', () => {
+        genLinkBtn.disabled = true;
+        genLinkBtn.textContent = 'Generating…';
+        api('/voting/token', { method: 'POST' }).then(data => {
+          if (linkUrlEl)    linkUrlEl.textContent = data.url;
+          if (linkExpiryEl) linkExpiryEl.textContent = 'Expires: ' + data.expires_at + ' UTC';
+          if (linkDisplay)  linkDisplay.style.display = 'block';
+          genLinkBtn.textContent = 'Regenerate';
+        }).catch(err => {
+          genLinkBtn.textContent = 'Generate Link';
+          alert('Could not generate link: ' + (err.message || 'unknown error'));
+        }).finally(() => { genLinkBtn.disabled = false; });
+      });
+    }
+
+    if (copyLinkBtn && linkUrlEl) {
+      copyLinkBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(linkUrlEl.textContent)
+          .then(() => { copyLinkBtn.textContent = 'Copied!'; setTimeout(() => { copyLinkBtn.textContent = 'Copy'; }, 2000); })
+          .catch(() => {});
       });
     }
 
@@ -4039,6 +4069,11 @@
     const openPollBtn       = qs('[data-tmp-saa-open-poll]', panel);
     const pollStatusEl      = qs('[data-tmp-saa-poll-status]', panel);
     const declareWinnersBtn = qs('[data-tmp-saa-declare-winners-btn]', panel);
+    const genLinkBtn        = qs('[data-tmp-saa-gen-link]', panel);
+    const linkDisplay       = qs('[data-tmp-saa-link-display]', panel);
+    const linkUrlEl         = qs('[data-tmp-saa-link-url]', panel);
+    const copyLinkBtn       = qs('[data-tmp-saa-copy-link]', panel);
+    const linkExpiryEl      = qs('[data-tmp-saa-link-expiry]', panel);
 
     let meetingId  = null;
     let pollIsOpen = false;
@@ -4230,6 +4265,30 @@
           resultsBlock.style.display = 'block';
           resultsBtn.textContent = 'Show Live Results';
         });
+      });
+    }
+
+    if (genLinkBtn) {
+      genLinkBtn.addEventListener('click', () => {
+        genLinkBtn.disabled = true;
+        genLinkBtn.textContent = 'Generating…';
+        api('/voting/token', { method: 'POST' }).then(data => {
+          if (linkUrlEl)    linkUrlEl.textContent = data.url;
+          if (linkExpiryEl) linkExpiryEl.textContent = 'Expires: ' + data.expires_at + ' UTC';
+          if (linkDisplay)  linkDisplay.style.display = 'block';
+          genLinkBtn.textContent = 'Regenerate';
+        }).catch(err => {
+          genLinkBtn.textContent = 'Generate Link';
+          alert('Could not generate link: ' + (err.message || 'unknown error'));
+        }).finally(() => { genLinkBtn.disabled = false; });
+      });
+    }
+
+    if (copyLinkBtn && linkUrlEl) {
+      copyLinkBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(linkUrlEl.textContent)
+          .then(() => { copyLinkBtn.textContent = 'Copied!'; setTimeout(() => { copyLinkBtn.textContent = 'Copy'; }, 2000); })
+          .catch(() => {});
       });
     }
 

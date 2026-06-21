@@ -3826,6 +3826,20 @@ class TMP_Repository {
     }
 
     /**
+     * Generates a 24-hour voting token stored as a WP transient.
+     */
+    public static function generate_vote_token() {
+        $token = bin2hex(random_bytes(16));
+        set_transient('tmp_vote_' . $token, 1, DAY_IN_SECONDS);
+        return $token;
+    }
+
+    public static function validate_vote_token($token) {
+        if (!$token || strlen($token) > 64) return false;
+        return (bool) get_transient('tmp_vote_' . sanitize_text_field($token));
+    }
+
+    /**
      * Returns the currently open poll for today, or null if none is open.
      * Public — no auth required.
      */
