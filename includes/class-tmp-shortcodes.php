@@ -12,6 +12,7 @@ class TMP_Shortcodes {
         add_shortcode('tm_vp_education',    [__CLASS__, 'vp_education']);
         add_shortcode('tm_recognition_wall',[__CLASS__, 'recognition_wall']);
         add_shortcode('tm_public_dashboard',[__CLASS__, 'public_dashboard']);
+        add_shortcode('tm_voting',          [__CLASS__, 'voting_page']);
         add_action('wp_enqueue_scripts',    [__CLASS__, 'register_assets']);
     }
 
@@ -188,6 +189,49 @@ class TMP_Shortcodes {
                         <span data-tmp-saa-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                     </div>
                 </div>
+                <div style="margin-top:12px;">
+                    <button class="tmp-button" data-tmp-saa-declare-winners-btn style="background:#1e4a6e;color:#fff;border:none;"> 🏆 Declare Winners</button>
+                </div>
+
+                <button class="tmp-small-button" data-tmp-saa-results-btn style="margin-top:14px;">Show Live Results</button>
+
+                <div data-tmp-saa-results style="display:none;margin-top:12px;"></div>
+
+                <!-- Shareable voting link -->
+                <?php
+                $voting_page_url = '';
+                foreach (get_pages() as $p) {
+                    if (has_shortcode($p->post_content, 'tm_voting')) {
+                        $voting_page_url = get_permalink($p->ID);
+                        break;
+                    }
+                }
+                ?>
+                <div style="margin-top:18px;padding:12px;background:#f0f8ff;border-radius:6px;border:1px solid #cce5ff;">
+                    <p class="tmp-eyebrow" style="margin:0 0 6px;color:var(--tmp-teal);">Share Voting Link with Members</p>
+                    <?php if ($voting_page_url): ?>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <code style="flex:1;background:#fff;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;word-break:break-all;"><?php echo esc_html($voting_page_url); ?></code>
+                        <button type="button" class="tmp-small-button" onclick="navigator.clipboard.writeText('<?php echo esc_js($voting_page_url); ?>').then(()=>this.textContent='Copied!').catch(()=>{})">Copy</button>
+                    </div>
+                    <?php else: ?>
+                    <p style="color:var(--tmp-muted);font-size:0.85rem;margin:0;">No voting page found. Create a page with the <code>[tm_voting]</code> shortcode.</p>
+                    <?php endif; ?>
+                </div>
+            </article>
+
+            <!-- Member voting panel — auto-shown when a poll opens -->
+            <article class="tmp-panel tmp-wide" data-tmp-member-vote-panel style="display:none;border-left:4px solid var(--tmp-teal);">
+                <div class="tmp-card-head">
+                    <div>
+                        <p class="tmp-eyebrow" style="margin:0;color:var(--tmp-teal);">Live Poll</p>
+                        <h3 style="margin:4px 0 0;">Cast Your Vote</h3>
+                    </div>
+                    <span data-tmp-member-vote-label style="font-size:0.82rem;color:var(--tmp-muted);"></span>
+                </div>
+                <p style="font-size:0.82rem;color:var(--tmp-muted);margin:8px 0 14px;">Vote for the best performer in each category. One vote per category.</p>
+                <div data-tmp-member-vote-body><p style="color:var(--tmp-muted);">Checking for active poll…</p></div>
+                <div data-tmp-member-vote-status style="margin-top:12px;font-size:0.85rem;font-weight:600;"></div>
             </article>
 
             <div class="tmp-grid">
@@ -984,6 +1028,28 @@ class TMP_Shortcodes {
             <h2>Login required</h2>
             <p><?php echo esc_html($message); ?></p>
             <a class="tmp-button tmp-primary" href="<?php echo esc_url(wp_login_url(get_permalink())); ?>">Login with WordPress</a>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * [tm_voting] — standalone public voting page.
+     * Members or guests open this URL to cast their vote when a poll is active.
+     */
+    public static function voting_page() {
+        self::enqueue();
+        ob_start();
+        ?>
+        <div class="tmp-vote-page" data-tmp-vote-page>
+            <div class="tmp-panel" style="max-width:620px;margin:0 auto;">
+                <p class="tmp-eyebrow" style="color:var(--tmp-teal);">Live Voting</p>
+                <h2 style="margin:4px 0 16px;" data-tmp-vote-page-title>Cast Your Vote</h2>
+                <div data-tmp-vote-page-body>
+                    <p style="color:var(--tmp-muted);">Checking for active poll…</p>
+                </div>
+                <div data-tmp-vote-page-status style="margin-top:16px;font-size:0.9rem;font-weight:600;"></div>
+            </div>
         </div>
         <?php
         return ob_get_clean();

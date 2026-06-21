@@ -3940,6 +3940,7 @@
 
     api('/me/saa-meeting').then(data => {
       meetingId    = data.meeting_id;
+
       otherMembers = data.other_members || [];
       meetingLabel.textContent = data.meeting_date + (data.theme ? ' — ' + data.theme : '');
 
@@ -3949,6 +3950,7 @@
 
       panel.style.display = '';
     }).catch(() => {}); // Not SAA — panel stays hidden
+
 
     markAllBtn.addEventListener('click', () => {
       performersList.querySelectorAll('.tmp-wrapup-performer-row').forEach(row => setPerformerAbsent(row, false));
@@ -4016,7 +4018,6 @@
         saveBtn.disabled = false;
       }
     });
-
   }
 
   // ── SAA Voting & Poll Panel (member dashboard) ────────────────────────────────
@@ -4025,52 +4026,23 @@
     const panel = qs('[data-tmp-saa-voting-panel]');
     if (!panel) return;
 
-    const votingLabel  = qs('[data-tmp-saa-voting-label]', panel);
-    const ttSelect     = qs('[data-tmp-saa-tt-select]', panel);
-    const ttGuestWrap  = qs('[data-tmp-saa-tt-guest-wrap]', panel);
-    const ttNameInput  = qs('[data-tmp-saa-tt-name]', panel);
-    const ttAddBtn     = qs('[data-tmp-saa-tt-add]', panel);
-    const ttList       = qs('[data-tmp-saa-tt-list]', panel);
-    const nomSummary   = qs('[data-tmp-saa-nominees-summary]', panel);
-    const refreshBtn   = qs('[data-tmp-saa-refresh-btn]', panel);
-    const openPollBtn  = qs('[data-tmp-saa-open-poll]', panel);
-    const pollStatusEl = qs('[data-tmp-saa-poll-status]', panel);
+    const votingLabel       = qs('[data-tmp-saa-voting-label]', panel);
+    const ttNameInput       = qs('[data-tmp-saa-tt-name]', panel);
+    const ttGuestWrap       = qs('[data-tmp-saa-tt-guest-wrap]', panel);
+    const ttSelect          = qs('[data-tmp-saa-tt-select]', panel);
+    const ttAddBtn          = qs('[data-tmp-saa-tt-add]', panel);
+    const ttList            = qs('[data-tmp-saa-tt-list]', panel);
+    const nomSummary        = qs('[data-tmp-saa-nominees-summary]', panel);
+    const refreshBtn        = qs('[data-tmp-saa-refresh-btn]', panel);
+    const resultsBtn        = qs('[data-tmp-saa-results-btn]', panel);
+    const resultsBlock      = qs('[data-tmp-saa-results]', panel);
+    const openPollBtn       = qs('[data-tmp-saa-open-poll]', panel);
+    const pollStatusEl      = qs('[data-tmp-saa-poll-status]', panel);
+    const declareWinnersBtn = qs('[data-tmp-saa-declare-winners-btn]', panel);
 
     let meetingId  = null;
     let pollIsOpen = false;
-
-    const CAT_LABELS = {
-      main_role: 'Main Role', aux_role: 'Auxiliary Role',
-      table_topics: 'Table Topics', speaker: 'Best Speaker', evaluator: 'Best Evaluator',
-    };
-
-    api('/members').then(members => {
-      if (!members) return;
-      const guestOpt = document.createElement('option');
-      guestOpt.value = '__guest__';
-      guestOpt.textContent = '✎ Guest speaker (enter name)…';
-      ttSelect.appendChild(guestOpt);
-      members.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m.id;
-        opt.textContent = m.full_name;
-        ttSelect.appendChild(opt);
-      });
-    }).catch(() => {});
-
-    ttSelect.addEventListener('change', () => {
-      const isGuest = ttSelect.value === '__guest__';
-      ttGuestWrap.style.display = isGuest ? 'block' : 'none';
-      if (isGuest) ttNameInput.focus();
-      else ttNameInput.value = '';
-    });
-
-    api('/me/saa-meeting').then(data => {
-      meetingId = data.meeting_id;
-      votingLabel.textContent = data.meeting_date + (data.theme ? ' — ' + data.theme : '');
-      panel.style.display = '';
-      loadNominees();
-    }).catch(() => {}); // Not SAA — panel stays hidden
+    let pollTimer  = null;
 
     function loadNominees() {
       if (!meetingId) return;
@@ -4083,8 +4055,8 @@
 
     function setPollOpenUI(isOpen) {
       pollIsOpen = isOpen;
-      openPollBtn.textContent = isOpen ? 'Close Poll' : 'Open Poll';
-      openPollBtn.className = 'tmp-button ' + (isOpen ? 'tmp-secondary' : 'tmp-primary');
+      openPollBtn.textContent  = isOpen ? 'Close Poll' : 'Open Poll';
+      openPollBtn.className    = 'tmp-button ' + (isOpen ? 'tmp-secondary' : 'tmp-primary');
       pollStatusEl.textContent = isOpen ? '🟢 Poll is OPEN — members can vote' : '⚪ Poll is closed';
     }
 
@@ -4109,7 +4081,8 @@
     }
 
     function renderNomineesSummary(nominees) {
-      nomSummary.innerHTML = Object.entries(CAT_LABELS).map(([cat, label]) => {
+      const cats = { main_role: 'Main Role', aux_role: 'Auxiliary Role', table_topics: 'Table Topics', speaker: 'Best Speaker', evaluator: 'Best Evaluator' };
+      nomSummary.innerHTML = Object.entries(cats).map(([cat, label]) => {
         const items = nominees[cat] || [];
         return `<div class="tmp-vote-cat-summary">
           <strong>${label}</strong>
@@ -4117,6 +4090,52 @@
         </div>`;
       }).join('');
     }
+
+    function renderResults(data) {
+      const cats = {
+        main_role: 'Best Main Role', aux_role: 'Best Auxiliary Role',
+        table_topics: 'Best Table Topics Speaker', speaker: 'Best Speaker', evaluator: 'Best Evaluator',
+      };
+      const results   = data.results || data;
+      const total     = data.total_voters ?? '';
+      const totalLine = total !== '' ? `<p style="color:var(--tmp-muted);font-size:0.85rem;">${total} voter${total !== 1 ? 's' : ''} so far</p>` : '';
+      resultsBlock.innerHTML = totalLine + Object.entries(cats).map(([cat, label]) => {
+        const items = results[cat] || [];
+        if (!items.length) return '';
+        const maxVotes = Math.max(...items.map(n => n.vote_count));
+        return `<div class="tmp-results-cat">
+          <p class="tmp-eyebrow">${label}</p>
+          ${items.map(n => {
+            const isWinner = n.is_winner || (maxVotes > 0 && n.vote_count === maxVotes);
+            return `<div class="tmp-result-row ${isWinner ? 'tmp-result-row--winner' : ''}">
+              <span>${isWinner ? '🏆 ' : ''}${esc(n.display_name)} <small style="color:var(--tmp-muted)">${esc(n.role_name)}</small></span>
+              <span class="tmp-result-votes">${n.vote_count} vote${n.vote_count !== 1 ? 's' : ''}</span>
+            </div>`;
+          }).join('')}
+        </div>`;
+      }).join('');
+    }
+
+    api('/members').then(members => {
+      if (!members) return;
+      const guestOpt = document.createElement('option');
+      guestOpt.value = '__guest__';
+      guestOpt.textContent = '✎ Guest speaker (enter name)…';
+      ttSelect.appendChild(guestOpt);
+      members.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.full_name;
+        ttSelect.appendChild(opt);
+      });
+    }).catch(() => {});
+
+    ttSelect.addEventListener('change', () => {
+      const isGuest = ttSelect.value === '__guest__';
+      ttGuestWrap.style.display = isGuest ? 'block' : 'none';
+      if (isGuest) ttNameInput.focus();
+      else ttNameInput.value = '';
+    });
 
     ttAddBtn.addEventListener('click', () => {
       if (!meetingId) return;
@@ -4175,6 +4194,231 @@
       }).catch(err => alert('Poll update failed: ' + err.message))
         .finally(() => { openPollBtn.disabled = false; });
     });
+
+    if (declareWinnersBtn) {
+      declareWinnersBtn.addEventListener('click', () => {
+        if (!meetingId) return;
+        if (!confirm('Declare winners now? This will mark the top vote-getter in each category.')) return;
+        declareWinnersBtn.disabled = true;
+        declareWinnersBtn.textContent = 'Calculating…';
+        api('/voting/declare-winners/' + meetingId, { method: 'POST' })
+          .then(data => {
+            renderResults(data);
+            if (resultsBlock) resultsBlock.style.display = 'block';
+            if (resultsBtn)   resultsBtn.textContent = 'Hide Results';
+          }).catch(err => alert('Declare winners failed: ' + err.message))
+          .finally(() => { declareWinnersBtn.disabled = false; declareWinnersBtn.textContent = '🏆 Declare Winners'; });
+      });
+    }
+
+    if (resultsBtn) {
+      resultsBtn.addEventListener('click', () => {
+        if (!meetingId) return;
+        const showing = resultsBlock.style.display !== 'none';
+        if (showing) {
+          resultsBlock.style.display = 'none';
+          resultsBtn.textContent = 'Show Live Results';
+          return;
+        }
+        resultsBtn.textContent = 'Loading…';
+        api('/voting/results/' + meetingId).then(data => {
+          renderResults(data);
+          resultsBlock.style.display = 'block';
+          resultsBtn.textContent = 'Hide Results';
+        }).catch(err => {
+          resultsBlock.innerHTML = '<p style="color:var(--tmp-burgundy);font-size:0.85rem;">Could not load results: ' + (err.message || 'unknown error') + '</p>';
+          resultsBlock.style.display = 'block';
+          resultsBtn.textContent = 'Show Live Results';
+        });
+      });
+    }
+
+    api('/me/saa-meeting').then(data => {
+      meetingId = data.meeting_id;
+      if (votingLabel) votingLabel.textContent = data.meeting_date + (data.theme ? ' — ' + data.theme : '');
+      panel.style.display = '';
+      loadNominees();
+      pollTimer = setInterval(loadNominees, 30000);
+    }).catch(() => {}); // Not SAA — panel stays hidden
+  }
+
+  // ── Member voting panel (auto-polls /voting/active every 15 s) ───────────────
+
+  function initMemberVoting() {
+    const panel = qs('[data-tmp-member-vote-panel]');
+    if (!panel) return;
+
+    const label    = qs('[data-tmp-member-vote-label]', panel);
+    const body     = qs('[data-tmp-member-vote-body]', panel);
+    const statusEl = qs('[data-tmp-member-vote-status]', panel);
+
+    let voterToken = null;
+    try {
+      voterToken = localStorage.getItem('tmp_voter_token');
+      if (!voterToken) {
+        voterToken = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now());
+        localStorage.setItem('tmp_voter_token', voterToken);
+      }
+    } catch (_) { voterToken = 'guest-' + Date.now(); }
+
+    let activeMeetingId = null;
+    const voted         = {};
+
+    const CAT_LABELS = {
+      main_role: 'Best Main Role', aux_role: 'Best Auxiliary Role',
+      table_topics: 'Best Table Topics', speaker: 'Best Speaker', evaluator: 'Best Evaluator',
+    };
+
+    function checkPoll() {
+      api('/voting/active').then(data => {
+        if (!data.poll_open) {
+          panel.style.display = 'none';
+          return;
+        }
+        activeMeetingId = data.meeting_id;
+        if (label) label.textContent = (data.meeting_date || '') + (data.theme ? ' — ' + data.theme : '');
+        renderVoteForm(data.nominees);
+        panel.style.display = '';
+      }).catch(() => {});
+    }
+
+    function renderVoteForm(nominees) {
+      const rows = Object.entries(CAT_LABELS).map(([cat, catLabel]) => {
+        const items = nominees[cat] || [];
+        if (!items.length) return '';
+        const hasVoted = !!voted[cat];
+        return `<div class="tmp-vote-cat" style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--tmp-line);">
+          <p class="tmp-eyebrow" style="margin:0 0 8px;">${catLabel}</p>
+          <div class="tmp-vote-nominees">
+            ${items.map(n => `
+              <button type="button" class="tmp-vote-btn${voted[cat] === n.id ? ' tmp-vote-btn--voted' : ''}"
+                data-nominee="${n.id}" data-cat="${cat}"
+                ${hasVoted ? 'disabled' : ''}>
+                <span class="tmp-vote-btn-name">${esc(n.display_name)}</span>
+                <span class="tmp-vote-btn-role">${esc(n.role_name)}</span>
+                ${voted[cat] === n.id ? '<span class="tmp-vote-check">✓</span>' : ''}
+              </button>`).join('')}
+          </div>
+        </div>`;
+      }).filter(Boolean);
+      if (!rows.length) { body.innerHTML = '<p style="color:var(--tmp-muted);">No nominees yet — check back soon.</p>'; return; }
+      body.innerHTML = rows.join('');
+      body.querySelectorAll('.tmp-vote-btn:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', () => castVote(parseInt(btn.dataset.nominee), btn.dataset.cat));
+      });
+    }
+
+    function castVote(nomineeId, category) {
+      if (!activeMeetingId) return;
+      api('/voting/vote', {
+        method: 'POST',
+        body: JSON.stringify({ meeting_id: activeMeetingId, nominee_id: nomineeId, voter_token: voterToken }),
+      }).then(() => {
+        voted[category] = nomineeId;
+        statusEl.textContent = '';
+        checkPoll();
+      }).catch(err => {
+        if ((err.message || '').includes('already_voted')) {
+          voted[category] = nomineeId; checkPoll();
+        } else {
+          statusEl.textContent = 'Vote failed — ' + (err.message || 'try again');
+          statusEl.style.color = 'var(--tmp-burgundy)';
+        }
+      });
+    }
+
+    checkPoll();
+    setInterval(checkPoll, 15000);
+  }
+
+  // ── Standalone voting page (/tm_voting shortcode) ─────────────────────────────
+
+  function initVotingPage() {
+    const page = qs('[data-tmp-vote-page]');
+    if (!page) return;
+
+    const title    = qs('[data-tmp-vote-page-title]', page);
+    const body     = qs('[data-tmp-vote-page-body]', page);
+    const statusEl = qs('[data-tmp-vote-page-status]', page);
+
+    let voterToken = null;
+    try {
+      voterToken = localStorage.getItem('tmp_voter_token');
+      if (!voterToken) {
+        voterToken = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now());
+        localStorage.setItem('tmp_voter_token', voterToken);
+      }
+    } catch (_) { voterToken = 'guest-' + Date.now(); }
+
+    let activeMeetingId = null;
+    const voted         = {};
+
+    const CAT_LABELS = {
+      main_role: 'Best Main Role', aux_role: 'Best Auxiliary Role',
+      table_topics: 'Best Table Topics', speaker: 'Best Speaker', evaluator: 'Best Evaluator',
+    };
+
+    function checkPoll() {
+      api('/voting/active').then(data => {
+        if (!data.poll_open) {
+          body.innerHTML = '<div style="text-align:center;padding:40px 20px;"><p style="color:var(--tmp-muted);font-size:1rem;">The poll is not open yet.</p><p style="color:var(--tmp-muted);font-size:0.88rem;">This page checks automatically — no need to refresh.</p></div>';
+          return;
+        }
+        activeMeetingId = data.meeting_id;
+        if (title) title.textContent = data.theme ? 'Vote — ' + data.theme : 'Cast Your Vote';
+        renderVoteForm(data.nominees);
+      }).catch(() => {
+        body.innerHTML = '<p style="color:var(--tmp-muted);">Could not connect to the voting system. Please refresh.</p>';
+      });
+    }
+
+    function renderVoteForm(nominees) {
+      const rows = Object.entries(CAT_LABELS).map(([cat, catLabel]) => {
+        const items = nominees[cat] || [];
+        if (!items.length) return '';
+        const hasVoted = !!voted[cat];
+        return `<div class="tmp-vote-cat" style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--tmp-line);">
+          <p class="tmp-eyebrow" style="margin:0 0 10px;">${catLabel}</p>
+          <div class="tmp-vote-nominees">
+            ${items.map(n => `
+              <button type="button" class="tmp-vote-btn${voted[cat] === n.id ? ' tmp-vote-btn--voted' : ''}"
+                data-nominee="${n.id}" data-cat="${cat}"
+                ${hasVoted ? 'disabled' : ''}>
+                <span class="tmp-vote-btn-name">${esc(n.display_name)}</span>
+                <span class="tmp-vote-btn-role">${esc(n.role_name)}</span>
+                ${voted[cat] === n.id ? '<span class="tmp-vote-check">✓ Your vote</span>' : ''}
+              </button>`).join('')}
+          </div>
+        </div>`;
+      }).filter(Boolean);
+      if (!rows.length) { body.innerHTML = '<p style="color:var(--tmp-muted);">No nominees found for this meeting.</p>'; return; }
+      body.innerHTML = rows.join('');
+      body.querySelectorAll('.tmp-vote-btn:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', () => castVote(parseInt(btn.dataset.nominee), btn.dataset.cat));
+      });
+    }
+
+    function castVote(nomineeId, category) {
+      if (!activeMeetingId) return;
+      api('/voting/vote', {
+        method: 'POST',
+        body: JSON.stringify({ meeting_id: activeMeetingId, nominee_id: nomineeId, voter_token: voterToken }),
+      }).then(() => {
+        voted[category] = nomineeId;
+        statusEl.textContent = '';
+        checkPoll();
+      }).catch(err => {
+        if ((err.message || '').includes('already_voted')) {
+          voted[category] = nomineeId; checkPoll();
+        } else {
+          statusEl.textContent = 'Could not record vote — ' + (err.message || 'please try again');
+          statusEl.style.color = 'var(--tmp-burgundy)';
+        }
+      });
+    }
+
+    checkPoll();
+    setInterval(checkPoll, 15000);
   }
 
   // ===========================================================================
@@ -4824,6 +5068,9 @@
 
   initMemberDashboard();
   initSAAAttendance();
+  initSAAPollPanel();
+  initMemberVoting();
+  initVotingPage();
   initAdmin();
   initVPEducation();
   initLevelUpQueue();

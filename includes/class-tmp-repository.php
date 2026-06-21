@@ -1062,7 +1062,7 @@ class TMP_Repository {
         $requests    = self::request_table();
 
         $rows = $wpdb->get_results(
-            "SELECT * FROM {$meetings} ORDER BY meeting_date DESC, id DESC LIMIT 25",
+            "SELECT * FROM {$meetings} WHERE wrapped_up = 0 OR wrapped_up IS NULL ORDER BY meeting_date DESC, id DESC LIMIT 25",
             ARRAY_A
         );
         if (empty($rows)) {
@@ -1376,6 +1376,7 @@ class TMP_Repository {
              JOIN {$assignments} a ON m.id = a.meeting_id
              WHERE m.meeting_date >= %s
                AND (m.requests_close_at IS NULL OR m.requests_close_at >= %s)
+               AND (m.wrapped_up = 0 OR m.wrapped_up IS NULL)
                AND (a.member_id IS NULL OR a.member_id = 0 OR a.member_id = '')
                AND a.role_name NOT LIKE 'Break%%'
                AND a.role_name NOT LIKE 'Table Topics Speaker%%'
@@ -3136,6 +3137,7 @@ class TMP_Repository {
              LEFT JOIN {$assignments} a ON r.assignment_id = a.id
              WHERE r.member_id = %d
                AND m.meeting_date >= %s
+               AND (m.wrapped_up = 0 OR m.wrapped_up IS NULL)
              ORDER BY m.meeting_date ASC, r.priority ASC",
             $member_id, $today
         ), ARRAY_A);
@@ -3824,6 +3826,34 @@ class TMP_Repository {
     }
 
     /**
+     * Returns the currently open poll for today, or null if none is open.
+     * Public — no auth required.
+     */
+    public static function get_active_poll() {
+        global $wpdb;
+        $tbl   = self::meeting_table();
+        $today = current_time('Y-m-d');
+
+        $meeting = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$tbl} WHERE meeting_date = %s AND poll_open = 1 LIMIT 1",
+            $today
+        ), ARRAY_A);
+
+        if (!$meeting) {
+            return ['poll_open' => false, 'meeting_id' => null, 'nominees' => []];
+        }
+
+        $nominees = self::get_vote_nominees((int) $meeting['id']);
+        return [
+            'poll_open'    => true,
+            'meeting_id'   => (int) $meeting['id'],
+            'meeting_date' => $meeting['meeting_date'],
+            'theme'        => $meeting['theme'] ?? '',
+            'nominees'     => $nominees,
+        ];
+    }
+
+    /**
      * SAA marks attendance for a meeting. Accepts VPE-style attendance array. Idempotent.
      */
     public static function save_saa_attendance($meeting_id, $data) {
@@ -3972,7 +4002,7 @@ class TMP_Repository {
         // ── Mark meeting complete ─────────────────────────────────────────────
         $wpdb->update(
             $meetings_tbl,
-            ['wrapped_up' => 1, 'poll_open' => 0],
+            ['wrapped_up' => 1, 'poll_open' => 0, 'is_published' => 0],
             ['id' => $meeting_id]
         );
 

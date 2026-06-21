@@ -421,10 +421,16 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_manage_poll'],
         ]);
 
+        register_rest_route('toastmasters/v1', '/voting/active', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_active_poll'],
+            'permission_callback' => '__return_true',
+        ]);
+
         register_rest_route('toastmasters/v1', '/voting/results/(?P<meeting_id>\d+)', [
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => [__CLASS__, 'get_vote_results'],
-            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            'permission_callback' => [__CLASS__, 'can_manage_poll'],
         ]);
 
         register_rest_route('toastmasters/v1', '/voting/refresh-nominees/(?P<meeting_id>\d+)', [
@@ -475,7 +481,7 @@ class TMP_REST_API {
         register_rest_route('toastmasters/v1', '/voting/declare-winners/(?P<meeting_id>\d+)', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [__CLASS__, 'declare_winners'],
-            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            'permission_callback' => [__CLASS__, 'can_manage_poll'],
         ]);
 
         // ── Recognition — TM of Month / Quarter ───────────────────────────────
@@ -1217,6 +1223,10 @@ class TMP_REST_API {
         }
 
         return rest_ensure_response(['success' => true]);
+    }
+
+    public static function get_active_poll() {
+        return rest_ensure_response(TMP_Repository::get_active_poll());
     }
 
     public static function get_vote_results(WP_REST_Request $req) {
