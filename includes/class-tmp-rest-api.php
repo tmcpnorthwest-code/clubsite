@@ -412,13 +412,13 @@ class TMP_REST_API {
         register_rest_route('toastmasters/v1', '/voting/tt-speaker', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [__CLASS__, 'add_tt_speaker'],
-            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            'permission_callback' => [__CLASS__, 'can_manage_poll'],
         ]);
 
         register_rest_route('toastmasters/v1', '/voting/tt-speaker/(?P<id>\d+)', [
             'methods'             => WP_REST_Server::DELETABLE,
             'callback'            => [__CLASS__, 'remove_tt_speaker'],
-            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            'permission_callback' => [__CLASS__, 'can_manage_poll'],
         ]);
 
         register_rest_route('toastmasters/v1', '/voting/results/(?P<meeting_id>\d+)', [
@@ -430,7 +430,7 @@ class TMP_REST_API {
         register_rest_route('toastmasters/v1', '/voting/refresh-nominees/(?P<meeting_id>\d+)', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [__CLASS__, 'refresh_vote_nominees'],
-            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            'permission_callback' => [__CLASS__, 'can_manage_poll'],
         ]);
 
         // ── SAA attendance ─────────────────────────────────────────────────────
@@ -469,7 +469,7 @@ class TMP_REST_API {
         register_rest_route('toastmasters/v1', '/voting/open-poll/(?P<meeting_id>\d+)', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [__CLASS__, 'open_poll'],
-            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+            'permission_callback' => [__CLASS__, 'can_manage_poll'],
         ]);
 
         register_rest_route('toastmasters/v1', '/voting/declare-winners/(?P<meeting_id>\d+)', [
@@ -538,6 +538,29 @@ class TMP_REST_API {
 
     public static function can_manage_meetings() {
         return current_user_can('tmp_manage_meetings');
+    }
+
+    public static function can_manage_poll(WP_REST_Request $req) {
+        if (current_user_can('tmp_manage_meetings')) return true;
+        $saa_mid = TMP_Repository::get_saa_meeting_today_id();
+        if (!$saa_mid) return false;
+
+        // Routes with meeting_id in URL or body (open-poll, refresh-nominees, tt-speaker POST)
+        $meeting_id = (int) $req->get_param('meeting_id');
+        if ($meeting_id) return $meeting_id === $saa_mid;
+
+        // tt-speaker DELETE — only has nominee id; look up the meeting it belongs to
+        $nominee_id = (int) $req->get_param('id');
+        if ($nominee_id) {
+            global $wpdb;
+            $nominees_tbl = TMP_Repository::vote_nominees_table();
+            $nominee_mid  = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT meeting_id FROM {$nominees_tbl} WHERE id = %d", $nominee_id
+            ));
+            return $nominee_mid === $saa_mid;
+        }
+
+        return true;
     }
 
     // ── Member (self) handlers ─────────────────────────────────────────────────

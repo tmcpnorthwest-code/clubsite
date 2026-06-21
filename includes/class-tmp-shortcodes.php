@@ -117,13 +117,22 @@ class TMP_Shortcodes {
                 <p style="font-size:0.82rem;color:var(--tmp-muted);margin:8px 0 14px;">
                     As today's Sergeant at Arms, mark who attended. VPE will confirm roles and winners after the meeting.
                 </p>
-                <!-- Member search + chips -->
-                <div style="position:relative;">
-                    <input type="text" data-tmp-saa-search placeholder="Search and add member…" autocomplete="off"
-                           style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
-                    <div data-tmp-saa-dropdown style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid var(--tmp-line);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:100;max-height:220px;overflow-y:auto;"></div>
+                <!-- Assigned members -->
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+                    <p class="tmp-eyebrow" style="margin:0;font-size:0.72rem;">Assigned Members</p>
+                    <button type="button" class="tmp-link-button" data-tmp-saa-mark-all style="font-size:0.8rem;">Mark All Present</button>
                 </div>
-                <div data-tmp-saa-attended-list style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+                <div data-tmp-saa-performers-list></div>
+                <!-- Walk-ins -->
+                <div style="margin-top:14px;">
+                    <p class="tmp-eyebrow" style="margin-bottom:6px;font-size:0.72rem;">Walk-in Members</p>
+                    <div style="position:relative;">
+                        <input type="text" data-tmp-saa-walkin-search placeholder="Search and add member…" autocomplete="off"
+                               style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
+                        <div data-tmp-saa-walkin-dropdown style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid var(--tmp-line);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:100;max-height:220px;overflow-y:auto;"></div>
+                    </div>
+                    <div data-tmp-saa-walkin-list style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+                </div>
                 <!-- Guests -->
                 <div style="margin-top:14px;">
                     <p class="tmp-eyebrow" style="margin-bottom:6px;font-size:0.72rem;">Guests</p>
@@ -137,6 +146,47 @@ class TMP_Shortcodes {
                 <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                     <button class="tmp-button tmp-primary" data-tmp-saa-save>Save Attendance</button>
                     <span data-tmp-saa-status style="font-size:0.82rem;"></span>
+                </div>
+            </article>
+
+            <!-- SAA Voting panel — shown by JS only when logged-in member is today's SAA -->
+            <article class="tmp-panel tmp-wide" data-tmp-saa-voting-panel style="display:none;border-left:4px solid var(--tmp-teal);">
+                <div class="tmp-card-head">
+                    <div>
+                        <p class="tmp-eyebrow" style="margin:0;color:var(--tmp-teal);">Your Role Today</p>
+                        <h3 style="margin:4px 0 0;">Voting &amp; Table Topics</h3>
+                    </div>
+                    <span data-tmp-saa-voting-label style="font-size:0.82rem;color:var(--tmp-muted);"></span>
+                </div>
+                <p style="font-size:0.82rem;color:var(--tmp-muted);margin:8px 0 14px;">
+                    Add Table Topics speakers as they step up, then open the poll so members can vote.
+                </p>
+                <!-- Table Topics speakers -->
+                <p class="tmp-eyebrow" style="margin-top:0;">Table Topics Speakers</p>
+                <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
+                    <div style="flex:1;">
+                        <label style="display:block;margin-bottom:4px;font-size:0.88rem;font-weight:700;">Add speaker</label>
+                        <select data-tmp-saa-tt-select style="display:block;width:100%;">
+                            <option value="">— select member —</option>
+                        </select>
+                    </div>
+                    <button class="tmp-button tmp-primary" data-tmp-saa-tt-add style="flex-shrink:0;white-space:nowrap;">+ Add</button>
+                </div>
+                <div data-tmp-saa-tt-guest-wrap style="display:none;margin-bottom:10px;">
+                    <input type="text" data-tmp-saa-tt-name placeholder="Enter guest name" style="display:block;width:100%;" />
+                </div>
+                <div data-tmp-saa-tt-list></div>
+                <!-- Nominees -->
+                <div style="margin-top:20px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                        <p class="tmp-eyebrow" style="margin:0;">Current Nominees</p>
+                        <button class="tmp-small-button" data-tmp-saa-refresh-btn title="Re-sync nominees from role assignments">&#8635; Refresh from Assignments</button>
+                    </div>
+                    <div data-tmp-saa-nominees-summary></div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
+                        <button class="tmp-button tmp-primary" data-tmp-saa-open-poll style="flex-shrink:0;">Open Poll</button>
+                        <span data-tmp-saa-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
+                    </div>
                 </div>
             </article>
 

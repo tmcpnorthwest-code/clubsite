@@ -3784,68 +3784,47 @@ class TMP_Repository {
     }
 
     /**
-     * Returns today's meeting + full member list if the current user is the SAA for it.
+     * Lightweight check: returns today's meeting ID if the current user is assigned as SAA, else 0.
      */
-    public static function get_saa_meeting() {
+    public static function get_saa_meeting_today_id() {
         global $wpdb;
         $me = self::current_member();
-        if (!$me) return null;
-
-        $meetings_tbl    = self::meeting_table();
-        $assignments_tbl = self::assignment_table();
-        $attendance_tbl  = self::attendance_table();
-        $members_tbl     = self::member_table();
-        $today           = current_time('Y-m-d');
-
-        $meeting = $wpdb->get_row($wpdb->prepare(
-            "SELECT m.* FROM {$meetings_tbl} m
-               JOIN {$assignments_tbl} a ON a.meeting_id = m.id
+        if (!$me) return 0;
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT m.id FROM {$wpdb->prefix}tmp_meetings m
+               JOIN {$wpdb->prefix}tmp_role_assignments a ON a.meeting_id = m.id
               WHERE m.meeting_date = %s
                 AND a.member_id = %d
                 AND (a.role_name LIKE '%%Sergeant%%' OR a.role_name LIKE '%%SAA%%')
               LIMIT 1",
-            $today, (int) $me['id']
-        ), ARRAY_A);
-        if (!$meeting) return null;
+            current_time('Y-m-d'), (int) $me['id']
+        ));
+    }
 
-        $mid = (int) $meeting['id'];
+    /**
+     * Returns today's meeting + wrap-up-style attendance data if the current user is the SAA for it.
+     */
+    public static function get_saa_meeting() {
+        $mid = self::get_saa_meeting_today_id();
+        if (!$mid) return null;
 
-        $attended_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
-            "SELECT member_id FROM {$attendance_tbl} WHERE meeting_id = %d AND member_id IS NOT NULL",
-            $mid
-        )));
-
-        $guests = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, guest_name FROM {$attendance_tbl} WHERE meeting_id = %d AND member_id IS NULL",
-            $mid
-        ), ARRAY_A) ?: [];
-
-        $all_members = $wpdb->get_results(
-            "SELECT id, full_name FROM {$members_tbl} ORDER BY full_name",
-            ARRAY_A
-        ) ?: [];
-
-        $members = [];
-        foreach ($all_members as $m) {
-            $m_id = (int) $m['id'];
-            $members[] = [
-                'member_id' => $m_id,
-                'full_name' => $m['full_name'],
-                'attended'  => in_array($m_id, $attended_ids),
-            ];
-        }
+        $data = self::get_wrap_up_data($mid);
+        if (!$data) return null;
 
         return [
-            'meeting_id'   => $mid,
-            'meeting_date' => $meeting['meeting_date'],
-            'theme'        => $meeting['theme'],
-            'members'      => $members,
-            'guests'       => $guests,
+            'meeting_id'      => $mid,
+            'meeting_date'    => $data['meeting']['meeting_date'],
+            'theme'           => $data['meeting']['theme'],
+            'poll_open'       => (bool) ($data['meeting']['poll_open'] ?? false),
+            'role_performers' => $data['role_performers'],
+            'walk_ins'        => $data['walk_ins'],
+            'other_members'   => $data['other_members'],
+            'guests'          => $data['guests'],
         ];
     }
 
     /**
-     * SAA marks attendance for a meeting (member list + guests). Idempotent.
+     * SAA marks attendance for a meeting. Accepts VPE-style attendance array. Idempotent.
      */
     public static function save_saa_attendance($meeting_id, $data) {
         global $wpdb;
@@ -3857,8 +3836,8 @@ class TMP_Repository {
         $wpdb->query($wpdb->prepare(
             "DELETE FROM {$tbl} WHERE meeting_id = %d AND member_id IS NOT NULL", $meeting_id
         ));
-        foreach ((array) ($data['attended_member_ids'] ?? []) as $mid) {
-            $mid = (int) $mid;
+        foreach ((array) ($data['attendance'] ?? []) as $item) {
+            $mid = (int) ($item['member_id'] ?? 0);
             if (!$mid) continue;
             $wpdb->insert($tbl, [
                 'meeting_id' => $meeting_id, 'member_id' => $mid,

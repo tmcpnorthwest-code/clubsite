@@ -3864,47 +3864,71 @@
     const panel = qs('[data-tmp-saa-panel]');
     if (!panel) return;
 
-    const searchInput  = qs('[data-tmp-saa-search]', panel);
-    const dropdown     = qs('[data-tmp-saa-dropdown]', panel);
-    const attendedList = qs('[data-tmp-saa-attended-list]', panel);
-    const guestName    = qs('[data-tmp-saa-guest-name]', panel);
-    const addGuestBtn  = qs('[data-tmp-saa-add-guest]', panel);
-    const guestsList   = qs('[data-tmp-saa-guests-list]', panel);
-    const saveBtn      = qs('[data-tmp-saa-save]', panel);
-    const statusEl     = qs('[data-tmp-saa-status]', panel);
-    const meetingLabel = qs('[data-tmp-saa-meeting-label]', panel);
+    const meetingLabel   = qs('[data-tmp-saa-meeting-label]', panel);
+    const markAllBtn     = qs('[data-tmp-saa-mark-all]', panel);
+    const performersList = qs('[data-tmp-saa-performers-list]', panel);
+    const walkinSearch   = qs('[data-tmp-saa-walkin-search]', panel);
+    const walkinDropdown = qs('[data-tmp-saa-walkin-dropdown]', panel);
+    const walkinList     = qs('[data-tmp-saa-walkin-list]', panel);
+    const guestName      = qs('[data-tmp-saa-guest-name]', panel);
+    const addGuestBtn    = qs('[data-tmp-saa-add-guest]', panel);
+    const guestsList     = qs('[data-tmp-saa-guests-list]', panel);
+    const saveBtn        = qs('[data-tmp-saa-save]', panel);
+    const statusEl       = qs('[data-tmp-saa-status]', panel);
 
-    let meetingId   = null;
-    let allMembers  = [];
+    let meetingId    = null;
+    let otherMembers = [];
 
-    api('/me/saa-meeting').then(data => {
-      meetingId = data.meeting_id;
-      allMembers = data.members || [];
-      meetingLabel.textContent = data.meeting_date + (data.theme ? ' — ' + data.theme : '');
-      panel.style.display = '';
-
-      // Pre-fill attended members as chips
-      allMembers.filter(m => m.attended).forEach(m => addChip(m.member_id, m.full_name));
-
-      // Pre-fill guests
-      (data.guests || []).forEach(g => addGuestChip(g.guest_name));
-    }).catch(() => {}); // Not SAA — panel stays hidden
-
-    function attendedIds() {
-      return Array.from(attendedList.querySelectorAll('[data-saa-mid]')).map(el => parseInt(el.dataset.saaMid, 10));
+    function setPerformerAbsent(row, absent) {
+      if (absent) {
+        row.classList.add('tmp-performer-absent');
+        row.dataset.absent = '1';
+        row.querySelector('[data-absent-btn]').textContent = '↩ Restore';
+      } else {
+        row.classList.remove('tmp-performer-absent');
+        row.dataset.absent = '0';
+        row.querySelector('[data-absent-btn]').textContent = 'Mark Absent';
+      }
     }
 
-    function addChip(memberId, fullName) {
-      if (attendedList.querySelector('[data-saa-mid="' + memberId + '"]')) return;
+    function renderPerformers(performers) {
+      performersList.innerHTML = '';
+      if (!performers || !performers.length) {
+        performersList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No role assignments found for this meeting.</p>';
+        return;
+      }
+      performers.forEach(m => {
+        const row = document.createElement('div');
+        row.className = 'tmp-wrapup-performer-row';
+        row.dataset.memberId     = m.member_id;
+        row.dataset.assignmentId = m.assignment_id;
+        row.dataset.absent       = '0';
+        row.innerHTML = `
+          <span class="tmp-wrapup-member-name">${esc(m.full_name)}</span>
+          <span class="tmp-wrapup-role-tag">${esc(m.role_name)}</span>
+          <button type="button" class="tmp-absent-btn" data-absent-btn>Mark Absent</button>`;
+        row.querySelector('[data-absent-btn]').addEventListener('click', () => {
+          setPerformerAbsent(row, row.dataset.absent !== '1');
+        });
+        performersList.appendChild(row);
+      });
+    }
+
+    function walkinMemberIds() {
+      return Array.from(walkinList.querySelectorAll('[data-walkin-id]')).map(el => parseInt(el.dataset.walkinId, 10));
+    }
+
+    function addWalkinChip(memberId, fullName) {
+      if (walkinList.querySelector('[data-walkin-id="' + memberId + '"]')) return;
       const chip = document.createElement('span');
       chip.className = 'tmp-walkin-chip';
-      chip.dataset.saaMid = memberId;
+      chip.dataset.walkinId = memberId;
       chip.innerHTML = `${esc(fullName)} <button type="button" aria-label="Remove">✕</button>`;
       chip.querySelector('button').addEventListener('click', () => chip.remove());
-      attendedList.appendChild(chip);
+      walkinList.appendChild(chip);
     }
 
-    function addGuestChip(name) {
+    function addGuestRow(name) {
       const row = document.createElement('div');
       row.className = 'tmp-wrapup-guest-row';
       row.dataset.guestName = name;
@@ -3914,30 +3938,46 @@
       guestsList.appendChild(row);
     }
 
-    searchInput.addEventListener('input', () => {
-      const q = searchInput.value.trim().toLowerCase();
-      const added = attendedIds();
-      const matches = allMembers.filter(m => !added.includes(m.member_id) && m.full_name.toLowerCase().includes(q));
-      if (!q || !matches.length) { dropdown.style.display = 'none'; return; }
-      dropdown.innerHTML = matches.slice(0, 8).map(m =>
+    api('/me/saa-meeting').then(data => {
+      meetingId    = data.meeting_id;
+      otherMembers = data.other_members || [];
+      meetingLabel.textContent = data.meeting_date + (data.theme ? ' — ' + data.theme : '');
+
+      renderPerformers(data.role_performers || []);
+      (data.walk_ins || []).forEach(m => addWalkinChip(m.member_id, m.full_name));
+      (data.guests  || []).forEach(g => addGuestRow(g.guest_name));
+
+      panel.style.display = '';
+    }).catch(() => {}); // Not SAA — panel stays hidden
+
+    markAllBtn.addEventListener('click', () => {
+      performersList.querySelectorAll('.tmp-wrapup-performer-row').forEach(row => setPerformerAbsent(row, false));
+    });
+
+    walkinSearch.addEventListener('input', () => {
+      const q = walkinSearch.value.trim().toLowerCase();
+      const added = walkinMemberIds();
+      const matches = otherMembers.filter(m => !added.includes(m.member_id) && m.full_name.toLowerCase().includes(q));
+      if (!q || !matches.length) { walkinDropdown.style.display = 'none'; return; }
+      walkinDropdown.innerHTML = matches.slice(0, 8).map(m =>
         `<div class="tmp-walkin-option" data-mid="${m.member_id}">${esc(m.full_name)}</div>`
       ).join('');
-      dropdown.style.display = 'block';
-      dropdown.querySelectorAll('.tmp-walkin-option').forEach(opt => {
+      walkinDropdown.style.display = 'block';
+      walkinDropdown.querySelectorAll('.tmp-walkin-option').forEach(opt => {
         opt.addEventListener('mousedown', e => {
           e.preventDefault();
-          addChip(parseInt(opt.dataset.mid, 10), opt.textContent.trim());
-          searchInput.value = '';
-          dropdown.style.display = 'none';
+          addWalkinChip(parseInt(opt.dataset.mid, 10), opt.textContent.trim());
+          walkinSearch.value = '';
+          walkinDropdown.style.display = 'none';
         });
       });
     });
-    searchInput.addEventListener('blur', () => setTimeout(() => { dropdown.style.display = 'none'; }, 150));
+    walkinSearch.addEventListener('blur', () => setTimeout(() => { walkinDropdown.style.display = 'none'; }, 150));
 
     addGuestBtn.addEventListener('click', () => {
       const name = guestName.value.trim();
       if (!name) { guestName.focus(); return; }
-      addGuestChip(name);
+      addGuestRow(name);
       guestName.value = '';
       guestName.focus();
     });
@@ -3945,14 +3985,28 @@
 
     saveBtn.addEventListener('click', async () => {
       if (!meetingId) return;
-      const attended_member_ids = attendedIds();
+      const attendance = [];
+      performersList.querySelectorAll('.tmp-wrapup-performer-row').forEach(row => {
+        if (row.dataset.absent === '1') return;
+        attendance.push({
+          member_id: parseInt(row.dataset.memberId, 10),
+          assignment_id: parseInt(row.dataset.assignmentId, 10) || 0,
+        });
+      });
+      walkinList.querySelectorAll('[data-walkin-id]').forEach(chip => {
+        attendance.push({ member_id: parseInt(chip.dataset.walkinId, 10), assignment_id: 0 });
+      });
       const guests = Array.from(guestsList.querySelectorAll('.tmp-wrapup-guest-row'))
         .map(r => ({ name: r.dataset.guestName })).filter(g => g.name);
+
       saveBtn.disabled = true;
       statusEl.textContent = 'Saving…';
       statusEl.style.color = 'var(--tmp-muted)';
       try {
-        await api('/meetings/' + meetingId + '/saa-attendance', { method: 'POST', body: JSON.stringify({ attended_member_ids, guests }) });
+        await api('/meetings/' + meetingId + '/saa-attendance', {
+          method: 'POST',
+          body: JSON.stringify({ attendance, guests }),
+        });
         statusEl.textContent = '✓ Saved! VPE will see this when closing the meeting.';
         statusEl.style.color = 'var(--tmp-teal)';
       } catch (err) {
@@ -3961,6 +4015,165 @@
       } finally {
         saveBtn.disabled = false;
       }
+    });
+
+  }
+
+  // ── SAA Voting & Poll Panel (member dashboard) ────────────────────────────────
+
+  function initSAAPollPanel() {
+    const panel = qs('[data-tmp-saa-voting-panel]');
+    if (!panel) return;
+
+    const votingLabel  = qs('[data-tmp-saa-voting-label]', panel);
+    const ttSelect     = qs('[data-tmp-saa-tt-select]', panel);
+    const ttGuestWrap  = qs('[data-tmp-saa-tt-guest-wrap]', panel);
+    const ttNameInput  = qs('[data-tmp-saa-tt-name]', panel);
+    const ttAddBtn     = qs('[data-tmp-saa-tt-add]', panel);
+    const ttList       = qs('[data-tmp-saa-tt-list]', panel);
+    const nomSummary   = qs('[data-tmp-saa-nominees-summary]', panel);
+    const refreshBtn   = qs('[data-tmp-saa-refresh-btn]', panel);
+    const openPollBtn  = qs('[data-tmp-saa-open-poll]', panel);
+    const pollStatusEl = qs('[data-tmp-saa-poll-status]', panel);
+
+    let meetingId  = null;
+    let pollIsOpen = false;
+
+    const CAT_LABELS = {
+      main_role: 'Main Role', aux_role: 'Auxiliary Role',
+      table_topics: 'Table Topics', speaker: 'Best Speaker', evaluator: 'Best Evaluator',
+    };
+
+    api('/members').then(members => {
+      if (!members) return;
+      const guestOpt = document.createElement('option');
+      guestOpt.value = '__guest__';
+      guestOpt.textContent = '✎ Guest speaker (enter name)…';
+      ttSelect.appendChild(guestOpt);
+      members.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.full_name;
+        ttSelect.appendChild(opt);
+      });
+    }).catch(() => {});
+
+    ttSelect.addEventListener('change', () => {
+      const isGuest = ttSelect.value === '__guest__';
+      ttGuestWrap.style.display = isGuest ? 'block' : 'none';
+      if (isGuest) ttNameInput.focus();
+      else ttNameInput.value = '';
+    });
+
+    api('/me/saa-meeting').then(data => {
+      meetingId = data.meeting_id;
+      votingLabel.textContent = data.meeting_date + (data.theme ? ' — ' + data.theme : '');
+      panel.style.display = '';
+      loadNominees();
+    }).catch(() => {}); // Not SAA — panel stays hidden
+
+    function loadNominees() {
+      if (!meetingId) return;
+      api('/voting/nominees/' + meetingId).then(data => {
+        renderTTSpeakers(data.nominees.table_topics || []);
+        renderNomineesSummary(data.nominees);
+        setPollOpenUI(!!data.poll_open);
+      }).catch(() => {});
+    }
+
+    function setPollOpenUI(isOpen) {
+      pollIsOpen = isOpen;
+      openPollBtn.textContent = isOpen ? 'Close Poll' : 'Open Poll';
+      openPollBtn.className = 'tmp-button ' + (isOpen ? 'tmp-secondary' : 'tmp-primary');
+      pollStatusEl.textContent = isOpen ? '🟢 Poll is OPEN — members can vote' : '⚪ Poll is closed';
+    }
+
+    function renderTTSpeakers(speakers) {
+      if (!speakers.length) {
+        ttList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.88rem;">No TT speakers added yet.</p>';
+        return;
+      }
+      ttList.innerHTML = '<ol class="tmp-tt-speaker-list">' +
+        speakers.map(s => `
+          <li class="tmp-tt-speaker-row">
+            <span>${esc(s.display_name)}</span>
+            <button class="tmp-link-button tmp-tt-remove" data-id="${s.id}" style="color:var(--tmp-burgundy);font-size:0.8rem;"
+              ${s.vote_count > 0 ? 'disabled title="Has votes — cannot remove"' : ''}>remove</button>
+          </li>`).join('') + '</ol>';
+      panel.querySelectorAll('.tmp-tt-remove:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', () => {
+          api('/voting/tt-speaker/' + btn.dataset.id, { method: 'DELETE' })
+            .then(loadNominees).catch(err => alert('Remove failed: ' + err.message));
+        });
+      });
+    }
+
+    function renderNomineesSummary(nominees) {
+      nomSummary.innerHTML = Object.entries(CAT_LABELS).map(([cat, label]) => {
+        const items = nominees[cat] || [];
+        return `<div class="tmp-vote-cat-summary">
+          <strong>${label}</strong>
+          <span>${items.map(n => esc(n.display_name) + ' (' + esc(n.role_name) + ')').join(', ') || '<em>—</em>'}</span>
+        </div>`;
+      }).join('');
+    }
+
+    ttAddBtn.addEventListener('click', () => {
+      if (!meetingId) return;
+      const sel = ttSelect.value;
+      let name, memberId;
+      if (sel === '__guest__') {
+        name     = ttNameInput.value.trim();
+        memberId = null;
+        if (!name) { ttNameInput.focus(); return; }
+      } else if (sel) {
+        name     = ttSelect.options[ttSelect.selectedIndex].textContent;
+        memberId = sel;
+      } else {
+        ttSelect.focus();
+        return;
+      }
+      ttAddBtn.disabled = true;
+      api('/voting/tt-speaker', {
+        method: 'POST',
+        body: JSON.stringify({ meeting_id: meetingId, display_name: name, member_id: memberId }),
+      }).then(data => {
+        ttNameInput.value         = '';
+        ttSelect.value            = '';
+        ttGuestWrap.style.display = 'none';
+        if (data.nominees) {
+          renderTTSpeakers(data.nominees.table_topics || []);
+          renderNomineesSummary(data.nominees);
+        } else {
+          loadNominees();
+        }
+      }).catch(err => alert('Failed: ' + err.message))
+        .finally(() => { ttAddBtn.disabled = false; });
+    });
+
+    refreshBtn.addEventListener('click', () => {
+      if (!meetingId) return;
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = 'Refreshing…';
+      api('/voting/refresh-nominees/' + meetingId, { method: 'POST' })
+        .then(data => {
+          renderTTSpeakers(data.nominees.table_topics || []);
+          renderNomineesSummary(data.nominees);
+        })
+        .catch(err => alert('Refresh failed: ' + err.message))
+        .finally(() => { refreshBtn.disabled = false; refreshBtn.textContent = '↻ Refresh from Assignments'; });
+    });
+
+    openPollBtn.addEventListener('click', () => {
+      if (!meetingId) return;
+      openPollBtn.disabled = true;
+      api('/voting/open-poll/' + meetingId, {
+        method: 'POST',
+        body: JSON.stringify({ open: !pollIsOpen }),
+      }).then(data => {
+        setPollOpenUI(!!data.poll_open);
+      }).catch(err => alert('Poll update failed: ' + err.message))
+        .finally(() => { openPollBtn.disabled = false; });
     });
   }
 
