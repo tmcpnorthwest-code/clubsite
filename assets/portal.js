@@ -1080,7 +1080,11 @@
 
       const qualified = unique.filter((r) => r.qualified).sort((a, b) => roleSort(a.display) - roleSort(b.display));
       const opts = '<option value="">(None)</option>' +
-        qualified.map((r) => `<option value="${esc(r.assignment_id)}">${esc(r.display)}</option>`).join("");
+        qualified.map((r) => {
+          const slotCount = group.roles.filter((s) => s.base === r.base).length;
+          const label = slotCount > 1 ? `${r.display} (${slotCount} slots open)` : r.display;
+          return `<option value="${esc(r.base)}">${esc(label)}</option>`;
+        }).join("");
 
       const rSelects = qsa("[data-tmp-req-role-select]", reqForm);
       rSelects.forEach((sel) => { sel.innerHTML = opts; });
@@ -3190,7 +3194,7 @@
       for (const role of meeting.roles) {
         if (!roleMap.has(role.roleName)) roleMap.set(role.roleName, []);
         for (const req of role.requests) {
-          roleMap.get(role.roleName).push({ ...req, meetingDate: meeting.meetingDate, theme: meeting.theme, meetingId: meeting.meetingId });
+          roleMap.get(role.roleName).push({ ...req, meetingDate: meeting.meetingDate, theme: meeting.theme, meetingId: meeting.meetingId, openSlotsCount: role.openSlotsCount ?? 0 });
         }
       }
     }
@@ -3205,6 +3209,7 @@
           <span>${esc(roleName)}</span>
           <span style="display:flex;align-items:center;gap:6px;">
             <span style="font-size:12px;color:#666;">${reqs.length} request${reqs.length !== 1 ? 's' : ''}</span>
+            ${(() => { const open = reqs[0]?.openSlotsCount ?? 0; return open > 0 ? `<span style="font-size:11px;color:#2e7d32;background:#e8f5e9;border-radius:4px;padding:1px 6px;">${open} slot${open !== 1 ? 's' : ''} open</span>` : `<span style="font-size:11px;color:#c62828;background:#ffebee;border-radius:4px;padding:1px 6px;">slots full</span>`; })()}
             <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
           </span>
         </button>

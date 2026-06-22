@@ -1717,110 +1717,119 @@ class TMP_Repository {
      */
     public static function approve_request_and_cascade_reject($request_id, $member_id, $meeting_id, $role_name) {
         global $wpdb;
-        $requests = self::request_table();
+        $requests    = self::request_table();
+        $assignments = self::assignment_table();
 
         // Guard: member cannot hold two roles at the same meeting
         $already_approved = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM {$requests}
              WHERE member_id = %d AND meeting_id = %d AND status = 'Approved'",
-            $member_id,
-            $meeting_id
+            $member_id, $meeting_id
         ));
         if ($already_approved > 0) {
             return new WP_Error('tmp_already_approved', 'Member already has an approved role at this meeting', ['status' => 400]);
         }
 
-        // Fetch the request (get assignment_id for slot-exact matching)
+        // Fetch the request — role_name is stored directly on the request row
         $request = $wpdb->get_row($wpdb->prepare(
-            "SELECT id, assignment_id FROM {$requests}
+            "SELECT id, role_name FROM {$requests}
              WHERE id = %d AND member_id = %d AND status = 'Pending'",
-            $request_id,
-            $member_id
+            $request_id, $member_id
         ), ARRAY_A);
 
         if (!$request) {
             return new WP_Error('tmp_not_found', 'Request not found or already processed', ['status' => 404]);
         }
 
-        $assignment_id = (int) $request['assignment_id'];
+        $base_role = $request['role_name']; // e.g. "Speaker" or "Evaluator"
 
-        // Re-validate eligibility before approving
-        $validation = self::validate_request_eligibility($member_id, $assignment_id, $role_name);
+        // Re-validate eligibility
+        $validation = self::validate_request_eligibility($member_id, $base_role);
         if (!$validation['eligible']) {
             return new WP_Error('tmp_ineligible', $validation['reason'], ['status' => 400]);
         }
 
-        // Update only the specific assignment slot — bypass save_assignment's singular-role
-        // propagation which was designed for the manual VPE workflow and would incorrectly
-        // overwrite other variant slots (e.g. "Speaker 1 (Intro)") when one is confirmed.
-        $now_assign = current_time('mysql');
+        // Find the next open slot for this role type (lowest sort_order first)
+        // Matches "Speaker", "Speaker 1", "Speaker 2 (Speech)", etc.
+        $slot_pattern = '^' . preg_quote($base_role, '/') . '( [0-9]+)?( \\(.*\\))?$';
+        $assignment_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$assignments}
+             WHERE meeting_id = %d
+               AND role_name REGEXP %s
+               AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+               AND status NOT IN ('Confirmed', 'Completed')
+             ORDER BY sort_order ASC, id ASC
+             LIMIT 1",
+            $meeting_id, $slot_pattern
+        ));
+
+        if (!$assignment_id) {
+            return new WP_Error('tmp_no_slots', "No open {$base_role} slots remaining for this meeting.", ['status' => 409]);
+        }
+
+        $now = current_time('mysql');
+
+        // Assign the member to the discovered slot
         $wpdb->update(
-            self::assignment_table(),
-            ['member_id' => $member_id, 'status' => 'Confirmed', 'updated_at' => $now_assign],
+            $assignments,
+            ['member_id' => $member_id, 'status' => 'Confirmed', 'updated_at' => $now],
             ['id' => $assignment_id],
-            ['%d', '%s', '%s'],
-            ['%d']
+            ['%d', '%s', '%s'], ['%d']
         );
         if ($wpdb->last_error) {
             return new WP_Error('tmp_db_error', 'Failed to update assignment: ' . $wpdb->last_error, ['status' => 500]);
         }
 
-        $base_role = self::get_base_role_name($role_name);
-        $now = current_time('mysql');
-
-        // Mark this request as Approved
+        // Mark this request Approved and record which slot was assigned
         $wpdb->update(
             $requests,
-            ['status' => 'Approved', 'updated_at' => $now],
+            ['status' => 'Approved', 'assignment_id' => $assignment_id, 'updated_at' => $now],
             ['id' => $request_id],
-            ['%s', '%s'], ['%d']
+            ['%s', '%d', '%s'], ['%d']
         );
 
-        // STEP 1: Reject member's OTHER pending requests at this meeting
-        // Uses r.meeting_id directly — no join needed, avoids any mismatch
+        // STEP 1: Cancel member's other pending requests at this meeting
         $wpdb->query($wpdb->prepare(
             "UPDATE {$requests}
-             SET status = 'NotSelected',
-                 reason = %s,
-                 updated_at = %s
-             WHERE member_id = %d
-               AND meeting_id = %d
-               AND id != %d
-               AND status = 'Pending'",
+             SET status = 'NotSelected', reason = %s, updated_at = %s
+             WHERE member_id = %d AND meeting_id = %d AND id != %d AND status = 'Pending'",
             "You were assigned {$base_role} at this meeting",
-            $now,
-            $member_id,
-            $meeting_id,
-            $request_id
+            $now, $member_id, $meeting_id, $request_id
         ));
 
-        // STEP 2: Reject OTHER members' requests for this exact assignment slot only
-        // Scoped to assignment_id so unrelated roles are never touched
-        $wpdb->query($wpdb->prepare(
-            "UPDATE {$requests}
-             SET status = 'NotSelected',
-                 reason = %s,
-                 updated_at = %s
-             WHERE assignment_id = %d
-               AND member_id != %d
-               AND status = 'Pending'",
-            "{$base_role} has been assigned to another member",
-            $now,
-            $assignment_id,
-            $member_id
+        // STEP 2: Cascade-reject other members' requests for this role ONLY when all slots are filled.
+        // Requests for remaining open slots stay alive so those members are still considered.
+        $remaining_open = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$assignments}
+             WHERE meeting_id = %d
+               AND role_name REGEXP %s
+               AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+               AND status NOT IN ('Confirmed', 'Completed')",
+            $meeting_id, $slot_pattern
         ));
+
+        if ($remaining_open === 0) {
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$requests}
+                 SET status = 'NotSelected', reason = %s, updated_at = %s
+                 WHERE meeting_id = %d AND member_id != %d AND role_name = %s AND status = 'Pending'",
+                "All {$base_role} slots have been filled",
+                $now, $meeting_id, $member_id, $base_role
+            ));
+        }
 
         return [
-            'success'      => true,
-            'message'      => 'Request approved',
+            'success'       => true,
+            'message'       => 'Request approved',
             'approved_role' => $base_role,
         ];
     }
 
     /**
-     * Validate if request can be approved (re-validate at approval time)
+     * Validate if a member can be approved for a role type at approval time.
+     * Takes the base role name (e.g. "Speaker") — no assignment_id needed.
      */
-    private static function validate_request_eligibility($member_id, $assignment_id, $role_name) {
+    private static function validate_request_eligibility($member_id, $role_name) {
         $member = self::get_member($member_id);
         if (!$member) {
             return ['eligible' => false, 'reason' => 'Member not found'];
@@ -2697,79 +2706,71 @@ class TMP_Repository {
         $table      = self::request_table();
         $meeting_id = absint($data['meeting_id'] ?? 0);
         $member_id  = absint($data['member_id']  ?? 0);
-        $priorities = $data['priorities'] ?? [];
+        $priorities = $data['priorities'] ?? []; // array of role_name strings e.g. ["Speaker", "Evaluator"]
 
         if (!$meeting_id || !$member_id) {
             return new WP_Error('tmp_missing_data', 'Missing Meeting or Member ID.', ['status' => 400]);
         }
 
-        // Get member level
         $member = self::get_member($member_id);
         if (!$member) {
             return new WP_Error('tmp_member_not_found', 'Member not found.', ['status' => 404]);
         }
         $member_level = (int) $member['level'];
+        $gate_levels  = self::get_current_gate_levels();
+        $assignments  = self::assignment_table();
 
-        // Get gate levels
-        $gate_levels = self::get_current_gate_levels();
+        // Validate level gate and open-slot availability for each requested role
+        foreach ($priorities as $role_name) {
+            if (empty($role_name)) continue;
+            $role_name = sanitize_text_field($role_name);
 
-        // Validate all requested roles
-        $assignments = self::assignment_table();
-        foreach ($priorities as $index => $assignment_id) {
-            if (empty($assignment_id)) continue;
-
-            $role = $wpdb->get_row($wpdb->prepare(
-                "SELECT role_name FROM {$assignments} WHERE id = %d AND meeting_id = %d",
-                $assignment_id, $meeting_id
-            ), ARRAY_A);
-
-            if (!$role) continue;
-
-            // Check level requirement
-            $base_role = self::get_base_role_name($role['role_name']);
             $min_level = 0;
             foreach ($gate_levels as $pattern => $level) {
-                if (stripos($base_role, $pattern) !== false) {
+                if (stripos($role_name, $pattern) !== false) {
                     $min_level = (int) $level;
                     break;
                 }
             }
-
             if ($member_level < $min_level) {
                 return new WP_Error(
                     'tmp_level_requirement',
-                    "You are Level {$member_level}, but {$base_role} requires Level {$min_level}+.",
+                    "You are Level {$member_level}, but {$role_name} requires Level {$min_level}+.",
                     ['status' => 403]
+                );
+            }
+
+            // Must have at least one open slot for this role type in the meeting
+            $pattern = '^' . preg_quote($role_name, '/') . '( [0-9]+)?( \\(.*\\))?$';
+            $open = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$assignments}
+                 WHERE meeting_id = %d
+                   AND role_name REGEXP %s
+                   AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                   AND status NOT IN ('Confirmed', 'Completed')",
+                $meeting_id, $pattern
+            ));
+            if ($open === 0) {
+                return new WP_Error(
+                    'tmp_no_slots',
+                    "No open slots available for {$role_name} at this meeting.",
+                    ['status' => 409]
                 );
             }
         }
 
-        $old_asgn_ids = $wpdb->get_col($wpdb->prepare(
-            "SELECT assignment_id FROM $table WHERE meeting_id = %d AND member_id = %d",
-            $meeting_id, $member_id
-        ));
-
         $wpdb->delete($table, ['meeting_id' => $meeting_id, 'member_id' => $member_id]);
 
-        foreach ($priorities as $index => $assignment_id) {
-            if (empty($assignment_id)) continue;
+        foreach ($priorities as $index => $role_name) {
+            if (empty($role_name)) continue;
             $wpdb->insert($table, [
-                'meeting_id'   => $meeting_id,
-                'member_id'    => $member_id,
-                'assignment_id'=> absint($assignment_id),
-                'priority'     => $index + 1,
-                'created_at'   => current_time('mysql'),
+                'meeting_id'    => $meeting_id,
+                'member_id'     => $member_id,
+                'assignment_id' => null,
+                'role_name'     => sanitize_text_field($role_name),
+                'priority'      => $index + 1,
+                'created_at'    => current_time('mysql'),
             ]);
-            $wpdb->update(self::assignment_table(), ['status' => 'Requested'], ['id' => absint($assignment_id), 'member_id' => null]);
-        }
-
-        $check_ids = array_unique(array_merge($old_asgn_ids, $priorities));
-        foreach ($check_ids as $asgn_id) {
-            if (!$asgn_id) continue;
-            $count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE assignment_id = %d", $asgn_id));
-            if ($count == 0) {
-                $wpdb->update(self::assignment_table(), ['status' => 'Planned'], ['id' => absint($asgn_id), 'member_id' => null]);
-            }
         }
 
         self::notify_vpe_of_request($meeting_id, $member_id, $priorities);
@@ -2786,15 +2787,11 @@ class TMP_Repository {
 
         if (!$member || !$meeting) return;
 
-        $role_details     = [];
-        $assignments_table = self::assignment_table();
-
-        foreach ($priorities as $index => $asgn_id) {
-            if (empty($asgn_id)) continue;
-            $role_name = $wpdb->get_var($wpdb->prepare("SELECT role_name FROM {$assignments_table} WHERE id = %d", $asgn_id));
-            if ($role_name) {
-                $role_details[] = sprintf("Priority %d: %s", $index + 1, self::get_base_role_name($role_name));
-            }
+        // $priorities is now an array of role_name strings — no assignment lookup needed
+        $role_details = [];
+        foreach ($priorities as $index => $role_name) {
+            if (empty($role_name)) continue;
+            $role_details[] = sprintf("Priority %d: %s", $index + 1, sanitize_text_field($role_name));
         }
 
         if (empty($role_details)) return;
@@ -2816,21 +2813,23 @@ class TMP_Repository {
         $table            = self::request_table();
         $assignments_table = self::assignment_table();
 
-        $asgn_id = $wpdb->get_var($wpdb->prepare("SELECT assignment_id FROM $table WHERE id = %d", $id));
+        // Fetch the request first — only reset slot status if this was an Approved request
+        // (i.e. the member was actually confirmed on that slot). Pending requests no longer
+        // carry a meaningful assignment_id, so we skip the slot-status dance for them.
+        $req_row = $wpdb->get_row($wpdb->prepare(
+            "SELECT assignment_id, status FROM $table WHERE id = %d AND member_id = %d",
+            $id, $member_id
+        ), ARRAY_A);
 
         $deleted = (bool) $wpdb->delete($table, ['id' => absint($id), 'member_id' => absint($member_id)]);
 
-        if ($deleted && $asgn_id) {
-            $asgn_id     = absint($asgn_id);
+        if ($deleted && $req_row && $req_row['status'] === 'Approved' && $req_row['assignment_id']) {
+            $asgn_id      = absint($req_row['assignment_id']);
             $current_asgn = $wpdb->get_row($wpdb->prepare("SELECT member_id FROM {$assignments_table} WHERE id = %d", $asgn_id), ARRAY_A);
             $is_assigned  = $current_asgn && (int) $current_asgn['member_id'] === (int) $member_id;
-            $count        = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE assignment_id = %d", $asgn_id));
 
             if ($is_assigned) {
-                $status = ($count > 0) ? 'Requested' : 'Planned';
-                $wpdb->update($assignments_table, ['status' => $status, 'member_id' => null], ['id' => $asgn_id]);
-            } elseif ($count === 0 && empty($current_asgn['member_id'])) {
-                $wpdb->update($assignments_table, ['status' => 'Planned'], ['id' => $asgn_id]);
+                $wpdb->update($assignments_table, ['status' => 'Planned', 'member_id' => null], ['id' => $asgn_id]);
             }
         }
 
@@ -2845,10 +2844,12 @@ class TMP_Repository {
         $now = current_time('Y-m-d H:i:s');
 
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT r.id, r.priority, m.meeting_date, m.theme, m.requests_close_at, a.role_name, a.member_id as assigned_id, a.status as assignment_status
+            "SELECT r.id, r.priority, m.meeting_date, m.theme, m.requests_close_at,
+                    COALESCE(a.role_name, r.role_name) as role_name,
+                    a.member_id as assigned_id, a.status as assignment_status
              FROM {$requests} r
              JOIN {$meetings} m ON r.meeting_id = m.id
-             JOIN {$assignments} a ON r.assignment_id = a.id
+             LEFT JOIN {$assignments} a ON r.assignment_id = a.id
              WHERE r.member_id = %d AND (m.requests_close_at IS NULL OR m.requests_close_at > %s)
              ORDER BY m.meeting_date ASC, r.priority ASC",
             $member_id, $now
@@ -2864,16 +2865,15 @@ class TMP_Repository {
         $today = current_time('Y-m-d');
 
         $raw_requests = $wpdb->get_results($wpdb->prepare(
-            "SELECT r.*, m.meeting_date, m.theme, m.id as meeting_id,
-                    COALESCE(a.role_name, 'Unknown Role') as role_name,
+            "SELECT r.*, r.role_name,
+                    m.meeting_date, m.theme, m.id as meeting_id,
                     mem.full_name as member_name, mem.level as member_level, mem.pathway
              FROM {$requests} r
              JOIN {$meetings} m ON r.meeting_id = m.id
-             LEFT JOIN {$assignments} a ON r.assignment_id = a.id
              JOIN {$members} mem ON r.member_id = mem.id
              WHERE m.meeting_date >= %s
                AND r.status = 'Pending'
-             ORDER BY m.meeting_date ASC, role_name ASC, r.priority ASC",
+             ORDER BY m.meeting_date ASC, r.role_name ASC, r.priority ASC",
             $today
         ), ARRAY_A);
 
@@ -2895,9 +2895,20 @@ class TMP_Repository {
             }
 
             if (!isset($meetings_map[$meeting_key]['roles'][$slot_key])) {
+                // Count how many open assignment slots exist for this role type in this meeting
+                $slot_pattern = '^' . preg_quote($role_base, '/') . '( [0-9]+)?( \\(.*\\))?$';
+                $open_slots = (int) $wpdb->get_var($wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$assignments}
+                     WHERE meeting_id = %d
+                       AND role_name REGEXP %s
+                       AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                       AND status NOT IN ('Confirmed', 'Completed')",
+                    $meeting_key, $slot_pattern
+                ));
                 $meetings_map[$meeting_key]['roles'][$slot_key] = [
-                    'roleName' => $role_base,
-                    'requests' => []
+                    'roleName'       => $role_base,
+                    'openSlotsCount' => $open_slots,
+                    'requests'       => []
                 ];
             }
 
@@ -2993,8 +3004,9 @@ class TMP_Repository {
                 // If this role already exists, merge requests
                 if (!isset($roles_by_name[$role_name])) {
                     $roles_by_name[$role_name] = [
-                        'roleName' => $role_name,
-                        'requests' => []
+                        'roleName'       => $role_name,
+                        'openSlotsCount' => $role['openSlotsCount'] ?? 0,
+                        'requests'       => []
                     ];
                 }
 
@@ -3030,8 +3042,9 @@ class TMP_Repository {
                 });
 
                 $roles[] = [
-                    'roleName' => $role_name,
-                    'requestCount' => count($requests),
+                    'roleName'       => $role_name,
+                    'openSlotsCount' => $role['openSlotsCount'] ?? 0,
+                    'requestCount'   => count($requests),
                     'requests' => array_map(function ($req) {
                         return [
                             'requestId' => (int) $req['id'],
@@ -3107,7 +3120,7 @@ class TMP_Repository {
         return $wpdb->get_results($wpdb->prepare(
             "SELECT r.id, r.priority, r.status as request_status, r.reason,
                     m.meeting_date, m.theme,
-                    COALESCE(a.role_name, 'Unknown Role') as role_name
+                    COALESCE(a.role_name, r.role_name, 'Unknown Role') as role_name
              FROM {$requests} r
              JOIN {$meetings} m ON r.meeting_id = m.id
              LEFT JOIN {$assignments} a ON r.assignment_id = a.id
@@ -3124,14 +3137,14 @@ class TMP_Repository {
         $assignments = self::assignment_table();
         $today = current_time('Y-m-d');
 
-        // Read status directly from requests table — single source of truth.
-        // LEFT JOIN assignments so orphaned requests (slot deleted) still appear.
+        // Read status from requests table. LEFT JOIN assignments to get the assigned slot
+        // name (only populated once approved and a slot is assigned).
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT r.id as request_id, r.assignment_id, r.priority,
+            "SELECT r.id as request_id, r.assignment_id, r.role_name, r.priority,
                     r.status as request_status, r.reason,
                     r.created_at, r.updated_at,
                     m.id as meeting_id, m.meeting_date, m.theme, m.requests_close_at,
-                    a.role_name, a.speech_title, a.status as assignment_status
+                    a.role_name as assigned_slot, a.speech_title, a.status as assignment_status
              FROM {$requests} r
              JOIN {$meetings} m ON r.meeting_id = m.id
              LEFT JOIN {$assignments} a ON r.assignment_id = a.id
@@ -3144,13 +3157,20 @@ class TMP_Repository {
 
         $result = [];
         foreach ($rows as $row) {
+            // Show the assigned slot name (e.g. "Speaker 2") only once the request is Approved.
+            // For pending/old requests that still carry a stale assignment_id, always show the generic role name.
+            $is_approved  = ($row['request_status'] === 'Approved');
+            $display_role = ($is_approved && !empty($row['assigned_slot']))
+                ? preg_replace('/\s*\(.*?\)\s*$/', '', $row['assigned_slot'])  // strip note: "Speaker 2 (Speech)" → "Speaker 2"
+                : ($row['role_name'] ?? 'Unknown Role');
+
             $result[] = [
                 'requestId'        => (int) $row['request_id'],
                 'assignmentId'     => (int) $row['assignment_id'],
                 'meetingId'        => (int) $row['meeting_id'],
                 'meetingDate'      => $row['meeting_date'],
                 'meetingTheme'     => $row['theme'],
-                'roleName'         => $row['role_name'] ?? 'Unknown Role',
+                'roleName'         => $display_role,
                 'speechTitle'      => $row['speech_title'] ?? '',
                 'assignmentStatus' => $row['assignment_status'] ?? 'Planned',
                 'priority'         => (int) $row['priority'],
@@ -3167,16 +3187,28 @@ class TMP_Repository {
 
     public static function get_conflicting_requests($assignment_id) {
         global $wpdb;
-        $requests_table = self::request_table();
-        $members_table  = self::member_table();
+        $requests_table  = self::request_table();
+        $assignments_table = self::assignment_table();
+        $members_table   = self::member_table();
 
+        // Look up which meeting and base role this slot belongs to
+        $slot = $wpdb->get_row($wpdb->prepare(
+            "SELECT meeting_id, role_name FROM {$assignments_table} WHERE id = %d",
+            $assignment_id
+        ), ARRAY_A);
+
+        if (!$slot) return [];
+
+        $role_base = self::get_base_role_name($slot['role_name']);
+
+        // Return all pending requests for this role type in this meeting
         return $wpdb->get_results($wpdb->prepare(
             "SELECT r.priority, r.member_id, m.full_name AS member_name, m.email, m.level, m.pathway
              FROM {$requests_table} r
              JOIN {$members_table} m ON r.member_id = m.id
-             WHERE r.assignment_id = %d
+             WHERE r.meeting_id = %d AND r.role_name = %s AND r.status = 'Pending'
              ORDER BY r.priority ASC, m.full_name ASC",
-            $assignment_id
+            $slot['meeting_id'], $role_base
         ), ARRAY_A);
     }
 

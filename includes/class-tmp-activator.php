@@ -20,6 +20,7 @@ class TMP_Activator {
         self::migrate_v140_gate_levels();
         self::migrate_v150_timer_duration();
         self::migrate_v160_speech_feedback();
+        self::migrate_v170_request_role_name();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -64,6 +65,7 @@ class TMP_Activator {
         self::migrate_v140_gate_levels();
         self::migrate_v150_timer_duration();
         self::migrate_v160_speech_feedback();
+        self::migrate_v170_request_role_name();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -650,6 +652,42 @@ class TMP_Activator {
             KEY tmp_sf_assignment (assignment_id),
             KEY tmp_sf_meeting (meeting_id)
         ) {$charset}");
+    }
+
+    /**
+     * v0.17.0: Requests now store the generic role type ("Speaker") instead of a specific
+     * numbered slot assignment_id. This allows multiple open slots (Speaker 1/2/3) to share
+     * a single request queue; slot assignment is deferred to approval time.
+     */
+    private static function migrate_v170_request_role_name() {
+        global $wpdb;
+        $requests    = $wpdb->prefix . 'tmp_member_requests';
+        $assignments = $wpdb->prefix . 'tmp_role_assignments';
+
+        $rcols = $wpdb->get_col("DESCRIBE {$requests}");
+
+        if (!in_array('role_name', $rcols, true)) {
+            $wpdb->query("ALTER TABLE {$requests} ADD COLUMN role_name VARCHAR(120) NULL AFTER assignment_id");
+        }
+
+        // Make assignment_id nullable so it can be filled in at approval time
+        if (in_array('assignment_id', $rcols, true)) {
+            $wpdb->query("ALTER TABLE {$requests} MODIFY assignment_id BIGINT UNSIGNED NULL DEFAULT NULL");
+        }
+
+        // Backfill role_name for existing rows: strip trailing " N" number from slot name
+        $rows = $wpdb->get_results(
+            "SELECT r.id, a.role_name as slot_name
+             FROM {$requests} r
+             JOIN {$assignments} a ON r.assignment_id = a.id
+             WHERE r.role_name IS NULL",
+            ARRAY_A
+        );
+        foreach ($rows as $row) {
+            // "Speaker 1 (Speech)" → "Speaker", "Evaluator 2 (Evaluation)" → "Evaluator"
+            $base = preg_replace('/\s+\d+(\s+\(.*\))?$/', '', $row['slot_name']);
+            $wpdb->update($requests, ['role_name' => $base], ['id' => (int) $row['id']]);
+        }
     }
 
     private static function seed_data() {
