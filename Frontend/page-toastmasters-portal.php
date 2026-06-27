@@ -62,10 +62,6 @@ if (class_exists('TMP_Repository')) {
         $level_ups = TMP_Repository::get_recent_level_ups(12);
     }
 
-    $published_agenda = null;
-    if (method_exists('TMP_Repository', 'get_published_agenda')) {
-        $published_agenda = TMP_Repository::get_published_agenda();
-    }
     $spotlight = method_exists('TMP_Repository', 'get_new_member_spotlight')
         ? TMP_Repository::get_new_member_spotlight()
         : null;
@@ -282,7 +278,7 @@ if ($next_meeting) {
 
     <?php
     $pathway_count = count(array_unique(array_filter(array_column($active_members, 'pathway'), function($p) {
-        return $p && $p !== 'No pathway registered' && $p !== 'Enrolled — Pathway TBD';
+        return $p && $p !== 'No pathway registered' && $p !== 'Enrolled';
     })));
     if ($pathway_count) : ?>
       <div class="stat-block">
@@ -293,116 +289,8 @@ if ($next_meeting) {
   </div>
 
   <!-- ═══════════════════════════════════════════ UPCOMING MEETING AGENDA -->
-  <?php if ($published_agenda) :
-    $pa_dt   = new DateTime($published_agenda['meeting_date']);
-    $pa_rows = $published_agenda['assignments'] ?? [];
-
-    // Pre-compute each slot's wall-clock start time from meeting start_time + cumulative durations
-    $pa_clock = null;
-    if (!empty($published_agenda['start_time'])) {
-        try { $pa_clock = new DateTime('2000-01-01 ' . $published_agenda['start_time']); }
-        catch (Exception $e) { $pa_clock = null; }
-    }
-    $pa_row_times = [];
-    foreach ($pa_rows as $a) {
-        $pa_row_times[] = $pa_clock ? clone $pa_clock : null;
-        $slot_dur = max(0, (int)($a['duration'] ?? 0));
-        if ($pa_clock && $slot_dur > 0) $pa_clock->modify("+{$slot_dur} minutes");
-    }
-    $pa_end_clock = $pa_clock;
-
-    $pa_venue    = $published_agenda['venue'] ?? '';
-    $pa_maps_url = get_option('tmp_default_maps_url', '');
-    $pa_start_fmt = (!empty($published_agenda['start_time']))
-        ? date('g:i A', strtotime($published_agenda['start_time']))
-        : '';
-  ?>
-  <section class="section upcoming-agenda-section" id="tmc-upcoming">
-    <p class="eyebrow">Coming Up Next</p>
-    <h2>Meeting Agenda</h2>
-    <div class="upcoming-meta">
-      <span class="upcoming-date"><?php echo esc_html($pa_dt->format('l, F j')); ?></span>
-      <?php if (!empty($published_agenda['theme'])) : ?>
-        <span class="upcoming-theme">&ldquo;<?php echo esc_html($published_agenda['theme']); ?>&rdquo;</span>
-      <?php endif; ?>
-      <?php if (!empty($pa_venue)) : ?>
-        <span class="upcoming-venue"><?php echo esc_html($pa_venue); ?></span>
-      <?php endif; ?>
-      <?php if (!empty($pa_maps_url)) : ?>
-        <a class="upcoming-directions" href="<?php echo esc_url($pa_maps_url); ?>" target="_blank" rel="noopener noreferrer">Get directions &#x2197;</a>
-      <?php endif; ?>
-      <?php if ($pa_start_fmt) : ?>
-        <span class="upcoming-time"><?php echo esc_html($pa_start_fmt); ?><?php
-          if ($pa_end_clock) echo ' &ndash; ' . esc_html($pa_end_clock->format('g:i A'));
-        ?></span>
-      <?php endif; ?>
-    </div>
-    <?php if (!empty($published_agenda['agenda_notes'])) : ?>
-    <p class="upcoming-agenda-notes"><?php echo nl2br(esc_html($published_agenda['agenda_notes'])); ?></p>
-    <?php endif; ?>
-    <?php if (!empty($pa_rows)) : ?>
-    <div class="upcoming-agenda-wrap">
-      <table class="upcoming-agenda-table">
-        <thead>
-          <tr>
-            <th class="col-time">Time</th>
-            <th>Agenda Item</th>
-            <th>Member</th>
-            <th class="col-dur">Duration</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php foreach ($pa_rows as $idx => $a) :
-            // Extract just the note (text inside parentheses)
-            $slot_note  = '';
-            if (preg_match('/\(([^)]+)\)/', $a['role_name'], $nm)) $slot_note = $nm[1];
-
-            // Skip internal transition slots — "Introduces X" / "Introduce X" sub-slots
-            // are TMOD/Evaluator handoffs not relevant to the public agenda
-            if (preg_match('/^Introduces?\s/i', $slot_note)) continue;
-
-            $slot_base  = strtolower(trim(preg_replace('/\s*\(.*\)/u', '', $a['role_name'])));
-            $is_break   = ($slot_base === 'break');
-            $time_str   = isset($pa_row_times[$idx]) ? $pa_row_times[$idx]->format('g:i A') : '';
-            $slot_dur   = max(0, (int)($a['duration'] ?? 0));
-
-            if ($is_break) : ?>
-          <tr class="upcoming-break-row">
-            <td class="upcoming-slot-time"><?php echo esc_html($time_str); ?></td>
-            <td colspan="3" class="upcoming-break-label">
-              &#9749; Break &mdash; Networking
-              <?php if ($slot_dur > 0) echo '<span class="upcoming-break-dur">(' . $slot_dur . ' min)</span>'; ?>
-            </td>
-          </tr>
-            <?php else :
-              $dur_display = '';
-              if (!empty($a['time_green']) && (int) $a['time_green'] > 0) {
-                  $g = (int) round($a['time_green'] / 60);
-                  $r = (int) round($a['time_red']   / 60);
-                  $dur_display = $g === $r ? "{$g} min" : "{$g}–{$r} min";
-              } elseif ($slot_dur > 0) {
-                  $dur_display = $slot_dur . ' min';
-              }
-            ?>
-          <tr>
-            <td class="upcoming-slot-time"><?php echo esc_html($time_str); ?></td>
-            <td>
-              <?php echo esc_html($a['role_name']); ?>
-              <?php if (!empty($a['speech_title'])) : ?>
-                <span class="upcoming-speech-title"><?php echo esc_html($a['speech_title']); ?></span>
-              <?php endif; ?>
-            </td>
-            <td><?php echo !empty($a['member_name']) ? esc_html($a['member_name']) : '<em class="upcoming-tba">TBA</em>'; ?></td>
-            <td class="upcoming-dur"><?php echo esc_html($dur_display); ?></td>
-          </tr>
-            <?php endif; ?>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
-    </div>
-    <?php endif; ?>
-  </section>
-  <?php endif; ?>
+  <!-- Rendered by JS on page load from REST API — never server-cached -->
+  <section class="section upcoming-agenda-section" id="tmc-upcoming" style="display:none" aria-live="polite"></section>
 
   <!-- ═══════════════════════════════════════════════════════ VOTE NOW -->
   <?php if ($today_meeting && !empty($today_meeting['poll_open'])) : ?>

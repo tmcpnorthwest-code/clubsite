@@ -78,7 +78,14 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
-        // ── Open slots ─────────────────────────────────────────────────────────
+        // ── Available meetings (for member meeting picker) ─────────────────────
+        register_rest_route('toastmasters/v1', '/meetings/available', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_available_meetings'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
+        // ── Open slots for a specific meeting ──────────────────────────────────
         register_rest_route('toastmasters/v1', '/meetings/open-slots', [
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => [__CLASS__, 'get_open_slots'],
@@ -678,8 +685,16 @@ class TMP_REST_API {
         return rest_ensure_response(TMP_Repository::get_member_pending_requests($member['id']));
     }
 
-    public static function get_open_slots() {
-        return rest_ensure_response(TMP_Repository::get_open_slots());
+    public static function get_available_meetings() {
+        return rest_ensure_response(TMP_Repository::get_available_meetings());
+    }
+
+    public static function get_open_slots(WP_REST_Request $request) {
+        $meeting_id = absint($request->get_param('meeting_id'));
+        if (!$meeting_id) {
+            return new WP_Error('tmp_invalid', 'meeting_id is required.', ['status' => 400]);
+        }
+        return rest_ensure_response(TMP_Repository::get_open_slots($meeting_id));
     }
 
     // ── Role requests ──────────────────────────────────────────────────────────
@@ -1140,7 +1155,7 @@ class TMP_REST_API {
 
         if (!$credential || !preg_match('/^([A-Z]{2})([1-5])$/', $credential, $matches)) {
             if (strtolower(trim($pathways_enrolled)) === 'yes') {
-                return ['pathway' => 'Enrolled — Pathway TBD', 'level' => 0, 'level_completed' => 0];
+                return ['pathway' => 'Enrolled', 'level' => 0, 'level_completed' => 0];
             }
             return ['pathway' => 'No pathway registered', 'level' => 0, 'level_completed' => 0];
         }
@@ -1151,7 +1166,7 @@ class TMP_REST_API {
 
         if (!$pathway) {
             if (strtolower(trim($pathways_enrolled)) === 'yes') {
-                return ['pathway' => 'Enrolled — Pathway TBD', 'level' => 0, 'level_completed' => 0];
+                return ['pathway' => 'Enrolled', 'level' => 0, 'level_completed' => 0];
             }
             return ['pathway' => 'No pathway registered', 'level' => 0, 'level_completed' => 0];
         }
@@ -1291,7 +1306,7 @@ class TMP_REST_API {
         $token = TMP_Repository::generate_vote_token();
         return rest_ensure_response([
             'url'        => add_query_arg('tmp_vote', $token, $voting_url),
-            'expires_at' => gmdate('Y-m-d H:i:s', time() + DAY_IN_SECONDS),
+            'expires_at' => gmdate('Y-m-d H:i:s', time() + 2 * DAY_IN_SECONDS),
         ]);
     }
 
@@ -1397,6 +1412,13 @@ class TMP_REST_API {
             $wpdb->query("UPDATE {$meetings} SET is_published = 0");
         }
         $wpdb->update($meetings, ['is_published' => $new_state], ['id' => $id]);
+
+        // Bust common WordPress page-cache plugins so logged-out visitors see the change immediately
+        if (function_exists('wp_cache_clear_cache')) wp_cache_clear_cache(); // WP Super Cache
+        if (function_exists('w3tc_pgcache_flush'))   w3tc_pgcache_flush();   // W3 Total Cache
+        do_action('litespeed_purge_all');                                      // LiteSpeed Cache
+        do_action('rocket_clean_home');                                        // WP Rocket
+
         return rest_ensure_response(['is_published' => $new_state]);
     }
 
@@ -1408,7 +1430,11 @@ class TMP_REST_API {
     }
 
     public static function get_published_agenda(WP_REST_Request $request) {
-        return rest_ensure_response(TMP_Repository::get_published_agenda());
+        $agenda = TMP_Repository::get_published_agenda();
+        if ($agenda) {
+            $agenda['maps_url'] = get_option('tmp_default_maps_url', '');
+        }
+        return rest_ensure_response($agenda);
     }
 
     public static function reorder_agenda(WP_REST_Request $request) {
@@ -1423,9 +1449,12 @@ class TMP_REST_API {
     }
 
     public static function get_club_settings() {
+        $durs = TMP_Repository::get_agenda_durations();
         return rest_ensure_response([
             'default_venue'    => get_option('tmp_default_venue', ''),
             'default_maps_url' => get_option('tmp_default_maps_url', ''),
+            'speaker_duration' => $durs['speaker'],
+            'ttm_duration'     => $durs['ttm'],
         ]);
     }
 
@@ -1436,6 +1465,12 @@ class TMP_REST_API {
         }
         if (isset($body['default_maps_url'])) {
             update_option('tmp_default_maps_url', esc_url_raw($body['default_maps_url']));
+        }
+        if (isset($body['speaker_duration']) || isset($body['ttm_duration'])) {
+            $current = TMP_Repository::get_agenda_durations();
+            if (isset($body['speaker_duration'])) $current['speaker'] = max(1, absint($body['speaker_duration']));
+            if (isset($body['ttm_duration']))     $current['ttm']     = max(1, absint($body['ttm_duration']));
+            update_option('tmp_agenda_durations', wp_json_encode($current));
         }
         return rest_ensure_response(['success' => true]);
     }

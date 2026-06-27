@@ -201,6 +201,133 @@
     }, 30000);
   }
 
+  // ── Upcoming Meeting Agenda (always fetched fresh — bypasses page cache) ─────
+  (function renderAgenda() {
+    var mount = document.getElementById('tmc-upcoming');
+    if (!mount) return;
+
+    var cfg      = window.TMCPublic || {};
+    var REST     = (cfg.restUrl || '').replace(/\/$/, '');
+
+    function esc(v) {
+      var d = document.createElement('div');
+      d.textContent = String(v == null ? '' : v);
+      return d.innerHTML;
+    }
+
+    function escNl2br(v) {
+      return String(v || '').split('\n').map(esc).join('<br>');
+    }
+
+    function parseTimeMins(t) {
+      if (!t) return null;
+      var parts = String(t).split(':').map(Number);
+      return parts[0] * 60 + (parts[1] || 0);
+    }
+
+    function fmtMins(totalMins) {
+      if (totalMins === null || totalMins === undefined) return '';
+      var h    = Math.floor(totalMins / 60);
+      var m    = totalMins % 60;
+      var ampm = h < 12 ? 'AM' : 'PM';
+      var h12  = h % 12 || 12;
+      return h12 + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+    }
+
+    fetch(REST + '/meetings/published-agenda')
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(a) {
+        if (!a) return;
+
+        // Parse date without timezone shift
+        var parts = String(a.meeting_date).split('-').map(Number);
+        var dt    = new Date(parts[0], parts[1] - 1, parts[2]);
+        var days  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+        var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        var dateFmt = days[dt.getDay()] + ', ' + months[dt.getMonth()] + ' ' + dt.getDate();
+
+        // Compute wall-clock times for each slot
+        var startMins = parseTimeMins(a.start_time);
+        var clock     = startMins;
+        var rows      = a.assignments || [];
+        var rowTimes  = rows.map(function(row) {
+          var t   = clock;
+          var dur = Math.max(0, parseInt(row.duration || 0, 10));
+          if (clock !== null && dur > 0) clock += dur;
+          return t;
+        });
+        var endMins = clock;
+
+        var startFmt = startMins !== null ? fmtMins(startMins) : '';
+        var endFmt   = (endMins !== null && startMins !== null) ? fmtMins(endMins) : '';
+
+        // Meta header
+        var metaHtml = '<span class="upcoming-date">' + esc(dateFmt) + '</span>';
+        if (a.theme)    metaHtml += '<span class="upcoming-theme">“' + esc(a.theme) + '”</span>';
+        if (a.venue)    metaHtml += '<span class="upcoming-venue">' + esc(a.venue) + '</span>';
+        if (a.maps_url) metaHtml += '<a class="upcoming-directions" href="' + esc(a.maps_url) + '" target="_blank" rel="noopener noreferrer">Get directions &#x2197;</a>';
+        if (startFmt) {
+          var timeStr = startFmt + (endFmt ? ' – ' + endFmt : '');
+          metaHtml += '<span class="upcoming-time">' + esc(timeStr) + '</span>';
+        }
+
+        // Agenda rows — filter and render
+        var rowsHtml = '';
+        rows.forEach(function(row, idx) {
+          var noteMatch = String(row.role_name).match(/\(([^)]+)\)/);
+          var slotNote  = noteMatch ? noteMatch[1] : '';
+          if (/^Introduces?\s/i.test(slotNote)) return;
+
+          var slotBase = String(row.role_name).replace(/\s*\(.*\)/g, '').trim().toLowerCase();
+          var isBreak  = (slotBase === 'break');
+          var timeStr  = rowTimes[idx] !== null ? fmtMins(rowTimes[idx]) : '';
+          var slotDur  = Math.max(0, parseInt(row.duration || 0, 10));
+
+          if (isBreak) {
+            rowsHtml += '<tr class="upcoming-break-row">' +
+              '<td class="upcoming-slot-time">' + esc(timeStr) + '</td>' +
+              '<td colspan="3" class="upcoming-break-label">&#9749; Break &mdash; Networking' +
+              (slotDur > 0 ? ' <span class="upcoming-break-dur">(' + slotDur + ' min)</span>' : '') +
+              '</td></tr>';
+          } else {
+            var durDisplay = '';
+            var tg = parseInt(row.time_green || 0, 10);
+            var tr = parseInt(row.time_red   || 0, 10);
+            if (tg > 0) {
+              var gMin = Math.round(tg / 60);
+              var rMin = Math.round(tr / 60);
+              durDisplay = gMin === rMin ? gMin + ' min' : gMin + '–' + rMin + ' min';
+            } else if (slotDur > 0) {
+              durDisplay = slotDur + ' min';
+            }
+            var memberCell  = row.member_name ? esc(row.member_name) : '<em class="upcoming-tba">TBA</em>';
+            var speechTitle = row.speech_title ? '<span class="upcoming-speech-title">' + esc(row.speech_title) + '</span>' : '';
+
+            rowsHtml += '<tr>' +
+              '<td class="upcoming-slot-time">' + esc(timeStr) + '</td>' +
+              '<td>' + esc(row.role_name) + speechTitle + '</td>' +
+              '<td>' + memberCell + '</td>' +
+              '<td class="upcoming-dur">' + esc(durDisplay) + '</td>' +
+              '</tr>';
+          }
+        });
+
+        mount.innerHTML =
+          '<p class="eyebrow">Coming Up Next</p>' +
+          '<h2>Meeting Agenda</h2>' +
+          '<div class="upcoming-meta">' + metaHtml + '</div>' +
+          (a.agenda_notes ? '<p class="upcoming-agenda-notes">' + escNl2br(a.agenda_notes) + '</p>' : '') +
+          (rowsHtml
+            ? '<div class="upcoming-agenda-wrap"><table class="upcoming-agenda-table">' +
+              '<thead><tr><th class="col-time">Time</th><th>Agenda Item</th><th>Member</th><th class="col-dur">Duration</th></tr></thead>' +
+              '<tbody>' + rowsHtml + '</tbody></table></div>'
+            : '');
+
+        mount.style.display = '';
+      })
+      .catch(function() {});
+  }());
+
   // ── Meeting Pulse live refresh ────────────────────────────────────────────
   (function pollPulse() {
     const pulseSection = document.querySelector('[data-tmc-pulse]');

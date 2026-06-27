@@ -314,12 +314,6 @@ class TMP_Shortcodes {
                             <div data-tmp-level-journey></div>
                         </section>
 
-                        <!-- Single column sections below -->
-                        <section class="tmp-meeting-section" data-tmp-my-mentees-panel style="display:none;">
-                            <h4>My Mentees</h4>
-                            <div data-tmp-my-mentees>Loading...</div>
-                        </section>
-
                     </div><!-- /data-tmp-meeting-body -->
                 </article>
 
@@ -611,7 +605,7 @@ class TMP_Shortcodes {
                         <select data-tmp-vpe-pathway>
                             <option value="all">All Pathways</option>
                             <option>No pathway registered</option>
-                            <option>Enrolled — Pathway TBD</option>
+                            <option>Enrolled</option>
                             <option>Dynamic Leadership</option>
                             <option>Effective Coaching</option>
                             <option>Engaging Humor</option>
@@ -818,22 +812,16 @@ class TMP_Shortcodes {
                             <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Moment of Glory</button>
                             <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                         </div>
-                        <button class="tmp-button" data-tmp-declare-winners-btn style="margin-top:8px;background:#1e4a6e;color:#fff;border:none;">&#127942; Declare Winners</button>
-                        <button class="tmp-small-button" data-tmp-voting-results-btn style="margin-top:14px;">Show Live Results</button>
-                        <div data-tmp-voting-results style="display:none;margin-top:12px;"></div>
 
-                        <!-- Member voting link -->
-                        <div style="margin-top:18px;padding:12px;background:#f0f8ff;border-radius:6px;border:1px solid #cce5ff;">
-                            <p class="tmp-eyebrow" style="margin:0 0 4px;color:var(--tmp-teal);">Member Voting Link</p>
-                            <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 8px;">Generates a secure link valid for 24 hours. Share with members so they can vote without logging in.</p>
-                            <button type="button" class="tmp-small-button" data-tmp-gen-vote-link>Generate Link</button>
-                            <div data-tmp-vote-link-display style="display:none;margin-top:10px;">
-                                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                                    <code data-tmp-vote-link-url style="flex:1;background:#fff;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;word-break:break-all;"></code>
-                                    <button type="button" class="tmp-small-button" data-tmp-copy-vote-link>Copy</button>
-                                </div>
-                                <p data-tmp-vote-link-expiry style="font-size:0.78rem;color:var(--tmp-muted);margin:6px 0 0;"></p>
+                        <!-- Voting link — auto-generated on meeting select, valid 48 h -->
+                        <div style="margin-top:16px;padding:12px;background:#f0f8ff;border-radius:6px;border:1px solid #cce5ff;">
+                            <p class="tmp-eyebrow" style="margin:0 0 4px;color:var(--tmp-teal);">Moment of Glory Voting Link</p>
+                            <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 8px;">Share with attendees — they can vote without logging in. Valid for 48 hours.</p>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <code data-tmp-vote-link-url style="flex:1;background:#fff;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;word-break:break-all;color:var(--tmp-muted);">Select a meeting above…</code>
+                                <button type="button" class="tmp-small-button" data-tmp-copy-vote-link>Copy Link</button>
                             </div>
+                            <p data-tmp-vote-link-expiry style="font-size:0.78rem;color:var(--tmp-muted);margin:6px 0 0;"></p>
                         </div>
                     </div>
 
@@ -842,10 +830,18 @@ class TMP_Shortcodes {
                         <p class="tmp-eyebrow" style="margin:0 0 4px;">Rate the Speaker</p>
                         <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 12px;">Share feedback links with attendees during or after each speech. Review responses and email the rollup to each speaker, VPE, and mentor.</p>
                         <div data-tmp-speaker-feedback-list></div>
-                        <div data-tmp-speaker-feedback-email-wrap style="display:none;margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    </div>
+
+                    <!-- Post-meeting actions — Declare Winners, Results, Send Emails all in one row -->
+                    <div data-tmp-postmeeting-actions style="display:none;margin-top:24px;padding-top:20px;border-top:1px solid var(--tmp-line);">
+                        <p class="tmp-eyebrow" style="margin:0 0 10px;">Post-Meeting Actions</p>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            <button class="tmp-button" data-tmp-declare-winners-btn style="background:#1e4a6e;color:#fff;border:none;">&#127942; Declare Winners</button>
+                            <button class="tmp-small-button" data-tmp-voting-results-btn>Show Live Results</button>
                             <button class="tmp-button tmp-secondary" data-tmp-send-speaker-feedback-btn>&#9993; Send Feedback Emails</button>
                             <span data-tmp-speaker-feedback-email-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                         </div>
+                        <div data-tmp-voting-results style="display:none;margin-top:12px;"></div>
                     </div>
                 </section>
 

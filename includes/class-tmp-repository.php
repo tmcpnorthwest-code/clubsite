@@ -772,16 +772,16 @@ class TMP_Repository {
         $meeting_id = absint($meeting_id);
         $atbl       = self::assignment_table();
 
-        // Step 1: Snapshot member assignments only — keyed by base role.
-        // Rebuild always resets durations/timing to template defaults; only who plays
-        // each role is preserved. VPE can adjust durations after rebuild if needed.
+        // Step 1: Snapshot member assignments keyed by base role.
+        // Member assignments, speech titles, and per-slot durations (Speaker, TTM) are preserved.
+        // Other role durations reset to template defaults.
         $existing = $wpdb->get_results($wpdb->prepare(
-            "SELECT role_name, member_id, speech_title, presentation_series, status
+            "SELECT role_name, member_id, speech_title, presentation_series, status, duration, timer_duration
              FROM {$atbl} WHERE meeting_id = %d ORDER BY sort_order",
             $meeting_id
         ), ARRAY_A);
 
-        $saved        = []; // base_role → {member_id, speech_title, presentation_series, status}
+        $saved        = []; // base_role → {member_id, speech_title, presentation_series, status, duration, timer_duration}
         $speaker_nums = [];   // actual slot numbers that exist in the DB
         $role_set     = [];
 
@@ -796,13 +796,17 @@ class TMP_Repository {
                 $role_set[$base] = true;
             }
 
-            // Prefer the first row that has a member_id
+            // Prefer the first row that has a member_id; always keep the first duration seen.
             if (!isset($saved[$base]) || (!$saved[$base]['member_id'] && $row['member_id'])) {
+                $prev_dur       = $saved[$base]['duration']       ?? null;
+                $prev_timer_dur = $saved[$base]['timer_duration'] ?? null;
                 $saved[$base] = [
                     'member_id'           => $row['member_id'] ? absint($row['member_id']) : null,
                     'speech_title'        => $row['speech_title'] ?? null,
                     'presentation_series' => $row['presentation_series'] ?? null,
                     'status'              => $row['status'] ?? 'Planned',
+                    'duration'            => $row['duration'] ?? $prev_dur,
+                    'timer_duration'      => $row['timer_duration'] ?? $prev_timer_dur,
                 ];
             }
         }
@@ -828,7 +832,8 @@ class TMP_Repository {
         // Step 2: Delete all existing assignment rows for this meeting
         $wpdb->delete($atbl, ['meeting_id' => $meeting_id]);
 
-        // Step 3: Prescribed agenda — durations are always reset to these template values on rebuild.
+        // Step 3: Prescribed agenda — durations reset to configured template values on rebuild.
+        $durs  = self::get_agenda_durations();
         $agenda = [];
 
         // ── Opening ──────────────────────────────────────────────────────────────
@@ -871,7 +876,10 @@ class TMP_Repository {
         for ($i = 1; $i <= $total_speeches; $i++) {
             if (in_array('Toastmaster of the Day', $selected_roles))
                 $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Evaluator {$i} and Speaker {$i}", 'dur' => 1];
-            $agenda[]     = ['role' => "Speaker $i",             'note' => 'Speech',    'dur' => 7];
+            $spk_dur   = isset($saved["Speaker $i"]['duration']) && $saved["Speaker $i"]['duration'] > 0
+                         ? (int) $saved["Speaker $i"]['duration'] : $durs['speaker'];
+            $spk_timer = $saved["Speaker $i"]['timer_duration'] ?? null;
+            $agenda[]     = ['role' => "Speaker $i", 'note' => 'Speech', 'dur' => $spk_dur, 'timer_dur' => $spk_timer];
             $agenda[]     = ['role' => 'Toastmaster of the Day', 'note' => 'Feedback',  'dur' => 1];
         }
         if (in_array('Toastmaster of the Day', $selected_roles))
@@ -883,7 +891,9 @@ class TMP_Repository {
         if (in_array('Table Topics Master', $selected_roles)) {
             if (in_array('Toastmaster of the Day', $selected_roles))
                 $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Table Topics Master', 'dur' => 1];
-            $agenda[]     = ['role' => 'Table Topics Master',    'note' => 'Table Topics Session',           'dur' => 20];
+            $ttm_dur  = isset($saved['Table Topics Master']['duration']) && $saved['Table Topics Master']['duration'] > 0
+                        ? (int) $saved['Table Topics Master']['duration'] : $durs['ttm'];
+            $agenda[]     = ['role' => 'Table Topics Master', 'note' => 'Table Topics Session', 'dur' => $ttm_dur];
             if (in_array('Toastmaster of the Day', $selected_roles))
                 $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme interlude', 'dur' => 2];
         }
@@ -1239,10 +1249,10 @@ class TMP_Repository {
     // -------------------------------------------------------------------------
 
     public static function compute_mentorship_stage($member_id, $member) {
-        $level = (int) ($member['level'] ?? 1);
+        $level_completed = (int) ($member['level_completed'] ?? 0);
 
-        // Closed: Level 1 in DB means Level 1 is completed — mentor no longer needed
-        if ($level >= 1) {
+        // Closed: level_completed >= 1 means Level 1 is done — mentor no longer needed
+        if ($level_completed >= 1) {
             return 'closed';
         }
 
@@ -1360,13 +1370,28 @@ class TMP_Repository {
     // Open slots for member role requests
     // -------------------------------------------------------------------------
 
-    public static function get_open_slots() {
+    public static function get_available_meetings() {
+        global $wpdb;
+        $meetings = self::meeting_table();
+        $today    = current_time('Y-m-d');
+        $now      = current_time('mysql');
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT id, meeting_date, theme, venue, requests_close_at
+             FROM {$meetings}
+             WHERE meeting_date >= %s
+               AND (requests_close_at IS NULL OR requests_close_at >= %s)
+               AND (wrapped_up = 0 OR wrapped_up IS NULL)
+             ORDER BY meeting_date ASC",
+            $today, $now
+        ), ARRAY_A) ?: [];
+    }
+
+    public static function get_open_slots($meeting_id) {
         global $wpdb;
         $meetings    = self::meeting_table();
         $assignments = self::assignment_table();
         $history     = self::participation_history_table();
-        $today = current_time('Y-m-d');
-        $now   = current_time('mysql');
 
         $open_slots = $wpdb->get_results($wpdb->prepare(
             "SELECT m.id as meeting_id, m.meeting_date, m.theme, m.requests_close_at,
@@ -1374,15 +1399,12 @@ class TMP_Repository {
                     (SELECT COUNT(*) FROM " . self::request_table() . " r WHERE r.assignment_id = a.id) as current_requests
              FROM {$meetings} m
              JOIN {$assignments} a ON m.id = a.meeting_id
-             WHERE m.meeting_date >= %s
-               AND (m.requests_close_at IS NULL OR m.requests_close_at >= %s)
-               AND (m.wrapped_up = 0 OR m.wrapped_up IS NULL)
+             WHERE m.id = %d
                AND (a.member_id IS NULL OR a.member_id = 0 OR a.member_id = '')
                AND a.role_name NOT LIKE 'Break%%'
                AND a.role_name NOT LIKE 'Table Topics Speaker%%'
-             ORDER BY m.meeting_date ASC LIMIT 50",
-            $today,
-            $now
+             ORDER BY a.sort_order ASC, a.id ASC",
+            absint($meeting_id)
         ), ARRAY_A);
 
         $member       = self::current_member();
@@ -2287,6 +2309,7 @@ class TMP_Repository {
             $id = (int) $wpdb->insert_id;
 
             $selected_roles = $data['roles'] ?? [];
+            $durs  = self::get_agenda_durations();
             $agenda = [];
 
             // ── Opening ──────────────────────────────────────────────────────────
@@ -2323,7 +2346,7 @@ class TMP_Repository {
             for ($i = 1; $i <= $speech_slots; $i++) {
                 if (in_array('Toastmaster of the Day', $selected_roles))
                     $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Evaluator {$i} and Speaker {$i}", 'dur' => 1];
-                $agenda[]     = ['role' => "Speaker $i",             'note' => 'Speech',   'dur' => 7];
+                $agenda[]     = ['role' => "Speaker $i",             'note' => 'Speech',   'dur' => $durs['speaker']];
                 $agenda[]     = ['role' => 'Toastmaster of the Day', 'note' => 'Feedback', 'dur' => 1];
             }
             if (in_array('Toastmaster of the Day', $selected_roles))
@@ -2335,7 +2358,7 @@ class TMP_Repository {
             if (in_array('Table Topics Master', $selected_roles)) {
                 if (in_array('Toastmaster of the Day', $selected_roles))
                     $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Table Topics Master', 'dur' => 1];
-                $agenda[]     = ['role' => 'Table Topics Master',    'note' => 'Table Topics Session',           'dur' => 20];
+                $agenda[]     = ['role' => 'Table Topics Master',    'note' => 'Table Topics Session',           'dur' => $durs['ttm']];
                 if (in_array('Toastmaster of the Day', $selected_roles))
                     $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme interlude', 'dur' => 2];
             }
@@ -2396,6 +2419,15 @@ class TMP_Repository {
     // -------------------------------------------------------------------------
     // Timer guidance defaults
     // -------------------------------------------------------------------------
+
+    public static function get_agenda_durations() {
+        $saved = get_option('tmp_agenda_durations', null);
+        if ($saved) {
+            $decoded = json_decode($saved, true);
+            if (is_array($decoded)) return array_merge(['speaker' => 7, 'ttm' => 20], $decoded);
+        }
+        return ['speaker' => 7, 'ttm' => 20];
+    }
 
     public static function get_timing_defaults() {
         $saved = get_option('tmp_timing_rules', null);
@@ -3860,12 +3892,9 @@ class TMP_Repository {
         ];
     }
 
-    /**
-     * Generates a 24-hour voting token stored as a WP transient.
-     */
     public static function generate_vote_token() {
         $token = bin2hex(random_bytes(16));
-        set_transient('tmp_vote_' . $token, 1, DAY_IN_SECONDS);
+        set_transient('tmp_vote_' . $token, 1, 2 * DAY_IN_SECONDS);
         return $token;
     }
 
@@ -3986,19 +4015,14 @@ class TMP_Repository {
             ]);
         }
 
-        // ── Participation history: add for roles performed (skip existing) ───
+        // ── Participation history: clear + re-insert ─────────────────────────
+        $wpdb->delete($history_tbl, ['meeting_id' => $meeting_id]);
+
         foreach ((array) ($data['attendance'] ?? []) as $item) {
             if (empty($item['role_performed'])) continue;
             $mid = (int) ($item['member_id'] ?? 0);
             $aid = (int) ($item['assignment_id'] ?? 0);
             if (!$mid || !$aid) continue;
-
-            $exists = (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$history_tbl}
-                  WHERE member_id = %d AND assignment_id = %d",
-                $mid, $aid
-            ));
-            if ($exists) continue;
 
             $member   = self::get_member($mid);
             $role_row = $wpdb->get_row($wpdb->prepare(
@@ -4150,7 +4174,7 @@ class TMP_Repository {
      */
     public static function get_member_full_level_status($member_id): array {
         $member = self::get_member((int) $member_id);
-        $level  = (int)($member['level'] ?? 1);
+        $level  = max(1, (int)($member['level'] ?? 1));
 
         $speech_progress = self::get_member_level_speech_progress($member_id, $level);
         $role_gaps       = self::get_member_level_gaps($member_id, $level);

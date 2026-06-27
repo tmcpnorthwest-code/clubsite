@@ -630,35 +630,7 @@
       await renderProgressSummary();
       await renderLevelStatus();
 
-      // ── Mentee panel (only shown if user is a mentor) ─────────────────────────
-      const renderMenteePanel = async () => {
-        const panel     = qs("[data-tmp-my-mentees-panel]", root);
-        const container = qs("[data-tmp-my-mentees]", root);
-        if (!panel || !container) return;
-
-        const mentees = await api("/mentor/mentee-alerts").catch(() => []);
-        if (!mentees || mentees.length === 0) { panel.style.display = "none"; return; }
-
-        panel.style.display = "";
-        container.innerHTML = mentees.map((m) => {
-          const alertBadges = m.alerts.map((a) => {
-            const color = a.type === "ready_for_level_up" ? "#e8f5e9;color:#2e7d32" : "#fff3e0;color:#e65100";
-            const icon  = a.type === "ready_for_level_up" ? "✅" : "⚠";
-            return `<span class="tmp-badge" style="background:${color};font-size:0.8rem;padding:3px 8px;">${icon} ${esc(a.label)}</span>`;
-          }).join(" ");
-          const sp  = m.speech_progress;
-          const pct = sp ? Math.round((sp.done / sp.needed) * 100) : 0;
-          const spBar = sp ? `<div class="tmp-progress" style="height:6px;margin-top:6px;"><span style="width:${pct}%;background:var(--tmp-teal);"></span></div>
-            <small style="color:var(--tmp-muted);">${sp.done}/${sp.needed} speeches</small>` : "";
-          return `<div style="border:1px solid var(--tmp-line);border-radius:6px;padding:12px;margin-bottom:10px;">
-            <strong>${esc(m.name)}</strong> — <small>${esc(m.pathway)} · Level ${esc(m.level)}</small>
-            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">${alertBadges || '<span style="color:var(--tmp-muted);font-size:0.88rem;">No alerts</span>'}</div>
-            ${spBar}
-          </div>`;
-        }).join("");
-      };
-
-      await renderMenteePanel();
+      // (mentee panel removed — combined into mentor dashboard table below)
 
       // ── Active Requests (unified: all upcoming requests with live status) ─────
       const pendingData = await api("/me/pending-requests").catch(() => ({ requests: [] }));
@@ -815,54 +787,23 @@
       }
       const rHistEl = qs("[data-tmp-role-history]", root); if (rHistEl) rHistEl.innerHTML = roleHistoryHtml;
 
-      // ── Open slots ─────────────────────────────────────────────────────────
-      const slotsResp  = await api("/meetings/open-slots");
-      const memberLevel = Number(slotsResp.member_level || 1);
-      const participation = slotsResp.member_participation || {};
-      const levelHistory  = participation[memberLevel] || {};
-
-      const slots = ((slotsResp && Array.isArray(slotsResp.slots)) ? slotsResp.slots : [])
-        .filter((s) => {
-          const lower = s.role_name.toLowerCase();
-          if (lower.startsWith("break")) return false;
-          // Explicitly include TMOD/Toastmaster in all forms before excluding presiding officer
-          if (lower.includes("toastmaster")) return true;
-          if (lower.includes("presiding officer")) return false;
-          return true;
-        })
-        .map((s) => {
-          // Use server-computed qualification (based on level_completed, not working level)
-          let qualified   = !!s.qualified;
-          let requirement = s.requirement || "";
-
-          const base = s.role_name.replace(/\s*\(.*?\)\s*/g, "").replace(/\s+\d+$/, "").trim();
-          const cooloff = s.cooloff || null;
-          if (cooloff && cooloff.in_cooloff) {
-            qualified   = false;
-            requirement = `Cooloff until ${cooloff.eligible_from}`;
-          }
-
-          return { ...s, qualified, requirement, isGoal: !!s.is_goal, cooloff, base };
-        });
+      // ── Available meetings for role requests ───────────────────────────────
+      const availMeetings = await api("/meetings/available").catch(() => []);
 
       const reqForm  = qs("[data-tmp-member-request-form]", root);
       const mSelect  = qs("[data-tmp-req-meeting-select]", reqForm);
       const rSelects = qsa("[data-tmp-req-role-select]", reqForm);
 
       const reqSection = qs("[data-tmp-request-section]", root);
-      if (reqSection) reqSection.style.display = slots.length ? "" : "none";
+      if (reqSection) reqSection.style.display = availMeetings.length ? "" : "none";
 
-      root._groupedSlots = slots.reduce((acc, s) => {
-        const key = `${s.meeting_date} - ${s.theme}`;
-        if (!acc[key]) acc[key] = { id: s.meeting_id, text: key, roles: [] };
-        acc[key].roles.push(s);
-        return acc;
-      }, {});
+      root._availMeetings = availMeetings;
+      root._groupedSlots  = {}; // populated lazily when member selects a meeting
 
       if (mSelect) {
         mSelect.innerHTML = '<option value="">Select a meeting...</option>' +
-          Object.values(root._groupedSlots).map((g) =>
-            `<option value="${esc(g.id)}">${esc(g.text)} (${g.roles.length} roles open)</option>`
+          availMeetings.map((m) =>
+            `<option value="${esc(m.id)}">${esc(m.meeting_date + " - " + (m.theme || ""))}</option>`
           ).join("");
       }
 
@@ -883,35 +824,48 @@
         if (mentorDash) mentorDash.style.display = "block";
         const menteeList = qs("[data-tmp-mentee-list]", mentorDash);
         const STAGE_LABELS = {
-          no_mentor:            { label: "No Mentor",          bg: "#9e9e9e" },
-          assigned:             { label: "Mentor Assigned",    bg: "#1565c0" },
-          orientation_complete: { label: "Orientation Done",   bg: "#6a1b9a" },
-          icebreaker_delivered: { label: "Ice Breaker Done",   bg: "#2e7d32" },
-          level1_complete:      { label: "Level 1 Complete",   bg: "#ef6c00" },
-          closed:               { label: "Mentorship Closed",  bg: "#424242" },
+          no_mentor:            { label: "No Mentor",         bg: "#9e9e9e" },
+          assigned:             { label: "Mentor Assigned",   bg: "#1565c0" },
+          orientation_complete: { label: "Orientation Done",  bg: "#6a1b9a" },
+          icebreaker_delivered: { label: "Ice Breaker Done",  bg: "#2e7d32" },
+          level1_complete:      { label: "L1 Complete",       bg: "#ef6c00" },
+          closed:               { label: "L1 Done",           bg: "#424242" },
         };
         if (menteeList) menteeList.innerHTML = `
           <div class="tmp-table-wrap"><table class="tmp-table">
-            <thead><tr><th>Mentee</th><th>Stage</th><th>Participation</th><th>At Risk?</th><th>Level Progress</th><th>Your Next Action</th></tr></thead>
+            <thead><tr><th>Mentee</th><th>Stage</th><th>Gaps</th><th>Participation</th><th>Your Next Action</th></tr></thead>
             <tbody>${mentees.map((m) => {
-              const gapsMet      = (m.level_gaps || []).filter((g) => g.met).length;
-              const gapsTotal    = (m.level_gaps || []).length;
-              const gapBadge     = gapsTotal > 0 ? `${gapsMet}/${gapsTotal} L${m.level} reqs` : "";
+              const unmetGaps    = (m.level_gaps || []).filter((g) => !g.met);
+              const allMet       = unmetGaps.length === 0 && (m.level_gaps || []).length > 0;
               const noPathway    = (m.next_action || "").startsWith("Register for a Pathway");
               const stageMeta    = STAGE_LABELS[m.mentorship_stage] || STAGE_LABELS.no_mentor;
               const rowStyle     = m.is_at_risk ? "background:#fff8e1" : noPathway ? "background:#fce4ec" : "";
+
               const pathwayLabel = noPathway
                 ? `<span class="tmp-tag" style="background:#c62828;color:#fff;display:inline-block;margin-top:4px;">Not Enrolled</span>`
-                : `<small>${esc(m.pathway)}</small>`;
+                : `<small style="color:var(--tmp-muted)">${esc(m.pathway)} · L${m.level}</small>`;
+
+              const gapsHtml = noPathway ? "—"
+                : allMet
+                  ? `<span style="color:#2e7d32;font-size:0.85rem;">✓ All L${m.level} reqs met</span>`
+                  : unmetGaps.length === 0
+                    ? "—"
+                    : unmetGaps.map((g) =>
+                        `<span class="tmp-tag" style="background:#fff3e0;color:#e65100;font-size:0.78rem;display:inline-block;margin:2px 2px 2px 0;">⚠ ${esc(g.label)}</span>`
+                      ).join("");
+
+              const participationHtml = `${m.recent_participation_count} / ${m.total_recent_meetings_checked}`
+                + (m.is_at_risk ? ` <span style="color:red;font-weight:bold;font-size:0.8rem;">AT RISK</span>` : "");
+
               const mentorActionHtml = noPathway
-                ? `<a href="https://www.toastmasters.org/pathways-overview" target="_blank" rel="noopener" style="color:var(--tmp-burgundy);text-decoration:underline;font-size:0.85rem;">Help register on TI &rarr;</a>`
+                ? `<a href="https://www.toastmasters.org/pathways-overview" target="_blank" rel="noopener" style="color:var(--tmp-burgundy);text-decoration:underline;font-size:0.85rem;">Help register on TI →</a>`
                 : `<small style="color:var(--tmp-muted)">${esc(m.mentor_next_action || "—")}</small>`;
+
               return `<tr style="${rowStyle}">
                 <td data-label="Mentee"><strong>${esc(m.full_name)}</strong><br>${pathwayLabel}</td>
-                <td data-label="Stage"><span class="tmp-tag" style="background:${stageMeta.bg};color:#fff;">${esc(stageMeta.label)}</span><br><small style="color:var(--tmp-muted);font-size:0.8rem;margin-top:3px;display:block">${esc(m.next_action || "")}</small></td>
-                <td data-label="Participation">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
-                <td data-label="At Risk?">${m.is_at_risk ? '<span style="color:red;font-weight:bold;">YES</span>' : "No"}</td>
-                <td data-label="Level Progress">${gapBadge ? `<span class="tmp-tag" style="background:${gapsMet === gapsTotal ? "#2e7d32" : "#ef6c00"};color:#fff;">${gapBadge}</span>` : "—"}</td>
+                <td data-label="Stage"><span class="tmp-tag" style="background:${stageMeta.bg};color:#fff;">${esc(stageMeta.label)}</span></td>
+                <td data-label="Gaps">${gapsHtml}</td>
+                <td data-label="Participation">${participationHtml}</td>
                 <td data-label="Your Next Action">${mentorActionHtml}</td>
               </tr>`;
             }).join("")}</tbody></table></div>`;
@@ -1005,18 +959,19 @@
       }
     });
 
-    // Meeting select → populate role dropdowns with goal/cooloff tags
-    mSelect?.addEventListener("change", () => {
-      const group = Object.values(root._groupedSlots || {}).find((g) => String(g.id) === mSelect.value);
+    // Meeting select → fetch open slots on-demand, populate role dropdowns
+    mSelect?.addEventListener("change", async () => {
+      const meetingId   = mSelect.value;
+      const meetingMeta = (root._availMeetings || []).find((m) => String(m.id) === meetingId);
 
       // Check if request period has expired
       const now = new Date();
-      const deadlineExpired = group?.roles[0]?.requests_close_at && new Date(group.roles[0].requests_close_at) < now;
+      const deadlineExpired = meetingMeta?.requests_close_at && new Date(meetingMeta.requests_close_at) < now;
 
       // Show deadline info
       const deadlineEl = qs("[data-tmp-deadline-info]", reqForm);
-      if (deadlineEl && group?.roles[0]) {
-        const closeTime = group.roles[0].requests_close_at;
+      if (deadlineEl && meetingMeta) {
+        const closeTime = meetingMeta.requests_close_at;
         if (closeTime) {
           const closeDate = new Date(closeTime);
           const timeRemaining = closeDate - now;
@@ -1064,6 +1019,36 @@
       if (roleSection) roleSection.style.display = "";
       if (submitBtn) { submitBtn.style.display = ""; submitBtn.disabled = false; }
 
+      // Fetch and cache open slots for this meeting on first select
+      if (!root._groupedSlots[meetingId]) {
+        const slotsResp = await api(`/meetings/open-slots?meeting_id=${meetingId}`).catch(() => ({ slots: [] }));
+        const rawSlots = (slotsResp.slots || [])
+          .filter((s) => {
+            const lower = s.role_name.toLowerCase();
+            if (lower.startsWith("break")) return false;
+            if (lower.includes("toastmaster")) return true;
+            if (lower.includes("presiding officer")) return false;
+            return true;
+          })
+          .map((s) => {
+            let qualified   = !!s.qualified;
+            let requirement = s.requirement || "";
+            const base = s.role_name.replace(/\s*\(.*?\)\s*/g, "").replace(/\s+\d+$/, "").trim();
+            const cooloff = s.cooloff || null;
+            if (cooloff && cooloff.in_cooloff) {
+              qualified   = false;
+              requirement = `Cooloff until ${cooloff.eligible_from}`;
+            }
+            return { ...s, qualified, requirement, isGoal: !!s.is_goal, cooloff, base };
+          });
+        root._groupedSlots[meetingId] = {
+          id: parseInt(meetingId, 10),
+          text: meetingMeta ? `${meetingMeta.meeting_date} - ${meetingMeta.theme || ""}` : meetingId,
+          roles: rawSlots,
+        };
+      }
+      const group = root._groupedSlots[meetingId];
+
       const seen = new Set();
       const unique = [];
       if (group) {
@@ -1081,9 +1066,7 @@
       const qualified = unique.filter((r) => r.qualified).sort((a, b) => roleSort(a.display) - roleSort(b.display));
       const opts = '<option value="">(None)</option>' +
         qualified.map((r) => {
-          const slotCount = group.roles.filter((s) => s.base === r.base).length;
-          const label = slotCount > 1 ? `${r.display} (${slotCount} slots open)` : r.display;
-          return `<option value="${esc(r.base)}">${esc(label)}</option>`;
+          return `<option value="${esc(r.base)}">${esc(r.display)}</option>`;
         }).join("");
 
       const rSelects = qsa("[data-tmp-req-role-select]", reqForm);
@@ -3002,6 +2985,19 @@
             <span id="tmp-maps-url-status" style="font-size:12px;color:var(--tmp-muted);"></span>
           </div>
         </div>
+        <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--tmp-line);">
+          <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:600;">Default Agenda Slot Durations (applied when creating or rebuilding an agenda)</label>
+          <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:12px;">Speaker speech (min)
+              <input id="tmp-speaker-dur" type="number" min="1" max="60" value="${esc(clubSettings.speaker_duration || 7)}" style="width:60px;padding:3px 6px;margin-left:6px;border:1px solid #ddd;border-radius:4px;" />
+            </label>
+            <label style="font-size:12px;">Table Topics session (min)
+              <input id="tmp-ttm-dur" type="number" min="1" max="60" value="${esc(clubSettings.ttm_duration || 20)}" style="width:60px;padding:3px 6px;margin-left:6px;border:1px solid #ddd;border-radius:4px;" />
+            </label>
+            <button class="tmp-small-button tmp-primary" id="tmp-dur-save">Save</button>
+            <span id="tmp-dur-status" style="font-size:12px;color:var(--tmp-muted);"></span>
+          </div>
+        </div>
         <p style="font-size:12px;color:var(--tmp-muted);margin-bottom:10px;">
           Enter times as M:SS (e.g. <strong>5:00</strong>). These defaults auto-fill when you create a new meeting.
           You can override per slot in the Role Assignment form.
@@ -3046,6 +3042,29 @@
         btn.disabled = true;
         try {
           await api("/settings/club", { method: "POST", body: JSON.stringify({ default_maps_url: val }) });
+          if (status) { status.textContent = "Saved!"; status.style.color = "#2e7d32"; }
+          setTimeout(() => { if (status) status.textContent = ""; }, 2000);
+        } catch (err) {
+          if (status) { status.textContent = "Error: " + err.message; status.style.color = "#c62828"; }
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      qs("#tmp-dur-save", root)?.addEventListener("click", async () => {
+        const btn    = qs("#tmp-dur-save", root);
+        const status = qs("#tmp-dur-status", root);
+        const speakerVal = parseInt(qs("#tmp-speaker-dur", root)?.value, 10);
+        const ttmVal     = parseInt(qs("#tmp-ttm-dur", root)?.value, 10);
+        if (!speakerVal || !ttmVal) {
+          if (status) { status.textContent = "Enter valid minutes."; status.style.color = "#c62828"; }
+          return;
+        }
+        btn.disabled = true;
+        try {
+          await api("/settings/club", { method: "POST", body: JSON.stringify({ speaker_duration: speakerVal, ttm_duration: ttmVal }) });
+          clubSettings.speaker_duration = speakerVal;
+          clubSettings.ttm_duration     = ttmVal;
           if (status) { status.textContent = "Saved!"; status.style.color = "#2e7d32"; }
           setTimeout(() => { if (status) status.textContent = ""; }, 2000);
         } catch (err) {
@@ -3188,31 +3207,31 @@
     if (approveBtn) approveBtn.style.display = "block";
     if (body) { body.style.display = ""; if (toggleBtn) { toggleBtn.setAttribute("aria-expanded", "true"); const ch = toggleBtn.querySelector(".tmp-chevron"); if (ch) ch.style.transform = "rotate(90deg)"; } }
 
-    // Pivot: group all requests by role across all meetings
-    const roleMap = new Map();
-    for (const meeting of meetings) {
-      for (const role of meeting.roles) {
-        if (!roleMap.has(role.roleName)) roleMap.set(role.roleName, []);
-        for (const req of role.requests) {
-          roleMap.get(role.roleName).push({ ...req, meetingDate: meeting.meetingDate, theme: meeting.theme, meetingId: meeting.meetingId, openSlotsCount: role.openSlotsCount ?? 0 });
+    const buildAccordion = (filteredMeetings) => {
+      const roleMap = new Map();
+      for (const meeting of filteredMeetings) {
+        for (const role of meeting.roles) {
+          if (!roleMap.has(role.roleName)) roleMap.set(role.roleName, []);
+          for (const req of role.requests) {
+            roleMap.get(role.roleName).push({ ...req, meetingDate: meeting.meetingDate, theme: meeting.theme, meetingId: meeting.meetingId });
+          }
         }
       }
-    }
-    const sortedRoles = [...roleMap.keys()].sort((a, b) => roleSort(a) - roleSort(b));
+      const sortedRoles = [...roleMap.keys()].sort((a, b) => roleSort(a) - roleSort(b));
+      if (sortedRoles.length === 0) return "<p style=\"color:var(--tmp-muted);font-size:0.88rem;\">No pending requests for this meeting.</p>";
 
-    let html = '<div class="tmp-role-accordion">';
-    for (const roleName of sortedRoles) {
-      const reqs   = roleMap.get(roleName);
-      const roleId = 'racc-' + roleName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-      html += `<div class="tmp-role-accordion-item" data-accordion-item>
-        <button class="tmp-role-accordion-header" data-accordion-toggle aria-expanded="false" aria-controls="${esc(roleId)}">
-          <span>${esc(roleName)}</span>
-          <span style="display:flex;align-items:center;gap:6px;">
-            <span style="font-size:12px;color:#666;">${reqs.length} request${reqs.length !== 1 ? 's' : ''}</span>
-            ${(() => { const open = reqs[0]?.openSlotsCount ?? 0; return open > 0 ? `<span style="font-size:11px;color:#2e7d32;background:#e8f5e9;border-radius:4px;padding:1px 6px;">${open} slot${open !== 1 ? 's' : ''} open</span>` : `<span style="font-size:11px;color:#c62828;background:#ffebee;border-radius:4px;padding:1px 6px;">slots full</span>`; })()}
-            <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
-          </span>
-        </button>
+      let html = '<div class="tmp-role-accordion">';
+      for (const roleName of sortedRoles) {
+        const reqs   = roleMap.get(roleName);
+        const roleId = 'racc-' + roleName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+        html += `<div class="tmp-role-accordion-item" data-accordion-item>
+          <button class="tmp-role-accordion-header" data-accordion-toggle aria-expanded="false" aria-controls="${esc(roleId)}">
+            <span>${esc(roleName)}</span>
+            <span style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:12px;color:#666;">${reqs.length} request${reqs.length !== 1 ? "s" : ""}</span>
+              <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+            </span>
+          </button>
         <div id="${esc(roleId)}" class="tmp-role-accordion-body" style="display:none;">`;
 
       for (const req of reqs) {
@@ -3243,11 +3262,30 @@
         </div>`;
       }
 
-      html += `</div></div>`;
-    }
-    html += `</div>`;
+        html += `</div></div>`;
+      }
+      html += `</div>`;
+      return html;
+    };
 
-    list.innerHTML = html;
+    const renderFiltered = () => {
+      const filter = root._requestMeetingFilter ?? "";
+      const filtered = filter ? meetings.filter((m) => String(m.meetingId) === filter) : meetings;
+      const filterHtml = `<div style="margin-bottom:12px;">
+        <label style="font-size:0.85rem;color:var(--tmp-muted);margin-right:8px;">Filter by meeting:</label>
+        <select data-tmp-requests-meeting-filter style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
+          <option value="">All upcoming meetings</option>
+          ${meetings.map((m) => `<option value="${esc(String(m.meetingId))}"${String(m.meetingId) === filter ? " selected" : ""}>${esc(m.meetingDate)}${m.theme ? " — " + esc(m.theme) : ""}</option>`).join("")}
+        </select>
+      </div>`;
+      list.innerHTML = filterHtml + buildAccordion(filtered);
+      list.querySelector("[data-tmp-requests-meeting-filter]")?.addEventListener("change", (e) => {
+        root._requestMeetingFilter = e.target.value;
+        renderFiltered();
+      });
+    };
+
+    renderFiltered();
 
     // Accordion: one panel open at a time. Guard prevents stacking listeners across re-renders.
     if (!root._accordionListenerAdded) {
@@ -3361,12 +3399,11 @@
     const resultsBlock    = qs('[data-tmp-voting-results]', panel);
     const openPollBtn     = qs('[data-tmp-open-poll-btn]', panel);
     const pollStatus      = qs('[data-tmp-poll-status]', panel);
-    const declareWinnersBtn = qs('[data-tmp-declare-winners-btn]', panel);
-    const genLinkBtn      = qs('[data-tmp-gen-vote-link]', panel);
-    const linkDisplay     = qs('[data-tmp-vote-link-display]', panel);
-    const linkUrlEl       = qs('[data-tmp-vote-link-url]', panel);
-    const copyLinkBtn     = qs('[data-tmp-copy-vote-link]', panel);
-    const linkExpiryEl    = qs('[data-tmp-vote-link-expiry]', panel);
+    const declareWinnersBtn  = qs('[data-tmp-declare-winners-btn]', panel);
+    const linkUrlEl          = qs('[data-tmp-vote-link-url]', panel);
+    const copyLinkBtn        = qs('[data-tmp-copy-vote-link]', panel);
+    const linkExpiryEl       = qs('[data-tmp-vote-link-expiry]', panel);
+    const postMeetingActions = qs('[data-tmp-postmeeting-actions]', panel);
 
     let currentMeetingId = null;
     let pollTimer        = null;
@@ -3375,7 +3412,6 @@
 
     const rateSpeakerSection  = qs('[data-tmp-rate-speaker-section]', panel);
     const speakerFeedbackList = qs('[data-tmp-speaker-feedback-list]', panel);
-    const feedbackEmailWrap   = qs('[data-tmp-speaker-feedback-email-wrap]', panel);
     const sendFeedbackBtn     = qs('[data-tmp-send-speaker-feedback-btn]', panel);
     const feedbackEmailStatus = qs('[data-tmp-speaker-feedback-email-status]', panel);
 
@@ -3425,14 +3461,28 @@
       if (!currentMeetingId) {
         ttEntry.style.display = 'none';
         nomineesBlock.style.display = 'none';
-        if (rateSpeakerSection) rateSpeakerSection.style.display = 'none';
+        if (rateSpeakerSection)  rateSpeakerSection.style.display = 'none';
+        if (postMeetingActions)  postMeetingActions.style.display = 'none';
         return;
       }
       ttEntry.style.display = 'block';
       nomineesBlock.style.display = 'block';
+      if (postMeetingActions) postMeetingActions.style.display = 'block';
       loadNominees();
       pollTimer = setInterval(loadNominees, 30000);
       renderRateSpeakers(currentMeetingId);
+      autoGenerateVotingLink();
+    }
+
+    function autoGenerateVotingLink() {
+      if (linkUrlEl) linkUrlEl.textContent = 'Generating…';
+      if (linkExpiryEl) linkExpiryEl.textContent = '';
+      api('/voting/token', { method: 'POST' }).then(data => {
+        if (linkUrlEl)    linkUrlEl.textContent = data.url;
+        if (linkExpiryEl) linkExpiryEl.textContent = 'Valid until: ' + data.expires_at + ' UTC';
+      }).catch(() => {
+        if (linkUrlEl) linkUrlEl.textContent = 'Could not generate link — try refreshing.';
+      });
     }
 
     function loadNominees() {
@@ -3569,27 +3619,12 @@
       });
     }
 
-    // Generate member voting link
-    if (genLinkBtn) {
-      genLinkBtn.addEventListener('click', () => {
-        genLinkBtn.disabled = true;
-        genLinkBtn.textContent = 'Generating…';
-        api('/voting/token', { method: 'POST' }).then(data => {
-          if (linkUrlEl)    linkUrlEl.textContent = data.url;
-          if (linkExpiryEl) linkExpiryEl.textContent = 'Expires: ' + data.expires_at + ' UTC';
-          if (linkDisplay)  linkDisplay.style.display = 'block';
-          genLinkBtn.textContent = 'Regenerate';
-        }).catch(err => {
-          genLinkBtn.textContent = 'Generate Link';
-          alert('Could not generate link: ' + (err.message || 'unknown error'));
-        }).finally(() => { genLinkBtn.disabled = false; });
-      });
-    }
-
     if (copyLinkBtn && linkUrlEl) {
       copyLinkBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(linkUrlEl.textContent)
-          .then(() => { copyLinkBtn.textContent = 'Copied!'; setTimeout(() => { copyLinkBtn.textContent = 'Copy'; }, 2000); })
+        const url = linkUrlEl.textContent.trim();
+        if (!url || url.startsWith('Select') || url.startsWith('Could not') || url.startsWith('Generating')) return;
+        navigator.clipboard.writeText(url)
+          .then(() => { copyLinkBtn.textContent = 'Copied!'; setTimeout(() => { copyLinkBtn.textContent = 'Copy Link'; }, 2000); })
           .catch(() => {});
       });
     }
@@ -3655,7 +3690,6 @@
       if (!speakers.length) { rateSpeakerSection.style.display = 'none'; return; }
 
       rateSpeakerSection.style.display = 'block';
-      if (feedbackEmailWrap) feedbackEmailWrap.style.display = 'flex';
 
       // Load counts (non-blocking)
       const counts = await api(`/speech-feedback/counts/${mid}`).catch(() => ({}));
