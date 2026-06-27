@@ -1209,10 +1209,8 @@ class TMP_REST_API {
     public static function get_vote_nominees(WP_REST_Request $req) {
         $meeting_id = (int) $req->get_param('meeting_id');
 
-        // Always re-sync nominees from current assignments so stale entries
-        // (e.g. a speaker who was later unassigned) never linger.
-        // populate_vote_nominees() preserves VPE-added TT speakers.
-        TMP_Repository::populate_vote_nominees($meeting_id);
+        // Do NOT populate here — use /voting/nominees/refresh for that.
+        // Populating on every GET changes nominee IDs between render and vote submission.
 
         $nominees = TMP_Repository::get_vote_nominees($meeting_id);
         $meeting  = TMP_Repository::get_meeting($meeting_id);

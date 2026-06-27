@@ -1122,7 +1122,7 @@
 .tmp-vote-btn-name {
   flex: 1;
   font-weight: 600;
-  color: var(--tmp-dark);
+  color: var(--tmp-ink);
 }
 
 .tmp-vote-btn-role {

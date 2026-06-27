@@ -245,7 +245,7 @@
     }
     const res  = await fetch(url, { ...options, headers: { "Content-Type": "application/json", "X-WP-Nonce": TMPortal.nonce, ...(options.headers || {}) } });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.message || "Request failed");
+    if (!res.ok) { const e = new Error(data.message || 'Request failed'); e.code = data.code; throw e; }
     return data;
   }
 
@@ -3629,16 +3629,10 @@
       });
     }
 
-    // Results toggle
-    resultsBtn.addEventListener('click', () => {
+    // Results toggle with auto-refresh every 10s while open
+    let resultsInterval = null;
+    function loadResults() {
       if (!currentMeetingId) return;
-      const showing = resultsBlock.style.display !== 'none';
-      if (showing) {
-        resultsBlock.style.display = 'none';
-        resultsBtn.textContent = 'Show Live Results';
-        return;
-      }
-      resultsBtn.textContent = 'Loading…';
       api('/voting/results/' + currentMeetingId).then(data => {
         renderResults(data);
         resultsBlock.style.display = 'block';
@@ -3648,6 +3642,20 @@
         resultsBlock.style.display = 'block';
         resultsBtn.textContent = 'Show Live Results';
       });
+    }
+    resultsBtn.addEventListener('click', () => {
+      if (!currentMeetingId) return;
+      const showing = resultsBlock.style.display !== 'none';
+      if (showing) {
+        resultsBlock.style.display = 'none';
+        resultsBtn.textContent = 'Show Live Results';
+        clearInterval(resultsInterval);
+        resultsInterval = null;
+        return;
+      }
+      resultsBtn.textContent = 'Loading…';
+      loadResults();
+      resultsInterval = setInterval(loadResults, 10000);
     });
 
     function renderResults(data) {
@@ -4487,12 +4495,12 @@
         method: 'POST',
         body: JSON.stringify({ meeting_id: activeMeetingId, nominee_id: nomineeId, voter_token: voterToken }),
       }).then(() => {
-        voted[category] = nomineeId;
+        voted[category] = String(nomineeId);
         statusEl.textContent = '';
         checkPoll();
       }).catch(err => {
-        if ((err.message || '').includes('already_voted')) {
-          voted[category] = nomineeId; checkPoll();
+        if (err.code === 'already_voted') {
+          voted[category] = String(nomineeId); checkPoll();
         } else {
           statusEl.textContent = 'Vote failed — ' + (err.message || 'try again');
           statusEl.style.color = 'var(--tmp-burgundy)';
@@ -4578,12 +4586,12 @@
         method: 'POST',
         body: JSON.stringify({ meeting_id: activeMeetingId, nominee_id: nomineeId, voter_token: voterToken }),
       }).then(() => {
-        voted[category] = nomineeId;
+        voted[category] = String(nomineeId);
         statusEl.textContent = '';
         checkPoll();
       }).catch(err => {
-        if ((err.message || '').includes('already_voted')) {
-          voted[category] = nomineeId; checkPoll();
+        if (err.code === 'already_voted') {
+          voted[category] = String(nomineeId); checkPoll();
         } else {
           statusEl.textContent = 'Could not record vote — ' + (err.message || 'please try again');
           statusEl.style.color = 'var(--tmp-burgundy)';
