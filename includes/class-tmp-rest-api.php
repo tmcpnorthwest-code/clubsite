@@ -148,7 +148,7 @@ class TMP_REST_API {
             [
                 'methods'             => WP_REST_Server::READABLE,
                 'callback'            => [__CLASS__, 'meetings'],
-                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+                'permission_callback' => [__CLASS__, 'can_ex_com_meeting'], // Ex Com needs meeting list for voting/wrap-up panels
             ],
             [
                 'methods'             => WP_REST_Server::CREATABLE,
@@ -476,12 +476,12 @@ class TMP_REST_API {
             [
                 'methods'             => WP_REST_Server::READABLE,
                 'callback'            => [__CLASS__, 'get_meeting_wrap_up'],
-                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+                'permission_callback' => [__CLASS__, 'can_ex_com_meeting'],
             ],
             [
                 'methods'             => WP_REST_Server::CREATABLE,
                 'callback'            => [__CLASS__, 'save_meeting_wrap_up'],
-                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+                'permission_callback' => [__CLASS__, 'can_ex_com_meeting'],
             ],
         ]);
 
@@ -602,8 +602,14 @@ class TMP_REST_API {
         return current_user_can('tmp_manage_meetings');
     }
 
+    /** VPE OR Ex Com can access meeting-day data (voting, attendance, wrap-up). */
+    public static function can_ex_com_meeting() {
+        return current_user_can('tmp_manage_meetings') || current_user_can('tmp_ex_com_meeting');
+    }
+
     public static function can_manage_poll(WP_REST_Request $req) {
         if (current_user_can('tmp_manage_meetings')) return true;
+        if (current_user_can('tmp_ex_com_meeting')) return true;
         $saa_mid = TMP_Repository::get_saa_meeting_today_id();
         if (!$saa_mid) return false;
 

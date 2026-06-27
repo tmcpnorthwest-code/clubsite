@@ -5352,6 +5352,32 @@
     });
   }
 
+  // ===========================================================================
+  // EX COM MEETING-DAY PANEL
+  // Shows the voting + wrap-up panels at the top of the member dashboard only
+  // when: (a) user is Ex Com, (b) today has a meeting, (c) meeting is not complete.
+  // The panels themselves are initialized by initVotingPanel() / initWrapUpPanel()
+  // which auto-select today's meeting — this function only controls visibility.
+  // ===========================================================================
+
+  async function initExComPanel() {
+    const wrapper = qs("[data-tmp-excom-panel]");
+    if (!wrapper) return; // PHP did not render it (user is not Ex Com)
+
+    try {
+      const meetings = await api("/meetings");
+      const today = localDateStr(new Date());
+      const todayMeeting = (meetings || []).find(
+        (m) => m.meeting_date === today && !m.wrapped_up
+      );
+      if (todayMeeting) {
+        wrapper.style.display = "";
+      }
+    } catch (_) {
+      // If API fails (permissions issue or network), panel stays hidden
+    }
+  }
+
   function apiPublic(path, opts = {}) {
     const url = TMPortal.restUrl + path;
     return fetch(url, opts).then(async (r) => {
@@ -5372,6 +5398,7 @@
   initEnrolment();
   initVotingPanel();
   initWrapUpPanel();
+  initExComPanel();
   initRecognitionPanel();
   initMentorRating();
   initMyRecognition();

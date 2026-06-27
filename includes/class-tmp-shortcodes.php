@@ -64,6 +64,7 @@ class TMP_Shortcodes {
                 'email'            => wp_get_current_user()->user_email,
                 'canManageMembers' => current_user_can('tmp_manage_members'),
                 'canManageMeetings'=> current_user_can('tmp_manage_meetings'),
+                'canExCom'         => current_user_can('tmp_ex_com_meeting'),
             ] : null,
         ]);
     }
@@ -98,6 +99,137 @@ class TMP_Shortcodes {
         ?>
         <div class="tmp-portal" data-tmp-member-dashboard>
             <?php echo self::portal_topbar(); ?>
+
+            <?php if (current_user_can('tmp_ex_com_meeting')): ?>
+            <!-- ══ EX COM MEETING-DAY PANEL (shown by JS only when today has an incomplete meeting) ══ -->
+            <div data-tmp-excom-panel style="display:none;">
+
+                <!-- Meeting Day: Voting & Table Topics -->
+                <section class="tmp-panel" data-tmp-voting-panel>
+                    <div class="tmp-card-head">
+                        <div>
+                            <p class="tmp-eyebrow">Meeting Day</p>
+                            <h3 style="margin:0;">Voting &amp; Table Topics</h3>
+                        </div>
+                        <span data-tmp-voting-meeting-label style="color:var(--tmp-muted);font-size:0.85rem;"></span>
+                    </div>
+                    <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
+                        Select today&rsquo;s meeting to manage live voting. Add Table Topics speakers as they step up &mdash; the voting form on the home page updates automatically.
+                    </p>
+                    <label style="display:block;margin-bottom:16px;">
+                        Meeting
+                        <select data-tmp-voting-meeting-select style="display:block;width:100%;margin-top:4px;">
+                            <option value="">— select meeting —</option>
+                        </select>
+                    </label>
+                    <div data-tmp-tt-entry style="display:none;">
+                        <p class="tmp-eyebrow" style="margin-top:20px;">Table Topics Speakers</p>
+                        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
+                            <div style="flex:1;">
+                                <label style="display:block;margin-bottom:4px;font-size:0.88rem;font-weight:700;">Add speaker</label>
+                                <select data-tmp-tt-member-select style="display:block;width:100%;">
+                                    <option value="">— select member —</option>
+                                </select>
+                            </div>
+                            <button class="tmp-button tmp-primary" data-tmp-tt-add-btn style="flex-shrink:0;white-space:nowrap;">+ Add</button>
+                        </div>
+                        <div data-tmp-tt-guest-wrap style="display:none;margin-bottom:10px;">
+                            <input type="text" data-tmp-tt-name placeholder="Enter guest name" style="display:block;width:100%;" />
+                        </div>
+                        <div data-tmp-tt-speaker-list></div>
+                    </div>
+                    <div data-tmp-voting-nominees style="display:none;margin-top:20px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                            <p class="tmp-eyebrow" style="margin:0;">Current Nominees</p>
+                            <button class="tmp-small-button" data-tmp-refresh-nominees-btn title="Re-sync main and auxiliary nominees from confirmed role assignments">&#8635; Refresh from Assignments</button>
+                        </div>
+                        <div data-tmp-nominees-summary></div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
+                            <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Moment of Glory</button>
+                            <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
+                        </div>
+                        <div style="margin-top:16px;padding:12px;background:#f0f8ff;border-radius:6px;border:1px solid #cce5ff;">
+                            <p class="tmp-eyebrow" style="margin:0 0 4px;color:var(--tmp-teal);">Moment of Glory Voting Link</p>
+                            <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 8px;">Share with attendees &mdash; they can vote without logging in. Link is permanent for this meeting.</p>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <code data-tmp-vote-link-url style="flex:1;background:#fff;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;word-break:break-all;color:var(--tmp-muted);">Select a meeting above…</code>
+                                <button type="button" class="tmp-small-button" data-tmp-copy-vote-link>Copy Link</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div data-tmp-rate-speaker-section style="display:none;margin-top:24px;padding-top:20px;border-top:1px solid var(--tmp-line);">
+                        <p class="tmp-eyebrow" style="margin:0 0 4px;">Rate the Speaker</p>
+                        <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 12px;">Share feedback links with attendees during or after each speech. Review responses and email the rollup to each speaker, VPE, and mentor.</p>
+                        <div data-tmp-speaker-feedback-list></div>
+                    </div>
+                    <div data-tmp-postmeeting-actions style="display:none;margin-top:24px;padding-top:20px;border-top:1px solid var(--tmp-line);">
+                        <p class="tmp-eyebrow" style="margin:0 0 10px;">Post-Meeting Actions</p>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            <button class="tmp-button" data-tmp-declare-winners-btn style="background:#1e4a6e;color:#fff;border:none;">&#127942; Declare Winners</button>
+                            <button class="tmp-small-button" data-tmp-voting-results-btn>Show Live Results</button>
+                            <button class="tmp-button tmp-secondary" data-tmp-send-speaker-feedback-btn>&#9993; Send Feedback Emails</button>
+                            <span data-tmp-speaker-feedback-email-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
+                        </div>
+                        <div data-tmp-voting-results style="display:none;margin-top:12px;"></div>
+                    </div>
+                </section>
+
+                <!-- After the Meeting: Wrap-Up (Complete Meeting hidden — VPE only) -->
+                <section class="tmp-panel" data-tmp-wrapup-panel>
+                    <div class="tmp-card-head">
+                        <div>
+                            <p class="tmp-eyebrow">After the Meeting</p>
+                            <h3 style="margin:0;">Meeting Wrap-Up</h3>
+                        </div>
+                        <span data-tmp-wrapup-badge style="display:none;background:#e8f5e9;color:#2e7d32;border:1px solid #4caf50;border-radius:20px;padding:3px 10px;font-size:0.78rem;font-weight:700;">&#10003; Completed</span>
+                    </div>
+                    <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
+                        Record who attended and add guests. VPE will complete the meeting record.
+                    </p>
+                    <label style="display:block;margin-bottom:16px;">
+                        Meeting
+                        <select data-tmp-wrapup-meeting-select style="display:block;width:100%;margin-top:4px;">
+                            <option value="">— select meeting —</option>
+                        </select>
+                    </label>
+                    <div data-tmp-wrapup-content style="display:none;">
+                        <div style="background:#f5f9f5;border:1px solid #c8e6c9;border-radius:6px;padding:12px 14px;margin-bottom:20px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                                <div>
+                                    <p class="tmp-eyebrow" style="margin:0 0 2px;">Role Attendance</p>
+                                    <p data-tmp-role-attendance-count style="margin:0;font-size:0.88rem;color:var(--tmp-muted);">Loading…</p>
+                                </div>
+                                <button class="tmp-link-button" data-tmp-refresh-role-attendance style="font-size:0.82rem;color:var(--tmp-teal);">&#8634; Refresh from Assignments</button>
+                            </div>
+                        </div>
+                        <div style="margin-bottom:20px;">
+                            <p class="tmp-eyebrow" style="margin-bottom:6px;">Also Attended <span style="font-weight:400;font-size:0.78rem;color:var(--tmp-muted);">(no assigned role)</span></p>
+                            <div style="position:relative;">
+                                <input type="text" data-tmp-walkin-search placeholder="Search member name…" autocomplete="off"
+                                       style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
+                                <div data-tmp-walkin-dropdown style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid var(--tmp-line);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:100;max-height:220px;overflow-y:auto;"></div>
+                            </div>
+                            <div data-tmp-walkin-list style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+                        </div>
+                        <div style="margin-bottom:20px;">
+                            <p class="tmp-eyebrow" style="margin-bottom:6px;">Guests</p>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <input type="text" data-tmp-guest-name placeholder="Guest name" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
+                                <button class="tmp-button tmp-primary" data-tmp-add-guest-btn style="flex-shrink:0;white-space:nowrap;padding:8px 14px;">+ Add Guest</button>
+                            </div>
+                            <div data-tmp-guests-list style="margin-top:8px;"></div>
+                        </div>
+                        <div class="tmp-wrapup-actions">
+                            <!-- Complete Meeting is VPE-only; button kept in DOM (hidden) so JS binding doesn't throw -->
+                            <button class="tmp-button tmp-primary" data-tmp-complete-meeting-btn style="display:none;">&#10003; Complete Meeting</button>
+                            <span data-tmp-wrapup-save-status style="font-size:0.82rem;"></span>
+                        </div>
+                    </div>
+                </section>
+
+            </div><!-- /data-tmp-excom-panel -->
+            <?php endif; ?>
+
             <div class="tmp-panel">
                 <p class="tmp-eyebrow">Member dashboard</p>
                 <div class="tmp-member-header">

@@ -67,6 +67,7 @@ class TMP_Activator {
         self::migrate_v160_speech_feedback();
         self::migrate_v170_request_role_name();
         self::migrate_v180_chapter_number();
+        self::migrate_v190_ex_com_role();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -103,10 +104,16 @@ class TMP_Activator {
             'tmp_manage_members' => true,
             'tmp_view_all_members' => true,
         ));
+        add_role('tm_ex_com', 'Ex Com Member', array(
+            'read' => true,
+            'tmp_ex_com_meeting' => true,
+            'tmp_view_all_members' => true,
+        ));
 
         self::grant_caps('tm_member', array('read'));
         self::grant_caps('tm_admin', array('read', 'tmp_manage_members', 'tmp_manage_meetings', 'tmp_view_all_members'));
         self::grant_caps('tm_vp_education', array('read', 'tmp_manage_members', 'tmp_manage_meetings', 'tmp_view_all_members'));
+        self::grant_caps('tm_ex_com', array('read', 'tmp_ex_com_meeting', 'tmp_view_all_members'));
         self::grant_caps('administrator', array('tmp_manage_members', 'tmp_manage_meetings', 'tmp_view_all_members'));
     }
 
@@ -690,6 +697,14 @@ class TMP_Activator {
             $base = preg_replace('/\s+\d+(\s+\(.*\))?$/', '', $row['slot_name']);
             $wpdb->update($requests, ['role_name' => $base], ['id' => (int) $row['id']]);
         }
+    }
+
+    /**
+     * v0.19.0: Add tm_ex_com role with meeting-day capabilities.
+     * add_role() is a no-op if the role already exists, so safe to re-run.
+     */
+    private static function migrate_v190_ex_com_role() {
+        self::create_roles(); // add_role is idempotent; also re-grants caps to all roles
     }
 
     private static function migrate_v180_chapter_number() {

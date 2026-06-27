@@ -664,7 +664,7 @@ if ($next_meeting) {
     <div class="footer-top">
       <div class="footer-brand">
         <strong>Toastmasters Club of Pune North West</strong>
-        <p>Affiliated with Toastmasters International &middot; District 98</p>
+        <p>Affiliated with Toastmasters International &middot; District 125</p>
       </div>
       <div class="footer-social">
         <a href="https://www.facebook.com/tmcpnorthwest/" class="social-link social-link--fb" target="_blank" rel="noopener" aria-label="Facebook">
