@@ -152,6 +152,19 @@ a {
   color: #a5f3fc;
 }
 
+.hero-chip-agenda {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #a5f3fc;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+.hero-chip-agenda:hover {
+  opacity: 1;
+}
+
 /* ── Typography ───────────────────────────────────────────────────────────── */
 
 .eyebrow {

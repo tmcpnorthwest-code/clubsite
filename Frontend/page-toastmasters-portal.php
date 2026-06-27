@@ -13,6 +13,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// ── Prevent page-cache plugins from caching this page — all sections are dynamic
+define('DONOTCACHEPAGE', true);
+nocache_headers();
+
 // ── YouTube channel handle (the part after @)
 define('TMC_YT_CHANNEL', 'tmcpnorthwest567');
 
@@ -241,6 +245,9 @@ if ($next_meeting) {
         <?php endif; ?>
         <?php if (!empty($next_meeting['theme'])) : ?>
           &middot; <em><?php echo esc_html($next_meeting['theme']); ?></em>
+        <?php endif; ?>
+        <?php if (!empty($next_meeting['is_published'])) : ?>
+          &middot; <a class="hero-chip-agenda" href="#tmc-upcoming">View Agenda ↓</a>
         <?php endif; ?>
       </div>
     <?php endif; ?>
