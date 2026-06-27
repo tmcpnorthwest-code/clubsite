@@ -31,6 +31,18 @@ class TMP_Shortcodes {
         ]);
     }
 
+    private static function tm_logo_data_url() {
+        $path = TMP_PLUGIN_DIR . 'assets/logo.png';
+        if (file_exists($path)) {
+            $data = @file_get_contents($path);
+            if ($data !== false) {
+                return 'data:image/png;base64,' . base64_encode($data);
+            }
+            return TMP_PLUGIN_URL . 'assets/logo.png';
+        }
+        return '';
+    }
+
     private static function enqueue() {
         wp_enqueue_style('tmp-portal');
         wp_enqueue_script('tmp-portal');
@@ -43,7 +55,9 @@ class TMP_Shortcodes {
             'logoutUrl'      => wp_logout_url(home_url('/')),
             'clubName'       => get_bloginfo('name'),
             'clubVenue'      => get_option('tmp_default_venue', ''),
+            'clubMission'    => get_option('tmp_club_mission', ''),
             'logoUrl'        => get_site_icon_url(80) ?: '',
+            'tmLogoUrl'      => self::tm_logo_data_url(),
             'currentUser'    => is_user_logged_in() ? [
                 'id'               => get_current_user_id(),
                 'name'             => wp_get_current_user()->display_name,
@@ -682,6 +696,7 @@ class TMP_Shortcodes {
                         <div data-tmp-meeting-form-body style="display:none;margin-top:14px;">
                         <form class="tmp-form" data-tmp-meeting-form>
                             <input type="hidden" name="id" />
+                            <label>Chapter Meeting # <input type="number" name="chapter_number" min="1" placeholder="e.g. 477" style="width:120px;" /></label>
                             <label>Meeting date <input type="date" name="meeting_date" required /></label>
                             <label>Start time <input type="time" name="start_time" value="18:30" /></label>
                             <label>Total Duration (mins) <input type="number" name="total_duration" value="120" min="0" /></label>

@@ -66,6 +66,7 @@ class TMP_Activator {
         self::migrate_v150_timer_duration();
         self::migrate_v160_speech_feedback();
         self::migrate_v170_request_role_name();
+        self::migrate_v180_chapter_number();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -176,6 +177,7 @@ class TMP_Activator {
             start_time TIME NULL,
             total_duration INT UNSIGNED NOT NULL DEFAULT 120,
             requests_close_at DATETIME NULL,
+            chapter_number INT UNSIGNED NULL,
             theme VARCHAR(190) NOT NULL,
             venue VARCHAR(190) NULL,
             agenda_notes TEXT NULL,
@@ -687,6 +689,15 @@ class TMP_Activator {
             // "Speaker 1 (Speech)" → "Speaker", "Evaluator 2 (Evaluation)" → "Evaluator"
             $base = preg_replace('/\s+\d+(\s+\(.*\))?$/', '', $row['slot_name']);
             $wpdb->update($requests, ['role_name' => $base], ['id' => (int) $row['id']]);
+        }
+    }
+
+    private static function migrate_v180_chapter_number() {
+        global $wpdb;
+        $meetings = $wpdb->prefix . 'tmp_meetings';
+        $cols = $wpdb->get_col("DESCRIBE {$meetings}");
+        if (!in_array('chapter_number', $cols, true)) {
+            $wpdb->query("ALTER TABLE {$meetings} ADD COLUMN chapter_number INT UNSIGNED NULL AFTER requests_close_at");
         }
     }
 

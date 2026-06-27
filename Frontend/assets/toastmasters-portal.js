@@ -261,14 +261,24 @@
         var startFmt = startMins !== null ? fmtMins(startMins) : '';
         var endFmt   = (endMins !== null && startMins !== null) ? fmtMins(endMins) : '';
 
+        // Ordinal suffix helper (476th, 477th, etc.)
+        function ordinalSuffix(n) {
+          var s = ['th','st','nd','rd'], v = n % 100;
+          return n + (s[(v - 20) % 10] || s[v] || s[0]);
+        }
+
         // Meta header
-        var metaHtml = '<span class="upcoming-date">' + esc(dateFmt) + '</span>';
-        if (a.theme)    metaHtml += '<span class="upcoming-theme">“' + esc(a.theme) + '”</span>';
-        if (a.venue)    metaHtml += '<span class="upcoming-venue">' + esc(a.venue) + '</span>';
-        if (a.maps_url) metaHtml += '<a class="upcoming-directions" href="' + esc(a.maps_url) + '" target="_blank" rel="noopener noreferrer">Get directions &#x2197;</a>';
+        var metaHtml = '';
+        if (a.chapter_number) {
+          metaHtml += '<span class=”upcoming-chapter”>' + esc(ordinalSuffix(parseInt(a.chapter_number, 10)) + ' Chapter Meeting') + '</span>';
+        }
+        metaHtml += '<span class=”upcoming-date”>' + esc(dateFmt) + '</span>';
+        if (a.theme)    metaHtml += '<span class=”upcoming-theme”>”' + esc(a.theme) + '”</span>';
+        if (a.venue)    metaHtml += '<span class=”upcoming-venue”>' + esc(a.venue) + '</span>';
+        if (a.maps_url) metaHtml += '<a class=”upcoming-directions” href=”' + esc(a.maps_url) + '” target=”_blank” rel=”noopener noreferrer”>Get directions &#x2197;</a>';
         if (startFmt) {
           var timeStr = startFmt + (endFmt ? ' – ' + endFmt : '');
-          metaHtml += '<span class="upcoming-time">' + esc(timeStr) + '</span>';
+          metaHtml += '<span class=”upcoming-time”>' + esc(timeStr) + '</span>';
         }
 
         // Agenda rows — filter and render

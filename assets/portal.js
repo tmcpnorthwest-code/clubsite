@@ -72,23 +72,32 @@
     const startTotal = startH * 60 + startMin;
     const totalDur   = Number(meeting.total_duration || 120);
     const endTotal   = startTotal + totalDur;
-    const timeRange  = `${formatTime(startTotal)} - ${formatTime(endTotal)}`;
+    const timeRange  = `${formatTime(startTotal)} – ${formatTime(endTotal)}`;
 
-    // Extract TMOD name from assignments
-    const tmodAsgn  = (meeting.assignments || []).find((a) =>
+    const tmodAsgn = (meeting.assignments || []).find((a) =>
       /toastmaster of the day|tmod/i.test(a.role_name) && a.member_name
     );
-    const tmodName  = tmodAsgn ? tmodAsgn.member_name : "";
+    const tmodName = tmodAsgn ? tmodAsgn.member_name : "";
 
-    // Pretty date
-    const meetDate  = new Date(meeting.meeting_date + "T00:00:00");
-    const dateStr   = meetDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+    const meetDate = new Date(meeting.meeting_date + "T00:00:00");
+    const dateStr  = meetDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
 
-    const venue    = meeting.venue || TMPortal.clubVenue || "";
-    const clubName = TMPortal.clubName || "Toastmasters Club";
-    const logoUrl  = TMPortal.logoUrl || "";
+    const venue       = meeting.venue || TMPortal.clubVenue || "";
+    const clubName    = TMPortal.clubName || "Toastmasters Club";
+    const clubMission = TMPortal.clubMission || "";
 
-    // Format seconds as M or M:SS (omit seconds when :00)
+    const ordinalSuffix = (n) => {
+      const s = ["th", "st", "nd", "rd"], v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    };
+    const chapterNum = meeting.chapter_number ? parseInt(meeting.chapter_number, 10) : 0;
+
+    const logoSrc  = TMPortal.tmLogoUrl || TMPortal.logoUrl || "";
+    const logoHtml = logoSrc
+      ? `<img src="${logoSrc}" alt="" style="width:88px;height:88px;object-fit:contain;display:block;">`
+      : `<div style="width:88px;height:88px;background:#8f1737;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:24px;">TM</div>`;
+
+    // Format seconds as M or M:SS
     const fmtT = (secs) => {
       const n = Number(secs);
       if (!n) return "";
@@ -97,69 +106,68 @@
       return ss === 0 ? String(mm) : `${mm}:${String(ss).padStart(2, "0")}`;
     };
 
-    // Section header auto-detection flags
-    const shown = {};
     const sectionRow = (label) => `<tr class="pv-section"><td colspan="6">${label}</td></tr>`;
-
-    let t = startTotal;
-    let bodyRows = "";
-
-    // Pre-meeting gathering row (20 min before start)
-    bodyRows += `<tr class="pv-gather"><td>${formatTime(startTotal - 20)}</td><td></td><td></td><td></td><td>Gathering &amp; Networking</td><td>All Participants</td></tr>`;
-
     const assignments = meeting.assignments || [];
+
+    // ── Pass 1: pre-scan section header positions ─────────────────────────────
+    const isReportRole = (rn) => {
+      const rL = rn.toLowerCase();
+      return (rL.includes("timer") || rL.includes("ah-counter") ||
+              rL.includes("grammarian") || rL.includes("active listener") ||
+              rL.includes("general evaluator")) && rL.includes("report");
+    };
+    const sec = {};
     for (let i = 0; i < assignments.length; i++) {
-      const a      = assignments[i];
-      const start  = formatTime(t);
-      const dur    = Number(a.duration || 0);
+      const rn   = assignments[i].role_name;
+      const rLow = rn.toLowerCase();
+      if (sec.speeches    === undefined && /\bspeaker\s+\d+\b/i.test(rn))          sec.speeches    = i;
+      if (sec.tabletopics === undefined && rLow.includes("table topics master"))     sec.tabletopics = i;
+      if (sec.evaluation  === undefined && /\bevaluator\s+\d+\b/i.test(rn))         sec.evaluation  = i;
+      if (sec.conclusion  === undefined && /presiding/i.test(rLow) &&
+          (rLow.includes("closing") || rLow.includes("guest feedback")))             sec.conclusion  = i;
+    }
+    const lastMajorIdx = Math.max(sec.speeches ?? -1, sec.tabletopics ?? -1, sec.evaluation ?? -1);
+    for (let i = 0; i < assignments.length; i++) {
+      if (i <= lastMajorIdx) continue;
+      if (isReportRole(assignments[i].role_name)) { sec.reports = i; break; }
+    }
+    const headerAt = new Map();
+    if (sec.speeches    !== undefined) headerAt.set(sec.speeches,    "Prepared Speeches");
+    if (sec.tabletopics !== undefined) headerAt.set(sec.tabletopics, "Table Topics Session");
+    if (sec.evaluation  !== undefined) headerAt.set(sec.evaluation,  "Evaluation Session");
+    if (sec.reports     !== undefined) headerAt.set(sec.reports,     "Role-player’s Report");
+    if (sec.conclusion  !== undefined) headerAt.set(sec.conclusion,  "Conclusion");
+
+    // ── Pass 2: render in exact sort_order ────────────────────────────────────
+    let t = startTotal;
+    let bodyRows = `<tr class="pv-gather"><td>${formatTime(startTotal - 20)}</td><td></td><td></td><td></td><td>Gathering &amp; Networking</td><td>All Participants</td></tr>`;
+
+    for (let i = 0; i < assignments.length; i++) {
+      const a       = assignments[i];
+      const start   = formatTime(t);
+      const dur     = Number(a.duration || 0);
       t += dur;
-      const rLow   = a.role_name.toLowerCase();
+      const rLow    = a.role_name.toLowerCase();
       const isBreak = rLow.startsWith("break");
 
-      // ── Section header injection ──
-      // Use \bspeaker\s+\d+\b / \bevaluator\s+\d+\b to match only numbered slots,
-      // preventing TMOD "Introduces … Speaker N" notes from firing these too early.
-      if (!shown.speeches && /\bspeaker\s+\d+\b/i.test(a.role_name)) {
-        bodyRows += sectionRow("Prepared Speeches");
-        shown.speeches = true;
-      } else if (!shown.tabletopics && rLow.includes("table topics master")) {
-        bodyRows += sectionRow("Table Topics Session");
-        shown.tabletopics = true;
-      } else if (!shown.evaluation && /\bevaluator\s+\d+\b/i.test(a.role_name)) {
-        bodyRows += sectionRow("Evaluation Session");
-        shown.evaluation = true;
-      } else if (!shown.reports && (rLow.includes("timer") || rLow.includes("ah-counter") || rLow.includes("grammarian")) && rLow.includes("report")) {
-        bodyRows += sectionRow("Role-player’s Report");
-        shown.reports = true;
-      } else if (!shown.conclusion && /presiding/i.test(rLow) && (rLow.includes("closing") || rLow.includes("guest feedback"))) {
-        bodyRows += sectionRow("Conclusion");
-        shown.conclusion = true;
-      }
+      if (headerAt.has(i)) bodyRows += sectionRow(headerAt.get(i));
 
       if (isBreak) {
         bodyRows += `<tr class="pv-break"><td>${start}</td><td></td><td></td><td></td><td colspan="2" style="text-align:center;font-weight:bold;letter-spacing:0.05em;">— Break —</td></tr>`;
         continue;
       }
-
       const tg  = fmtT(a.time_green);
       const ty  = fmtT(a.time_yellow);
       const tr_ = fmtT(a.time_red);
-      const activity = esc(a.role_name) + (a.speech_title ? `<br><span class="pv-subtitle">${esc(a.speech_title)}</span>` : "");
-      const presenter = esc(a.member_name || "");
-
       bodyRows += `<tr>
         <td class="pv-time">${start}</td>
         <td class="pv-g">${tg}</td>
         <td class="pv-y">${ty}</td>
         <td class="pv-r">${tr_}</td>
-        <td>${activity}</td>
-        <td class="pv-presenter">${presenter}</td>
+        <td>${esc(a.role_name)}${a.speech_title ? `<br><span class="pv-subtitle">${esc(a.speech_title)}</span>` : ""}</td>
+        <td class="pv-presenter">${esc(a.member_name || "")}</td>
       </tr>`;
     }
-
-    const logoHtml = logoUrl
-      ? `<img src="${esc(logoUrl)}" alt="Logo" style="width:64px;height:64px;object-fit:contain;">`
-      : `<div style="width:64px;height:64px;background:#8f1737;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:22px;letter-spacing:-1px;">TM</div>`;
 
     const notesHtml = meeting.agenda_notes
       ? `<p style="margin-top:20px;font-size:11px;color:#666;font-style:italic;white-space:pre-wrap;">${esc(meeting.agenda_notes)}</p>`
@@ -170,37 +178,36 @@
       <title>Meeting Agenda – ${esc(meeting.meeting_date)}</title>
       <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: "Segoe UI", Arial, sans-serif; font-size: 12px; color: #111; background: #fff; padding: 28px 32px; }
+        body { font-family: "Segoe UI", Arial, sans-serif; font-size: 12px; color: #111; background: #fff; padding: 32px 36px; }
 
         /* ── Header ── */
-        .pv-header { display: flex; align-items: flex-start; gap: 18px; padding-bottom: 14px; border-bottom: 2px solid #8f1737; margin-bottom: 14px; }
+        .pv-header { margin-bottom: 14px; }
+        .pv-header-top { display: flex; align-items: center; gap: 20px; padding-bottom: 14px; border-bottom: 1px solid #ddd; }
         .pv-header-logo { flex-shrink: 0; }
-        .pv-header-meta { flex: 1; }
-        .pv-club-name { font-size: 15px; font-weight: 700; color: #8f1737; line-height: 1.2; }
-        .pv-meta-line { font-size: 11px; color: #444; margin-top: 3px; }
-        .pv-header-title { text-align: center; }
-        .pv-agenda-title { font-size: 22px; font-weight: 900; color: #18324a; letter-spacing: 0.02em; }
+        .pv-club-name  { font-size: 16px; font-weight: 700; color: #8f1737; line-height: 1.3; margin-bottom: 4px; }
+        .pv-meta-line  { font-size: 11.5px; color: #444; margin-top: 4px; }
+        .pv-header-title { text-align: center; padding: 14px 0 10px; border-bottom: 2px solid #8f1737; }
+        .pv-agenda-title { font-size: 15px; font-weight: 600; color: #555; letter-spacing: 0.08em; text-transform: uppercase; }
+        .pv-chapter-num  { font-size: 26px; font-weight: 900; color: #18324a; letter-spacing: 0.01em; margin-top: 2px; line-height: 1.1; }
+        .pv-mission { font-size: 10.5px; color: #444; font-style: italic; border: 1px solid #e0e0e0; border-radius: 3px; padding: 6px 14px; margin: 10px 0 14px; text-align: center; line-height: 1.6; }
 
         /* ── Table ── */
-        table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 4px; }
         thead tr { background: #18324a; color: #fff; }
-        thead th { padding: 7px 8px; font-size: 11px; font-weight: 600; text-align: center; letter-spacing: 0.04em; text-transform: uppercase; }
-        thead th:nth-child(5) { text-align: left; }
-        thead th:nth-child(6) { text-align: left; }
-        tbody tr { border-bottom: 1px solid #e0e0e0; }
+        thead th { padding: 9px 10px; font-size: 11px; font-weight: 600; text-align: center; letter-spacing: 0.04em; text-transform: uppercase; }
+        thead th:nth-child(5), thead th:nth-child(6) { text-align: left; }
+        tbody tr { border-bottom: 1px solid #e8e8e8; }
         tbody tr:nth-child(even):not(.pv-section):not(.pv-break):not(.pv-gather) { background: #f9f9f9; }
-        td { padding: 6px 8px; vertical-align: middle; }
-        .pv-time { white-space: nowrap; font-weight: 600; font-size: 11px; color: #444; }
+        td { padding: 9px 10px; vertical-align: middle; }
+        .pv-time { white-space: nowrap; font-weight: 600; font-size: 11.5px; color: #333; }
         .pv-g { color: #2e7d32; font-weight: 700; text-align: center; }
         .pv-y { color: #b8860b; font-weight: 700; text-align: center; }
         .pv-r { color: #c62828; font-weight: 700; text-align: center; }
         .pv-presenter { font-style: italic; color: #333; }
-        .pv-subtitle { font-size: 10px; color: #666; }
-
-        /* ── Special rows ── */
-        .pv-section td { background: #18324a; color: #fff; font-weight: 700; text-align: center; padding: 5px 8px; letter-spacing: 0.06em; text-transform: uppercase; font-size: 10.5px; }
-        .pv-break td { background: #f0f0f0; color: #666; font-style: italic; }
-        .pv-gather td { color: #666; font-style: italic; font-size: 11px; }
+        .pv-subtitle  { font-size: 10px; color: #777; display: block; margin-top: 2px; }
+        .pv-section td { background: #18324a; color: #fff; font-weight: 700; text-align: center; padding: 6px 10px; letter-spacing: 0.07em; text-transform: uppercase; font-size: 10.5px; }
+        .pv-break td  { background: #f0f0f0; color: #666; font-style: italic; text-align: center; }
+        .pv-gather td { color: #888; font-style: italic; font-size: 11px; }
 
         @media print {
           body { padding: 14px 18px; }
@@ -209,30 +216,30 @@
       </style>
     </head><body>
       <div class="pv-header">
-        <div class="pv-header-logo">${logoHtml}</div>
-        <div class="pv-header-meta">
-          <div class="pv-club-name">${esc(clubName)}</div>
-          <div class="pv-meta-line">${esc(dateStr)}</div>
-          <div class="pv-meta-line">${esc(timeRange)}${venue ? " &nbsp;·&nbsp; " + esc(venue) : ""}</div>
-          <div class="pv-meta-line">Theme: <strong>${esc(meeting.theme || "")}</strong>${tmodName ? " &nbsp;·&nbsp; TMOD: <strong>" + esc(tmodName) + "</strong>" : ""}</div>
+        <div class="pv-header-top">
+          <div class="pv-header-logo">${logoHtml}</div>
+          <div>
+            <div class="pv-club-name">${esc(clubName)}</div>
+            <div class="pv-meta-line">${esc(dateStr)}</div>
+            <div class="pv-meta-line">${esc(timeRange)}${venue ? " &nbsp;·&nbsp; " + esc(venue) : ""}</div>
+            <div class="pv-meta-line">Theme: <strong>${esc(meeting.theme || "")}</strong>${tmodName ? " &nbsp;·&nbsp; TMOD: <strong>" + esc(tmodName) + "</strong>" : ""}</div>
+          </div>
         </div>
         <div class="pv-header-title">
           <div class="pv-agenda-title">Meeting Agenda</div>
+          ${chapterNum ? `<div class="pv-chapter-num">${ordinalSuffix(chapterNum)} Chapter Meeting</div>` : ""}
         </div>
       </div>
+      ${clubMission ? `<div class="pv-mission">${esc(clubMission)}</div>` : ""}
       <table>
         <thead><tr>
-          <th>Time</th>
-          <th style="color:#90ee90;">Green</th>
-          <th style="color:#ffff99;">Yellow</th>
-          <th style="color:#ff9999;">Red</th>
-          <th style="text-align:left;">Activity</th>
-          <th style="text-align:left;">Presenter</th>
+          <th>Time</th><th style="color:#90ee90;">Green</th><th style="color:#ffff99;">Yellow</th>
+          <th style="color:#ff9999;">Red</th><th style="text-align:left;">Activity</th><th style="text-align:left;">Presenter</th>
         </tr></thead>
         <tbody>${bodyRows}</tbody>
       </table>
       ${notesHtml}
-      <script>setTimeout(()=>{window.focus();window.print();window.onafterprint=()=>window.close();},400)<\/script>
+      <script>window.print();window.onafterprint=()=>window.close();<\/script>
     </body></html>`);
     w.document.close();
   }
@@ -2176,6 +2183,12 @@
       if (val === "new") {
         const formHadId = !!(meetingForm?.elements.id?.value);
         if (formHadId) clearForm(meetingForm);
+        // Auto-suggest next chapter number
+        const chapterInput = meetingForm?.elements?.chapter_number;
+        if (chapterInput && root._meetings?.length) {
+          const maxChapter = Math.max(0, ...root._meetings.map((m) => parseInt(m.chapter_number || 0, 10)));
+          if (maxChapter > 0) chapterInput.value = maxChapter + 1;
+        }
         if (rolesSetup) {
           rolesSetup.style.display = "";
           const lbl       = qs("[data-tmp-roles-setup-label]", root);
@@ -2984,6 +2997,16 @@
             <button class="tmp-small-button tmp-primary" id="tmp-maps-url-save">Save</button>
             <span id="tmp-maps-url-status" style="font-size:12px;color:var(--tmp-muted);"></span>
           </div>
+          <div style="margin-top:8px;">
+            <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;">Club Mission Statement (shown on printed agenda)</label>
+            <div style="display:flex;gap:8px;align-items:flex-start;">
+              <textarea id="tmp-club-mission" rows="2" style="flex:1;padding:5px 8px;font-size:12px;" placeholder="We provide a supportive and positive learning experience…">${esc(clubSettings.club_mission || "")}</textarea>
+              <div style="display:flex;flex-direction:column;gap:4px;">
+                <button class="tmp-small-button tmp-primary" id="tmp-mission-save">Save</button>
+                <span id="tmp-mission-status" style="font-size:12px;color:var(--tmp-muted);"></span>
+              </div>
+            </div>
+          </div>
         </div>
         <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--tmp-line);">
           <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:600;">Default Agenda Slot Durations (applied when creating or rebuilding an agenda)</label>
@@ -3042,6 +3065,23 @@
         btn.disabled = true;
         try {
           await api("/settings/club", { method: "POST", body: JSON.stringify({ default_maps_url: val }) });
+          if (status) { status.textContent = "Saved!"; status.style.color = "#2e7d32"; }
+          setTimeout(() => { if (status) status.textContent = ""; }, 2000);
+        } catch (err) {
+          if (status) { status.textContent = "Error: " + err.message; status.style.color = "#c62828"; }
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      qs("#tmp-mission-save", root)?.addEventListener("click", async () => {
+        const btn    = qs("#tmp-mission-save", root);
+        const status = qs("#tmp-mission-status", root);
+        const val    = qs("#tmp-club-mission", root)?.value || "";
+        btn.disabled = true;
+        try {
+          await api("/settings/club", { method: "POST", body: JSON.stringify({ club_mission: val }) });
+          TMPortal.clubMission = val;
           if (status) { status.textContent = "Saved!"; status.style.color = "#2e7d32"; }
           setTimeout(() => { if (status) status.textContent = ""; }, 2000);
         } catch (err) {

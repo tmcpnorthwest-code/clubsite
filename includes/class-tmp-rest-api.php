@@ -1456,6 +1456,7 @@ class TMP_REST_API {
         return rest_ensure_response([
             'default_venue'    => get_option('tmp_default_venue', ''),
             'default_maps_url' => get_option('tmp_default_maps_url', ''),
+            'club_mission'     => get_option('tmp_club_mission', ''),
             'speaker_duration' => $durs['speaker'],
             'ttm_duration'     => $durs['ttm'],
         ]);
@@ -1468,6 +1469,9 @@ class TMP_REST_API {
         }
         if (isset($body['default_maps_url'])) {
             update_option('tmp_default_maps_url', esc_url_raw($body['default_maps_url']));
+        }
+        if (isset($body['club_mission'])) {
+            update_option('tmp_club_mission', sanitize_textarea_field($body['club_mission']));
         }
         if (isset($body['speaker_duration']) || isset($body['ttm_duration'])) {
             $current = TMP_Repository::get_agenda_durations();

@@ -2245,6 +2245,7 @@ class TMP_Repository {
             'start_time'       => sanitize_text_field($data['start_time'] ?? '18:30'),
             'total_duration'   => absint($data['total_duration'] ?? 120),
             'requests_close_at'=> !empty($data['requests_close_at']) ? str_replace('T', ' ', sanitize_text_field($data['requests_close_at'])) : null,
+            'chapter_number'   => !empty($data['chapter_number']) ? absint($data['chapter_number']) : null,
             'theme'            => sanitize_text_field($data['theme'] ?? ''),
             'venue'            => sanitize_text_field($data['venue'] ?? ''),
             'agenda_notes'     => sanitize_textarea_field($data['agenda_notes'] ?? ''),

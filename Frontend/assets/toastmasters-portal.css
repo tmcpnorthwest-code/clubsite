@@ -1569,6 +1569,15 @@ textarea {
   margin: 12px 0 28px;
 }
 
+.upcoming-chapter {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--burgundy);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  width: 100%;
+}
+
 .upcoming-date {
   font-weight: 700;
   font-size: 1.05rem;
