@@ -3475,11 +3475,11 @@
     }
 
     function autoGenerateVotingLink() {
+      if (!currentMeetingId) return;
       if (linkUrlEl) linkUrlEl.textContent = 'Generating…';
       if (linkExpiryEl) linkExpiryEl.textContent = '';
-      api('/voting/token', { method: 'POST' }).then(data => {
-        if (linkUrlEl)    linkUrlEl.textContent = data.url;
-        if (linkExpiryEl) linkExpiryEl.textContent = 'Valid until: ' + data.expires_at + ' UTC';
+      api('/voting/token', { method: 'POST', body: JSON.stringify({ meeting_id: currentMeetingId }) }).then(data => {
+        if (linkUrlEl) linkUrlEl.textContent = data.url;
       }).catch(() => {
         if (linkUrlEl) linkUrlEl.textContent = 'Could not generate link — try refreshing.';
       });
@@ -4523,8 +4523,10 @@
       }
     } catch (_) { voterToken = 'guest-' + Date.now(); }
 
-    let activeMeetingId = null;
-    const voted         = {};
+    const activeMeetingId = parseInt(page.dataset.tmpMeetingId, 10) || null;
+    if (!activeMeetingId) return;
+
+    const voted = {};
 
     const CAT_LABELS = {
       main_role: 'Best Main Role', aux_role: 'Best Auxiliary Role',
@@ -4532,12 +4534,11 @@
     };
 
     function checkPoll() {
-      api('/voting/active').then(data => {
+      api('/voting/nominees/' + activeMeetingId).then(data => {
         if (!data.poll_open) {
           body.innerHTML = '<div style="text-align:center;padding:40px 20px;"><p style="color:var(--tmp-muted);font-size:1rem;">The poll is not open yet.</p><p style="color:var(--tmp-muted);font-size:0.88rem;">This page checks automatically — no need to refresh.</p></div>';
           return;
         }
-        activeMeetingId = data.meeting_id;
         if (title) title.textContent = data.theme ? 'Vote — ' + data.theme : 'Cast Your Vote';
         renderVoteForm(data.nominees);
       }).catch(() => {

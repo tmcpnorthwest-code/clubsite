@@ -813,15 +813,14 @@ class TMP_Shortcodes {
                             <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                         </div>
 
-                        <!-- Voting link — auto-generated on meeting select, valid 48 h -->
+                        <!-- Voting link — permanent HMAC link, tied to this meeting -->
                         <div style="margin-top:16px;padding:12px;background:#f0f8ff;border-radius:6px;border:1px solid #cce5ff;">
                             <p class="tmp-eyebrow" style="margin:0 0 4px;color:var(--tmp-teal);">Moment of Glory Voting Link</p>
-                            <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 8px;">Share with attendees — they can vote without logging in. Valid for 48 hours.</p>
+                            <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 8px;">Share with attendees — they can vote without logging in. Link is permanent for this meeting.</p>
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                                 <code data-tmp-vote-link-url style="flex:1;background:#fff;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;word-break:break-all;color:var(--tmp-muted);">Select a meeting above…</code>
                                 <button type="button" class="tmp-small-button" data-tmp-copy-vote-link>Copy Link</button>
                             </div>
-                            <p data-tmp-vote-link-expiry style="font-size:0.78rem;color:var(--tmp-muted);margin:6px 0 0;"></p>
                         </div>
                     </div>
 
@@ -1114,15 +1113,17 @@ class TMP_Shortcodes {
     public static function voting_page() {
         self::enqueue();
 
-        $token = isset($_GET['tmp_vote']) ? sanitize_text_field(wp_unslash($_GET['tmp_vote'])) : '';
-        if (!$token || !TMP_Repository::validate_vote_token($token)) {
+        $mid  = isset($_GET['mid'])  ? (int) $_GET['mid']                             : 0;
+        $hash = isset($_GET['hash']) ? sanitize_text_field(wp_unslash($_GET['hash'])) : '';
+
+        if (!$mid || !TMP_Repository::validate_vote_hash($mid, $hash)) {
             ob_start();
             ?>
             <div class="tmp-vote-page">
                 <div class="tmp-panel" style="max-width:620px;margin:0 auto;text-align:center;padding:40px 24px;">
                     <p style="font-size:2.4rem;margin:0 0 16px;">&#128279;</p>
-                    <h2 style="margin:0 0 10px;">Link Expired or Invalid</h2>
-                    <p style="color:var(--tmp-muted);margin:0;">This voting link has expired or is not valid.<br>Ask the SAA or VPE to share a fresh link for today&rsquo;s meeting.</p>
+                    <h2 style="margin:0 0 10px;">Link Invalid</h2>
+                    <p style="color:var(--tmp-muted);margin:0;">This voting link is not valid.<br>Ask the SAA or VPE to share the correct link for today&rsquo;s meeting.</p>
                 </div>
             </div>
             <?php
@@ -1131,7 +1132,7 @@ class TMP_Shortcodes {
 
         ob_start();
         ?>
-        <div class="tmp-vote-page" data-tmp-vote-page>
+        <div class="tmp-vote-page" data-tmp-vote-page data-tmp-meeting-id="<?php echo (int) $mid; ?>">
             <div class="tmp-panel" style="max-width:620px;margin:0 auto;">
                 <p class="tmp-eyebrow" style="color:var(--tmp-teal);">Live Voting</p>
                 <h2 style="margin:4px 0 16px;" data-tmp-vote-page-title>Cast Your Vote</h2>

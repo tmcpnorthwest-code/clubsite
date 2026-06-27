@@ -3663,11 +3663,12 @@ class TMP_Repository {
      */
     public static function set_poll_open($meeting_id, $open) {
         global $wpdb;
-        $wpdb->update(
-            self::meeting_table(),
-            ['poll_open' => $open ? 1 : 0],
-            ['id' => (int) $meeting_id]
-        );
+        $tbl = self::meeting_table();
+        if ($open) {
+            // Only one poll can be open at a time — close everything else first.
+            $wpdb->query("UPDATE {$tbl} SET poll_open = 0 WHERE id != " . (int) $meeting_id);
+        }
+        $wpdb->update($tbl, ['poll_open' => $open ? 1 : 0], ['id' => (int) $meeting_id]);
     }
 
     /**
@@ -3892,15 +3893,13 @@ class TMP_Repository {
         ];
     }
 
-    public static function generate_vote_token() {
-        $token = bin2hex(random_bytes(16));
-        set_transient('tmp_vote_' . $token, 1, 2 * DAY_IN_SECONDS);
-        return $token;
+    public static function generate_vote_hash($meeting_id) {
+        return wp_hash('vote:' . (int) $meeting_id);
     }
 
-    public static function validate_vote_token($token) {
-        if (!$token || strlen($token) > 64) return false;
-        return (bool) get_transient('tmp_vote_' . sanitize_text_field($token));
+    public static function validate_vote_hash($meeting_id, $hash) {
+        if (!$meeting_id || !$hash) return false;
+        return hash_equals(wp_hash('vote:' . (int) $meeting_id), $hash);
     }
 
     /**
@@ -3909,13 +3908,12 @@ class TMP_Repository {
      */
     public static function get_active_poll() {
         global $wpdb;
-        $tbl   = self::meeting_table();
-        $today = current_time('Y-m-d');
+        $tbl = self::meeting_table();
 
-        $meeting = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$tbl} WHERE meeting_date = %s AND poll_open = 1 LIMIT 1",
-            $today
-        ), ARRAY_A);
+        $meeting = $wpdb->get_row(
+            "SELECT * FROM {$tbl} WHERE poll_open = 1 ORDER BY meeting_date DESC LIMIT 1",
+            ARRAY_A
+        );
 
         if (!$meeting) {
             return ['poll_open' => false, 'meeting_id' => null, 'nominees' => []];

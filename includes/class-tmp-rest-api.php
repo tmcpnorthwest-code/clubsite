@@ -1222,6 +1222,7 @@ class TMP_REST_API {
             'meeting_id'  => $meeting_id,
             'voting_open' => $poll_open,
             'poll_open'   => $poll_open,
+            'theme'       => $meeting['theme'] ?? '',
             'nominees'    => $nominees,
         ]);
     }
@@ -1292,7 +1293,12 @@ class TMP_REST_API {
         return rest_ensure_response(TMP_Repository::get_active_poll());
     }
 
-    public static function generate_vote_token() {
+    public static function generate_vote_token(WP_REST_Request $req) {
+        $params     = $req->get_json_params() ?: [];
+        $meeting_id = (int) ($params['meeting_id'] ?? 0);
+        if (!$meeting_id) {
+            return new WP_Error('missing_meeting', 'meeting_id required', ['status' => 400]);
+        }
         $voting_url = '';
         foreach (get_pages() as $p) {
             if (has_shortcode($p->post_content, 'tm_voting')) {
@@ -1301,12 +1307,11 @@ class TMP_REST_API {
             }
         }
         if (!$voting_url) {
-            return new WP_Error('no_voting_page', 'No page with [tm_voting] shortcode found. Create one first.', ['status' => 404]);
+            return new WP_Error('no_voting_page', 'No published page with [tm_voting] shortcode found.', ['status' => 404]);
         }
-        $token = TMP_Repository::generate_vote_token();
+        $hash = TMP_Repository::generate_vote_hash($meeting_id);
         return rest_ensure_response([
-            'url'        => add_query_arg('tmp_vote', $token, $voting_url),
-            'expires_at' => gmdate('Y-m-d H:i:s', time() + 2 * DAY_IN_SECONDS),
+            'url' => add_query_arg(['mid' => $meeting_id, 'hash' => $hash], $voting_url),
         ]);
     }
 
