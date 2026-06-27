@@ -3797,28 +3797,24 @@
     const panel = qs('[data-tmp-wrapup-panel]');
     if (!panel) return;
 
-    const meetingSelect    = qs('[data-tmp-wrapup-meeting-select]', panel);
-    const wrapupContent    = qs('[data-tmp-wrapup-content]', panel);
-    const wrapupBadge      = qs('[data-tmp-wrapup-badge]', panel);
-    const performersList   = qs('[data-tmp-role-performers-list]', panel);
-    const markAllPresentBtn= qs('[data-tmp-mark-all-present]', panel);
-    const walkinSearch     = qs('[data-tmp-walkin-search]', panel);
-    const walkinDropdown   = qs('[data-tmp-walkin-dropdown]', panel);
-    const walkinList       = qs('[data-tmp-walkin-list]', panel);
-    const guestNameInput   = qs('[data-tmp-guest-name]', panel);
-    const addGuestBtn      = qs('[data-tmp-add-guest-btn]', panel);
-    const guestsList       = qs('[data-tmp-guests-list]', panel);
-    const winnersList      = qs('[data-tmp-winners-list]', panel);
-    const completeBtn      = qs('[data-tmp-complete-meeting-btn]', panel);
-    const saveStatus       = qs('[data-tmp-wrapup-save-status]', panel);
+    const meetingSelect      = qs('[data-tmp-wrapup-meeting-select]', panel);
+    const wrapupContent      = qs('[data-tmp-wrapup-content]', panel);
+    const wrapupBadge        = qs('[data-tmp-wrapup-badge]', panel);
+    const roleCountEl        = qs('[data-tmp-role-attendance-count]', panel);
+    const refreshRoleBtn     = qs('[data-tmp-refresh-role-attendance]', panel);
+    const walkinSearch       = qs('[data-tmp-walkin-search]', panel);
+    const walkinDropdown     = qs('[data-tmp-walkin-dropdown]', panel);
+    const walkinList         = qs('[data-tmp-walkin-list]', panel);
+    const guestNameInput     = qs('[data-tmp-guest-name]', panel);
+    const addGuestBtn        = qs('[data-tmp-add-guest-btn]', panel);
+    const guestsList         = qs('[data-tmp-guests-list]', panel);
+    const completeBtn        = qs('[data-tmp-complete-meeting-btn]', panel);
+    const saveStatus         = qs('[data-tmp-wrapup-save-status]', panel);
 
-    let currentMeetingId = null;
-    let otherMembers     = []; // for walk-in search
-
-    const CAT_LABELS = {
-      main_role: 'Best Main Role', aux_role: 'Best Auxiliary Role',
-      table_topics: 'Best Table Topics', speaker: 'Best Speaker', evaluator: 'Best Evaluator',
-    };
+    let currentMeetingId  = null;
+    let otherMembers      = [];
+    let rolePerformers    = [];
+    let declaredWinners   = [];
 
     // Populate meeting select with recent meetings (most recent first)
     api('/meetings').then(meetings => {
@@ -3852,21 +3848,6 @@
       });
     }
 
-    function setPerformerAbsent(row, absent) {
-      const roleCheck = row.querySelector('[data-role-cb]');
-      if (absent) {
-        row.classList.add('tmp-performer-absent');
-        row.dataset.absent = '1';
-        if (roleCheck) { roleCheck.checked = false; roleCheck.closest('.tmp-role-cb-wrap').style.visibility = 'hidden'; }
-        row.querySelector('[data-absent-btn]').textContent = '↩ Restore';
-      } else {
-        row.classList.remove('tmp-performer-absent');
-        row.dataset.absent = '0';
-        if (roleCheck) { roleCheck.checked = true; roleCheck.closest('.tmp-role-cb-wrap').style.visibility = ''; }
-        row.querySelector('[data-absent-btn]').textContent = 'Mark Absent';
-      }
-    }
-
     function renderWrapUp(data) {
       wrapupContent.style.display = 'block';
       const done = data.wrapped_up;
@@ -3874,107 +3855,28 @@
       completeBtn.textContent = done ? '↻ Update Records' : '✓ Complete Meeting';
       saveStatus.textContent = '';
 
-      // ── Role Performers (present by default, tap to mark absent) ─────────
-      otherMembers = data.other_members || [];
-      performersList.innerHTML = '';
-      const performers = data.role_performers || [];
-      if (performers.length) {
-        performers.forEach(m => {
-          const isAbsent   = done ? !m.attended : false;
-          const roleChecked = done ? m.role_performed : true;
-          const row = document.createElement('div');
-          row.className = 'tmp-wrapup-performer-row' + (isAbsent ? ' tmp-performer-absent' : '');
-          row.dataset.memberId     = m.member_id;
-          row.dataset.assignmentId = m.assignment_id;
-          row.dataset.absent       = isAbsent ? '1' : '0';
-          row.innerHTML = `
-            <span class="tmp-wrapup-member-name">${esc(m.full_name)}</span>
-            <span class="tmp-wrapup-role-tag">${esc(m.role_name)}</span>
-            <span class="tmp-role-cb-wrap"${isAbsent ? ' style="visibility:hidden"' : ''}>
-              <label class="tmp-role-check-label">
-                <input type="checkbox" data-role-cb${roleChecked && !isAbsent ? ' checked' : ''} />
-                Role ✓
-              </label>
-            </span>
-            <button type="button" class="tmp-absent-btn" data-absent-btn>${isAbsent ? '↩ Restore' : 'Mark Absent'}</button>`;
-          row.querySelector('[data-absent-btn]').addEventListener('click', () => {
-            setPerformerAbsent(row, row.dataset.absent !== '1');
-          });
-          performersList.appendChild(row);
-        });
-      } else {
-        performersList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No role assignments found for this meeting.</p>';
+      // ── Store role performers for use on save ─────────────────────────────
+      rolePerformers = data.role_performers || [];
+      const n = rolePerformers.length;
+      if (roleCountEl) {
+        roleCountEl.textContent = n > 0
+          ? n + ' role player' + (n !== 1 ? 's' : '') + ' found in assignments — all marked as attended.'
+          : 'No role assignments found for this meeting.';
       }
 
-      // ── Walk-in members (already attended, picked by search) ─────────────
+      // ── Store declared winners for use on save ────────────────────────────
+      const allNominees = data.vote_winners || [];
+      declaredWinners = allNominees.filter(w => w.is_winner);
+
+      // ── Walk-in members ───────────────────────────────────────────────────
+      otherMembers = data.other_members || [];
       walkinList.innerHTML = '';
       (data.walk_ins || []).forEach(m => addWalkinChip(m.member_id, m.full_name));
       refreshWalkinSearch();
 
-      // ── Guests ─────────────────────────────────────────────────────────────
+      // ── Guests ────────────────────────────────────────────────────────────
       guestsList.innerHTML = '';
       (data.guests || []).forEach(g => appendGuestRow(g.guest_name));
-
-      // ── Winners ─────────────────────────────────────────────────────────────
-      winnersList.innerHTML = '';
-      const nominees  = data.vote_winners || [];
-      const savedWins = data.existing_wins || [];
-
-      if (nominees.length) {
-        // Pre-check is_winner=1 nominees; if none declared yet, pre-check top vote-getter per category.
-        const declaredAny = nominees.some(n => n.is_winner);
-        const topPerCat   = {};
-        if (!declaredAny) {
-          nominees.forEach(n => {
-            if (!(n.category in topPerCat) || n.vote_count > topPerCat[n.category]) {
-              topPerCat[n.category] = n.vote_count;
-            }
-          });
-        }
-        nominees.forEach(n => {
-          const preChecked = declaredAny
-            ? n.is_winner
-            : (n.vote_count > 0 && n.vote_count === topPerCat[n.category]);
-          const voteLabel = n.vote_count ? ` (${n.vote_count} vote${n.vote_count !== 1 ? 's' : ''})` : '';
-          const row = document.createElement('div');
-          row.className = 'tmp-wrapup-winner-row';
-          row.dataset.category    = n.category;
-          row.dataset.memberId    = n.member_id || '';
-          row.dataset.roleName    = n.role_name;
-          row.dataset.voteCount   = n.vote_count || 0;
-          row.dataset.displayName = n.display_name || '';
-          row.innerHTML = `
-            <label class="tmp-wrapup-attend-label">
-              <input type="checkbox" data-winner-check class="tmp-wrapup-cb"${preChecked ? ' checked' : ''} />
-              <span>
-                <span class="tmp-wrapup-cat-label">${esc(CAT_LABELS[n.category] || n.category)}</span>
-                <span class="tmp-wrapup-role-tag">${esc(n.display_name || '')} — ${esc(n.role_name)}${voteLabel}</span>
-              </span>
-            </label>`;
-          winnersList.appendChild(row);
-        });
-      } else if (savedWins.length) {
-        savedWins.forEach(w => {
-          const row = document.createElement('div');
-          row.className = 'tmp-wrapup-winner-row';
-          row.dataset.category    = w.category;
-          row.dataset.memberId    = w.member_id || '';
-          row.dataset.roleName    = w.role_name;
-          row.dataset.voteCount   = w.vote_count || 0;
-          row.dataset.displayName = w.display_name || '';
-          row.innerHTML = `
-            <label class="tmp-wrapup-attend-label">
-              <input type="checkbox" data-winner-check class="tmp-wrapup-cb" checked />
-              <span>
-                <span class="tmp-wrapup-cat-label">${esc(CAT_LABELS[w.category] || w.category)}</span>
-                <span class="tmp-wrapup-role-tag">${esc(w.display_name || '')} — ${esc(w.role_name)}</span>
-              </span>
-            </label>`;
-          winnersList.appendChild(row);
-        });
-      } else {
-        winnersList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No voting conducted for this meeting.</p>';
-      }
     }
 
     // ── Walk-in member search ─────────────────────────────────────────────────
@@ -4023,9 +3925,13 @@
       walkinSearch.addEventListener('blur', () => setTimeout(() => { walkinDropdown.style.display = 'none'; }, 150));
     }
 
-    if (markAllPresentBtn) {
-      markAllPresentBtn.addEventListener('click', () => {
-        performersList.querySelectorAll('.tmp-wrapup-performer-row').forEach(row => setPerformerAbsent(row, false));
+    if (refreshRoleBtn) {
+      refreshRoleBtn.addEventListener('click', () => {
+        if (!currentMeetingId) return;
+        refreshRoleBtn.textContent = 'Refreshing…';
+        refreshRoleBtn.disabled = true;
+        loadWrapUp(currentMeetingId);
+        setTimeout(() => { refreshRoleBtn.textContent = '↺ Refresh from Assignments'; refreshRoleBtn.disabled = false; }, 1200);
       });
     }
 
@@ -4053,15 +3959,13 @@
     completeBtn.addEventListener('click', async () => {
       if (!currentMeetingId) return;
 
-      // Role performers: absent ones excluded, present ones get role_performed state
-      const attendance = [];
-      performersList.querySelectorAll('.tmp-wrapup-performer-row').forEach(row => {
-        if (row.dataset.absent === '1') return;
-        const aid = parseInt(row.dataset.assignmentId, 10) || 0;
-        const rolePerformed = row.querySelector('[data-role-cb]')?.checked ?? true;
-        attendance.push({ member_id: parseInt(row.dataset.memberId, 10), assignment_id: aid, role_performed: aid > 0 && rolePerformed });
-      });
-      // Walk-ins: attended only
+      // Role players: all present, role performed (assignment recorded)
+      const attendance = rolePerformers.map(m => ({
+        member_id: m.member_id,
+        assignment_id: m.assignment_id,
+        role_performed: m.assignment_id > 0,
+      }));
+      // Walk-ins: attended, no role
       walkinList.querySelectorAll('[data-walkin-id]').forEach(chip => {
         attendance.push({ member_id: parseInt(chip.dataset.walkinId, 10), assignment_id: 0, role_performed: false });
       });
@@ -4071,15 +3975,15 @@
         if (row.dataset.guestName) guests.push({ name: row.dataset.guestName });
       });
 
-      const winners = [];
-      winnersList.querySelectorAll('.tmp-wrapup-winner-row[data-category]').forEach(row => {
-        const cb = row.querySelector('[data-winner-check]');
-        if (cb && cb.checked) winners.push({
-          category: row.dataset.category, member_id: row.dataset.memberId ? parseInt(row.dataset.memberId, 10) : null,
-          display_name: row.dataset.displayName, role_name: row.dataset.roleName,
-          vote_count: parseInt(row.dataset.voteCount, 10) || 0, is_tie: 0,
-        });
-      });
+      // Winners: auto-pulled from declared winners (is_winner = 1 set via Declare Winners)
+      const winners = declaredWinners.map(w => ({
+        category:     w.category,
+        member_id:    w.member_id ? parseInt(w.member_id, 10) : null,
+        display_name: w.display_name || '',
+        role_name:    w.role_name || '',
+        vote_count:   parseInt(w.vote_count, 10) || 0,
+        is_tie:       0,
+      }));
 
       completeBtn.disabled = true;
       saveStatus.textContent = 'Saving…';

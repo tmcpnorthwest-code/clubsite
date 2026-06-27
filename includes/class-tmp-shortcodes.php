@@ -855,7 +855,7 @@ class TMP_Shortcodes {
                         <span data-tmp-wrapup-badge style="display:none;background:#e8f5e9;color:#2e7d32;border:1px solid #4caf50;border-radius:20px;padding:3px 10px;font-size:0.78rem;font-weight:700;">✓ Completed</span>
                     </div>
                     <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
-                        Record who attended, confirm roles performed, and finalise winners. The home page Meeting Pulse updates once you complete this.
+                        Record who attended and complete the meeting. Meeting Pulse on the home page updates once you complete this.
                     </p>
                     <label style="display:block;margin-bottom:16px;">
                         Meeting
@@ -864,15 +864,16 @@ class TMP_Shortcodes {
                         </select>
                     </label>
                     <div data-tmp-wrapup-content style="display:none;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;flex-wrap:wrap;gap:6px;">
-                            <p class="tmp-eyebrow" style="margin:0;">Role Performers</p>
-                            <button class="tmp-link-button" data-tmp-mark-all-present style="font-size:0.82rem;color:var(--tmp-teal);">↺ Mark all present</button>
+                        <div style="background:#f5f9f5;border:1px solid #c8e6c9;border-radius:6px;padding:12px 14px;margin-bottom:20px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                                <div>
+                                    <p class="tmp-eyebrow" style="margin:0 0 2px;">Role Attendance</p>
+                                    <p data-tmp-role-attendance-count style="margin:0;font-size:0.88rem;color:var(--tmp-muted);">Loading…</p>
+                                </div>
+                                <button class="tmp-link-button" data-tmp-refresh-role-attendance style="font-size:0.82rem;color:var(--tmp-teal);">↺ Refresh from Assignments</button>
+                            </div>
                         </div>
-                        <p style="font-size:0.82rem;color:var(--tmp-muted);margin:4px 0 10px;">
-                            Everyone is present by default. Tap a row to mark absent.
-                        </p>
-                        <div data-tmp-role-performers-list></div>
-                        <div style="margin-top:20px;">
+                        <div style="margin-bottom:20px;">
                             <p class="tmp-eyebrow" style="margin-bottom:6px;">Also Attended <span style="font-weight:400;font-size:0.78rem;color:var(--tmp-muted);">(no assigned role)</span></p>
                             <div style="position:relative;">
                                 <input type="text" data-tmp-walkin-search placeholder="Search member name…" autocomplete="off"
@@ -881,7 +882,7 @@ class TMP_Shortcodes {
                             </div>
                             <div data-tmp-walkin-list style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
                         </div>
-                        <div style="margin-top:16px;">
+                        <div style="margin-bottom:20px;">
                             <p class="tmp-eyebrow" style="margin-bottom:6px;">Guests</p>
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                                 <input type="text" data-tmp-guest-name placeholder="Guest name" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
@@ -889,13 +890,8 @@ class TMP_Shortcodes {
                             </div>
                             <div data-tmp-guests-list style="margin-top:8px;"></div>
                         </div>
-                        <div data-tmp-winners-section style="margin-top:20px;">
-                            <p class="tmp-eyebrow">Winners</p>
-                            <p style="font-size:0.82rem;color:var(--tmp-muted);margin:4px 0 10px;">Pre-filled from voting. Uncheck to exclude.</p>
-                            <div data-tmp-winners-list></div>
-                        </div>
                         <div class="tmp-wrapup-actions">
-                            <button class="tmp-button tmp-primary" data-tmp-complete-meeting-btn>✓ Complete Meeting</button>
+                            <button class="tmp-button tmp-primary" data-tmp-complete-meeting-btn>&#10003; Complete Meeting</button>
                             <span data-tmp-wrapup-save-status style="font-size:0.82rem;"></span>
                         </div>
                     </div>
