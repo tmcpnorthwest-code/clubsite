@@ -3459,8 +3459,9 @@
     api('/meetings').then(meetings => {
       if (!meetings || !meetings.length) return;
       votingMeetings = meetings;
-      const today = new Date().toISOString().slice(0, 10);
-      meetings.forEach(m => {
+      const today = localDateStr(new Date());
+      const isExCom = !!panel.closest('[data-tmp-excom-panel]');
+      (isExCom ? meetings.filter(m => m.meeting_date === today) : meetings).forEach(m => {
         const opt = document.createElement('option');
         opt.value = m.id;
         opt.textContent = m.meeting_date + (m.theme ? ' — ' + m.theme : '');
@@ -3867,11 +3868,9 @@
     // Populate meeting select with recent meetings (most recent first)
     api('/meetings').then(meetings => {
       if (!meetings || !meetings.length) return;
-      const now = new Date();
-      const today = now.getFullYear() + '-' +
-        String(now.getMonth() + 1).padStart(2, '0') + '-' +
-        String(now.getDate()).padStart(2, '0');
-      meetings.slice(0, 8).forEach(m => {
+      const today = localDateStr(new Date());
+      const isExCom = !!panel.closest('[data-tmp-excom-panel]');
+      (isExCom ? meetings.filter(m => m.meeting_date === today) : meetings.slice(0, 8)).forEach(m => {
         const opt = document.createElement('option');
         opt.value = m.id;
         opt.textContent = m.meeting_date + (m.theme ? ' — ' + m.theme : '');
@@ -5368,7 +5367,7 @@
       const meetings = await api("/meetings");
       const today = localDateStr(new Date());
       const todayMeeting = (meetings || []).find(
-        (m) => m.meeting_date === today && !m.wrapped_up
+        (m) => m.meeting_date === today && m.wrapped_up == 0
       );
       if (todayMeeting) {
         wrapper.style.display = "";
