@@ -1119,7 +1119,7 @@ class TMP_Shortcodes {
         if (!$mid || !TMP_Repository::validate_vote_hash($mid, $hash)) {
             ob_start();
             ?>
-            <div class="tmp-vote-page">
+            <div class="tmp-portal tmp-vote-page">
                 <div class="tmp-panel" style="max-width:620px;margin:0 auto;text-align:center;padding:40px 24px;">
                     <p style="font-size:2.4rem;margin:0 0 16px;">&#128279;</p>
                     <h2 style="margin:0 0 10px;">Link Invalid</h2>
@@ -1132,7 +1132,7 @@ class TMP_Shortcodes {
 
         ob_start();
         ?>
-        <div class="tmp-vote-page" data-tmp-vote-page data-tmp-meeting-id="<?php echo (int) $mid; ?>">
+        <div class="tmp-portal tmp-vote-page" data-tmp-vote-page data-tmp-meeting-id="<?php echo (int) $mid; ?>">
             <div class="tmp-panel" style="max-width:620px;margin:0 auto;">
                 <p class="tmp-eyebrow" style="color:var(--tmp-teal);">Live Voting</p>
                 <h2 style="margin:4px 0 16px;" data-tmp-vote-page-title>Cast Your Vote</h2>
