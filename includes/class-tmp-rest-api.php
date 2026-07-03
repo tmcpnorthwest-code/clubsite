@@ -294,12 +294,12 @@ class TMP_REST_API {
             [
                 'methods'             => WP_REST_Server::READABLE,
                 'callback'            => [__CLASS__, 'get_spotlight_setting'],
-                'permission_callback' => [__CLASS__, 'can_manage_members'],
+                'permission_callback' => [__CLASS__, 'can_ex_com_meeting'],
             ],
             [
                 'methods'             => WP_REST_Server::CREATABLE,
                 'callback'            => [__CLASS__, 'save_spotlight_setting'],
-                'permission_callback' => [__CLASS__, 'can_manage_members'],
+                'permission_callback' => [__CLASS__, 'can_ex_com_meeting'],
             ],
         ]);
 

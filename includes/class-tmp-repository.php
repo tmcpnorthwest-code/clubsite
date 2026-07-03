@@ -604,16 +604,16 @@ class TMP_Repository {
         );
     }
 
-    public static function get_recent_level_ups($limit = 20) {
+    public static function get_recent_level_ups($days = 15) {
         global $wpdb;
         $table = $wpdb->prefix . 'tmp_level_up_history';
         return $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT member_name, pathway, old_level, new_level, leveled_up_at
                  FROM {$table}
-                 ORDER BY leveled_up_at DESC
-                 LIMIT %d",
-                absint($limit)
+                 WHERE leveled_up_at >= DATE_SUB(CURDATE(), INTERVAL %d DAY)
+                 ORDER BY leveled_up_at DESC",
+                absint($days)
             ),
             ARRAY_A
         ) ?: [];
@@ -725,6 +725,7 @@ class TMP_Repository {
                  FROM {$members} m
                  JOIN {$history} h ON h.member_id = m.id
                  WHERE m.state = 'Active'
+                   AND h.role_name != 'Presiding Officer'
                  GROUP BY m.id
                  ORDER BY distinct_roles DESC, m.full_name ASC
                  LIMIT %d",
@@ -2469,14 +2470,16 @@ class TMP_Repository {
     public static function get_timing_for_role($role_name, $duration = 0, $timer_duration = null) {
         $lower     = strtolower($role_name);
         $effective = (int) ($timer_duration ?? $duration);
+        $base_lower = strtolower(self::get_base_role_name($role_name));
 
         if (str_contains($lower, 'break')) return [null, null, null];
 
         // Timer Report: sub-minute TI standard regardless of slot duration
         if (preg_match('/\btimer\b/i', $role_name) && str_contains($lower, 'report')) return [30, 45, 60];
 
-        // Table Topics Master session: TI-mandated 10/15/20
-        if (str_contains($lower, 'table topics master')) return [600, 900, 1200];
+        // Table Topics Master session: TI-mandated 10/15/20 (only the actual TTM slot,
+        // not a TMOD intro line that merely mentions "Table Topics Master")
+        if ($base_lower === 'table topics master') return [600, 900, 1200];
 
         if ($effective <= 1) return [null, null, null];
 
@@ -4922,7 +4925,8 @@ class TMP_Repository {
             "SELECT u.user_email FROM {$wpdb->users} u
                JOIN {$wpdb->usermeta} um ON u.ID = um.user_id
               WHERE um.meta_key = '{$wpdb->prefix}capabilities'
-                AND um.meta_value LIKE '%tmp_manage_meetings%'
+                AND (   um.meta_value LIKE '%\"tm_vp_education\"%'
+                     OR um.meta_value LIKE '%\"tm_admin\"%'    )
               LIMIT 1"
         , ARRAY_A);
         if ($vpe_rows) $vpe_email = $vpe_rows[0]['user_email'];

@@ -118,11 +118,15 @@
     };
     const sec = {};
     for (let i = 0; i < assignments.length; i++) {
-      const rn   = assignments[i].role_name;
-      const rLow = rn.toLowerCase();
-      if (sec.speeches    === undefined && /\bspeaker\s+\d+\b/i.test(rn))          sec.speeches    = i;
+      const rn     = assignments[i].role_name;
+      // Strip the trailing "(note)" so combined TMOD intro lines like
+      // "Toastmaster of the Day (Introduces Evaluator 1 and Speaker 1)"
+      // can't be mistaken for the actual Speaker/Evaluator slot row.
+      const rBase  = rn.replace(/\s*\(.*?\)\s*$/, "").trim();
+      const rLow   = rn.toLowerCase();
+      if (sec.speeches    === undefined && /^speaker\s+\d+$/i.test(rBase))          sec.speeches    = i;
       if (sec.tabletopics === undefined && rLow.includes("table topics master"))     sec.tabletopics = i;
-      if (sec.evaluation  === undefined && /\bevaluator\s+\d+\b/i.test(rn))         sec.evaluation  = i;
+      if (sec.evaluation  === undefined && /^evaluator\s+\d+$/i.test(rBase))        sec.evaluation  = i;
       if (sec.conclusion  === undefined && /presiding/i.test(rLow) &&
           (rLow.includes("closing") || rLow.includes("guest feedback")))             sec.conclusion  = i;
     }
@@ -3452,7 +3456,6 @@
 
     const rateSpeakerSection  = qs('[data-tmp-rate-speaker-section]', panel);
     const speakerFeedbackList = qs('[data-tmp-speaker-feedback-list]', panel);
-    const sendFeedbackBtn     = qs('[data-tmp-send-speaker-feedback-btn]', panel);
     const feedbackEmailStatus = qs('[data-tmp-speaker-feedback-email-status]', panel);
 
     // Populate meeting dropdown from existing meetings data
@@ -3817,27 +3820,6 @@
         });
       });
     }
-
-    if (sendFeedbackBtn) {
-      sendFeedbackBtn.addEventListener('click', async () => {
-        if (!currentMeetingId) return;
-        if (!confirm('Send feedback rollup emails to each speaker, VPE, and their mentor?')) return;
-        sendFeedbackBtn.disabled = true;
-        if (feedbackEmailStatus) { feedbackEmailStatus.textContent = 'Sending…'; feedbackEmailStatus.style.color = 'var(--tmp-muted)'; }
-        try {
-          const res = await api(`/speech-feedback/email-rollup/${currentMeetingId}`, { method: 'POST' });
-          if (feedbackEmailStatus) {
-            feedbackEmailStatus.textContent = `✓ ${res.sent} email${res.sent !== 1 ? 's' : ''} sent.`;
-            feedbackEmailStatus.style.color = '#2e7d32';
-            setTimeout(() => { if (feedbackEmailStatus) feedbackEmailStatus.textContent = ''; }, 8000);
-          }
-        } catch (err) {
-          if (feedbackEmailStatus) { feedbackEmailStatus.textContent = 'Failed: ' + err.message; feedbackEmailStatus.style.color = '#c62828'; }
-        } finally {
-          sendFeedbackBtn.disabled = false;
-        }
-      });
-    }
   }
 
   // ── VPE Meeting Wrap-Up Panel ────────────────────────────────────────────────
@@ -3857,8 +3839,9 @@
     const guestNameInput     = qs('[data-tmp-guest-name]', panel);
     const addGuestBtn        = qs('[data-tmp-add-guest-btn]', panel);
     const guestsList         = qs('[data-tmp-guests-list]', panel);
-    const completeBtn        = qs('[data-tmp-complete-meeting-btn]', panel);
-    const saveStatus         = qs('[data-tmp-wrapup-save-status]', panel);
+    const completeBtn          = qs('[data-tmp-complete-meeting-btn]', panel);
+    const saveStatus           = qs('[data-tmp-wrapup-save-status]', panel);
+    const feedbackEmailStatus  = qs('[data-tmp-speaker-feedback-email-status]', panel);
 
     let currentMeetingId  = null;
     let otherMembers      = [];
@@ -3900,6 +3883,7 @@
       const done = data.wrapped_up;
       wrapupBadge.style.display = done ? '' : 'none';
       completeBtn.textContent = done ? '↻ Update Records' : '✓ Complete Meeting';
+      completeBtn.style.display = '';
       saveStatus.textContent = '';
 
       // ── Store role performers for use on save ─────────────────────────────
@@ -4033,6 +4017,18 @@
       }));
 
       completeBtn.disabled = true;
+
+      if (feedbackEmailStatus) { feedbackEmailStatus.textContent = 'Sending emails…'; feedbackEmailStatus.style.color = 'var(--tmp-muted)'; }
+      try {
+        const res = await api(`/speech-feedback/email-rollup/${currentMeetingId}`, { method: 'POST' });
+        if (feedbackEmailStatus) {
+          feedbackEmailStatus.textContent = `✓ ${res.sent} email${res.sent !== 1 ? 's' : ''} sent.`;
+          feedbackEmailStatus.style.color = '#2e7d32';
+          setTimeout(() => { if (feedbackEmailStatus) feedbackEmailStatus.textContent = ''; }, 8000);
+        }
+      } catch (err) {
+        if (feedbackEmailStatus) { feedbackEmailStatus.textContent = 'Email failed: ' + err.message; feedbackEmailStatus.style.color = '#c62828'; }
+      }
       saveStatus.textContent = 'Saving…';
       saveStatus.style.color = 'var(--tmp-muted)';
       try {
@@ -5377,6 +5373,65 @@
     }
   }
 
+  // ===========================================================================
+  // EX COM: NEW MEMBER SPOTLIGHT (always visible to Ex Com — not meeting-gated)
+  // ===========================================================================
+
+  async function initExComSpotlightPanel() {
+    const panel = qs("[data-tmp-excom-spotlight-panel]");
+    if (!panel) return; // PHP did not render it (user is not Ex Com)
+
+    const spotlightForm   = qs("[data-tmp-spotlight-form]", panel);
+    const spotlightStatus = qs("[data-tmp-spotlight-status]", panel);
+    if (!spotlightForm) return;
+
+    const mSelect  = qs("[data-tmp-spotlight-member]", spotlightForm);
+    const blurbEl  = qs("[data-tmp-spotlight-blurb]",  spotlightForm);
+    const photoEl  = qs("[data-tmp-spotlight-photo]",  spotlightForm);
+    const activeEl = qs("[data-tmp-spotlight-active]", spotlightForm);
+
+    try {
+      const members = await api("/members");
+      (members || [])
+        .slice().sort((a, b) => a.full_name.localeCompare(b.full_name))
+        .forEach(m => {
+          const opt = document.createElement("option");
+          opt.value       = m.id;
+          opt.textContent = `${m.full_name} (${m.pathway}, L${m.level})`;
+          mSelect.appendChild(opt);
+        });
+    } catch (_) {
+      // Member list failed to load — form still usable, just without options pre-filled
+    }
+
+    const saved = await api("/settings/new-member-spotlight").catch(() => null);
+    if (saved) {
+      mSelect.value    = String(saved.member_id || "");
+      blurbEl.value    = saved.blurb     || "";
+      photoEl.value    = saved.photo_url || "";
+      activeEl.checked = !!saved.active;
+    }
+
+    spotlightForm.addEventListener("submit", async ev => {
+      ev.preventDefault();
+      spotlightStatus.textContent = "Saving…";
+      try {
+        await api("/settings/new-member-spotlight", {
+          method: "POST",
+          body: JSON.stringify({
+            member_id: Number(mSelect.value),
+            blurb:     blurbEl.value.trim(),
+            photo_url: photoEl.value.trim(),
+            active:    activeEl.checked,
+          }),
+        });
+        spotlightStatus.textContent = "Saved!";
+      } catch (e) {
+        spotlightStatus.textContent = "Save failed: " + e.message;
+      }
+    });
+  }
+
   function apiPublic(path, opts = {}) {
     const url = TMPortal.restUrl + path;
     return fetch(url, opts).then(async (r) => {
@@ -5398,6 +5453,7 @@
   initVotingPanel();
   initWrapUpPanel();
   initExComPanel();
+  initExComSpotlightPanel();
   initRecognitionPanel();
   initMentorRating();
   initMyRecognition();

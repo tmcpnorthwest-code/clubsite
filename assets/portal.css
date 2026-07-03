@@ -1352,8 +1352,17 @@
   flex-wrap: wrap;
 }
 
-.tmp-wrapup-save-status {
-  font-size: 0.85rem;
+.tmp-wrapup-status {
+    margin-top: 8px;
+    font-size: 0.82rem;
+}
+
+.tmp-status-muted {
+    color: var(--tmp-muted);
+}
+
+.tmp-status {
+    margin-top: 4px;
 }
 
 @media (max-width: 640px) {

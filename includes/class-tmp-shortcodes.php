@@ -167,8 +167,6 @@ class TMP_Shortcodes {
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                             <button class="tmp-button" data-tmp-declare-winners-btn style="background:#1e4a6e;color:#fff;border:none;">&#127942; Declare Winners</button>
                             <button class="tmp-small-button" data-tmp-voting-results-btn>Show Live Results</button>
-                            <button class="tmp-button tmp-secondary" data-tmp-send-speaker-feedback-btn>&#9993; Send Feedback Emails</button>
-                            <span data-tmp-speaker-feedback-email-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                         </div>
                         <div data-tmp-voting-results style="display:none;margin-top:12px;"></div>
                     </div>
@@ -220,14 +218,49 @@ class TMP_Shortcodes {
                             <div data-tmp-guests-list style="margin-top:8px;"></div>
                         </div>
                         <div class="tmp-wrapup-actions">
-                            <!-- Complete Meeting is VPE-only; button kept in DOM (hidden) so JS binding doesn't throw -->
+                            <!-- Hidden until JS loads a meeting; shown in renderWrapUp -->
                             <button class="tmp-button tmp-primary" data-tmp-complete-meeting-btn style="display:none;">&#10003; Complete Meeting</button>
-                            <span data-tmp-wrapup-save-status style="font-size:0.82rem;"></span>
+                        </div>
+                        <div class="tmp-wrapup-status">
+                            <div data-tmp-speaker-feedback-email-status class="tmp-status-muted"></div>
+                            <div data-tmp-wrapup-save-status class="tmp-status"></div>
                         </div>
                     </div>
                 </section>
 
             </div><!-- /data-tmp-excom-panel -->
+
+            <!-- Homepage Spotlight — always visible to Ex Com, independent of meeting-day gating -->
+            <section class="tmp-panel" data-tmp-excom-spotlight-panel>
+                <p class="tmp-eyebrow">Homepage spotlight</p>
+                <h3>New Member Spotlight</h3>
+                <p>Select a member and add a welcome message. This card appears on the homepage after "Our Meetings in Action".</p>
+                <form class="tmp-form" data-tmp-spotlight-form>
+                    <label class="tmp-wide">
+                        Member
+                        <select data-tmp-spotlight-member required>
+                            <option value="">— pick a member —</option>
+                        </select>
+                    </label>
+                    <label class="tmp-wide">
+                        Welcome blurb
+                        <textarea data-tmp-spotlight-blurb rows="3" placeholder="e.g. Please join us in welcoming Priya — a software engineer with a passion for public speaking!"></textarea>
+                    </label>
+                    <label class="tmp-wide">
+                        Photo URL
+                        <input type="url" data-tmp-spotlight-photo placeholder="https://…">
+                        <small>Upload a photo via WP Admin &rarr; Media &rarr; Add New, then copy the file URL here.</small>
+                    </label>
+                    <label class="tmp-wide" style="flex-direction:row;align-items:center;gap:10px;">
+                        <input type="checkbox" data-tmp-spotlight-active>
+                        Show this spotlight on the homepage
+                    </label>
+                    <div class="tmp-form-actions tmp-wide">
+                        <button class="tmp-button tmp-primary" type="submit">Save Spotlight</button>
+                        <span class="tmp-inline-status" data-tmp-spotlight-status></span>
+                    </div>
+                </form>
+            </section>
             <?php endif; ?>
 
             <div class="tmp-panel">
@@ -984,8 +1017,6 @@ class TMP_Shortcodes {
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                             <button class="tmp-button" data-tmp-declare-winners-btn style="background:#1e4a6e;color:#fff;border:none;">&#127942; Declare Winners</button>
                             <button class="tmp-small-button" data-tmp-voting-results-btn>Show Live Results</button>
-                            <button class="tmp-button tmp-secondary" data-tmp-send-speaker-feedback-btn>&#9993; Send Feedback Emails</button>
-                            <span data-tmp-speaker-feedback-email-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                         </div>
                         <div data-tmp-voting-results style="display:none;margin-top:12px;"></div>
                     </div>
@@ -1038,7 +1069,10 @@ class TMP_Shortcodes {
                         </div>
                         <div class="tmp-wrapup-actions">
                             <button class="tmp-button tmp-primary" data-tmp-complete-meeting-btn>&#10003; Complete Meeting</button>
-                            <span data-tmp-wrapup-save-status style="font-size:0.82rem;"></span>
+                        <div class="tmp-wrapup-status">
+                            <div data-tmp-speaker-feedback-email-status class="tmp-status-muted"></div>
+                            <div data-tmp-wrapup-save-status class="tmp-status"></div>
+                        </div>
                         </div>
                     </div>
                 </section>

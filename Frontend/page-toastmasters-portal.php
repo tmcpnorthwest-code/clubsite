@@ -63,7 +63,7 @@ if (class_exists('TMP_Repository')) {
     }
 
     if (method_exists('TMP_Repository', 'get_recent_level_ups')) {
-        $level_ups = TMP_Repository::get_recent_level_ups(12);
+        $level_ups = TMP_Repository::get_recent_level_ups(15);
     }
 
     $spotlight = method_exists('TMP_Repository', 'get_new_member_spotlight')
@@ -83,7 +83,7 @@ $voting_nominees  = null;
 if (class_exists('TMP_Repository')) {
     $today_str = gmdate('Y-m-d');
     foreach (TMP_Repository::meetings() as $mtg) {
-        if ($mtg['meeting_date'] === $today_str) {
+        if ($mtg['meeting_date'] === $today_str && empty($mtg['m_wrapped'])) {
             $today_meeting = $mtg;
             break;
         }
@@ -217,6 +217,7 @@ if ($next_meeting) {
     <div class="nav">
       <a href="#tmc-gallery">Gallery</a>
       <a href="#tmc-pathways">Pathways</a>
+      <a href="#tmc-lastmeeting">Our last Meeting</a>
       <a href="#tmc-membership">Join</a>
       <a href="<?php echo esc_url(home_url('/member-dashboard/')); ?>" class="button primary" style="padding:8px 18px;font-size:0.88rem;">Member Login</a>
     </div>
@@ -295,79 +296,40 @@ if ($next_meeting) {
     <?php endif; ?>
   </div>
 
-  <!-- ═══════════════════════════════════════════ UPCOMING MEETING AGENDA -->
-  <!-- Rendered by JS on page load from REST API — never server-cached -->
-  <section class="section upcoming-agenda-section" id="tmc-upcoming" style="display:none" aria-live="polite"></section>
-
-  <!-- ═══════════════════════════════════════════════════════ VOTE NOW -->
-  <?php if ($today_meeting && !empty($today_meeting['poll_open'])) : ?>
-  <section class="section vote-section" id="tmc-vote"
-           data-tmc-vote-meeting="<?php echo (int) $today_meeting['id']; ?>"
-           data-tmc-rest="<?php echo esc_url(rest_url('toastmasters/v1')); ?>">
-    <p class="eyebrow">Meeting Day</p>
-    <h2>Vote for Today&rsquo;s Best Performers</h2>
-    <p class="section-sub">
-      <?php
-        $vd = new DateTime($today_meeting['meeting_date']);
-        echo esc_html($vd->format('l, F j'));
-        if (!empty($today_meeting['theme'])) echo ' &mdash; <em>' . esc_html($today_meeting['theme']) . '</em>';
-      ?>
-    </p>
-
-    <?php
-    $cat_labels = [
-        'main_role'    => ['label' => 'Best Main Role',             'desc' => 'TMOD · Table Topics Master · General Evaluator'],
-        'aux_role'     => ['label' => 'Best Auxiliary Role',         'desc' => 'SAA · Timer · Ah-Counter · Grammarian · Active Listener'],
-        'table_topics' => ['label' => 'Best Table Topics Speaker',   'desc' => 'Added by VPE during the session'],
-        'speaker'      => ['label' => 'Best Speaker',                'desc' => 'Prepared speech presenters of the day'],
-        'evaluator'    => ['label' => 'Best Evaluator',              'desc' => 'Speech evaluators of the day'],
-    ];
-    $winners_declared = !empty($today_meeting['winners_declared']);
-    ?>
-
-    <?php if ($winners_declared) : ?>
-    <div class="vote-winners-banner">
-      <span>&#127942;</span> Winners have been declared — see results below!
-    </div>
-    <?php endif; ?>
-
-    <div class="vote-grid" data-tmc-vote-grid>
-      <?php foreach ($cat_labels as $cat => $meta) :
-        $nominees_in_cat = $voting_nominees[$cat] ?? [];
-      ?>
-      <div class="vote-card" data-vote-cat="<?php echo esc_attr($cat); ?>">
-        <p class="eyebrow"><?php echo esc_html($meta['label']); ?></p>
-        <p class="vote-card__desc"><?php echo esc_html($meta['desc']); ?></p>
-
-        <?php if (empty($nominees_in_cat)) : ?>
-          <p class="vote-empty" data-vote-empty>
-            <?php echo $cat === 'table_topics' ? 'Speakers will appear here once VPE adds them.' : 'Nominees will appear once roles are confirmed.'; ?>
-          </p>
-        <?php else : ?>
-          <ul class="vote-nominee-list" data-vote-list>
-            <?php foreach ($nominees_in_cat as $nom) :
-              $is_winner = $winners_declared && !empty($nom['is_winner']);
-            ?>
-              <li class="vote-nominee<?php echo $is_winner ? ' vote-nominee--winner' : ''; ?>" data-nominee-id="<?php echo (int) $nom['id']; ?>">
-                <label class="vote-option<?php echo $is_winner ? ' vote-option--winner' : ''; ?>">
-                  <input type="radio" name="vote_<?php echo esc_attr($cat); ?>" value="<?php echo (int) $nom['id']; ?>" />
-                  <span class="vote-name"><?php echo $is_winner ? '🏆 ' : ''; echo esc_html($nom['display_name']); ?></span>
-                  <span class="vote-role"><?php echo esc_html($nom['role_name']); ?></span>
-                </label>
-                <span class="vote-count" data-vote-count="<?php echo (int) $nom['id']; ?>" style="<?php echo $is_winner ? '' : 'display:none;'; ?>"><?php echo (int) $nom['vote_count']; ?> vote<?php echo (int) $nom['vote_count'] !== 1 ? 's' : ''; ?></span>
-              </li>
-            <?php endforeach; ?>
-          </ul>
+<!-- ══════════════════════════════════════════ NEW MEMBER SPOTLIGHT -->
+  <?php if ($spotlight) :
+    $sp        = $spotlight['member'];
+    $sp_joined = !empty($sp['created_at'])
+        ? (new DateTime($sp['created_at']))->format('F Y') : null;
+    $level_labels = ['Level 0 (Enrolled)', 'Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5'];
+    $sp_level  = $level_labels[(int) ($sp['level_completed'] ?? 0)] ?? 'Level 0 (Enrolled)';
+  ?>
+  <section class="section spotlight-section" id="tmc-spotlight">
+    <p class="eyebrow">Welcome to the Club</p>
+    <h2>Meet Our Newest Member</h2>
+    <div class="spotlight-card">
+      <?php if (!empty($spotlight['photo_url'])) : ?>
+      <div class="spotlight-photo-wrap">
+        <img class="spotlight-photo"
+             src="<?php echo esc_url($spotlight['photo_url']); ?>"
+             alt="<?php echo esc_attr($sp['full_name']); ?>"
+             loading="lazy">
+      </div>
+      <?php endif; ?>
+      <div class="spotlight-content">
+        <h3 class="spotlight-name"><?php echo esc_html($sp['full_name']); ?></h3>
+        <div class="spotlight-meta">
+          <span class="spotlight-badge"><?php echo esc_html($sp_level); ?></span>
+          <span class="spotlight-pathway"><?php echo esc_html($sp['pathway']); ?></span>
+          <?php if ($sp_joined) : ?>
+          <span class="spotlight-joined">Joined <?php echo esc_html($sp_joined); ?></span>
+          <?php endif; ?>
+        </div>
+        <?php if (!empty($spotlight['blurb'])) : ?>
+        <p class="spotlight-blurb">&ldquo;<?php echo esc_html($spotlight['blurb']); ?>&rdquo;</p>
         <?php endif; ?>
       </div>
-      <?php endforeach; ?>
     </div>
-
-    <div class="vote-action">
-      <button class="vote-submit-btn" id="tmc-vote-submit">Cast My Vote</button>
-      <p class="vote-status" data-vote-all-status role="status"></p>
-    </div>
-    <p class="vote-footer-note">Pick your favourite from each category above, then cast your vote.</p>
   </section>
   <?php endif; ?>
 
@@ -376,7 +338,7 @@ if ($next_meeting) {
   <section class="section recognition-section" id="tmc-recognition">
     <p class="eyebrow">Member Recognition</p>
     <h2>Recent Level-Ups</h2>
-    <p class="section-sub">Celebrating members who advanced their Pathways journey.</p>
+    <p class="section-sub">Celebrating members who advanced their Pathways journey in the last 15 days.</p>
     <div class="recognition-grid">
       <?php foreach ($level_ups as $lu) : ?>
         <div class="recognition-card">
@@ -394,13 +356,19 @@ if ($next_meeting) {
   </section>
   <?php endif; ?>
 
+  <!-- ═══════════════════════════════════════════ UPCOMING MEETING AGENDA -->
+  <!-- Rendered by JS on page load from REST API — never server-cached -->
+  <section class="section upcoming-agenda-section" id="tmc-upcoming" style="display:none" aria-live="polite"></section>
+
+  
+  
   <!-- ═══════════════════════════════════════════════════ MEETING PULSE -->
   <?php if ($meeting_summary) :
     $dist       = $meeting_summary['level_distribution'] ?? [];
     $dist_total = array_sum($dist);
     $pulse_dt   = new DateTime($meeting_summary['meeting_date']);
   ?>
-  <section class="section meeting-pulse-section" data-tmc-pulse data-tmc-pulse-meeting-id="<?php echo (int) ($meeting_summary['meeting_id'] ?? 0); ?>">
+  <section class="section meeting-pulse-section" id="tmc-lastmeeting" data-tmc-pulse data-tmc-pulse-meeting-id="<?php echo (int) ($meeting_summary['meeting_id'] ?? 0); ?>">
     <div class="pulse-header">
       <div>
         <p class="eyebrow">Last Meeting</p>
@@ -466,19 +434,6 @@ if ($next_meeting) {
           <?php endif; ?>
         </div>
 
-        <?php if (!empty($meeting_summary['level_ups'])) : ?>
-          <p class="eyebrow" style="margin-top:20px;">Level-Ups This Meeting</p>
-          <div class="pulse-levelups">
-            <?php foreach ($meeting_summary['level_ups'] as $lu) : ?>
-              <div class="pulse-lu-row">
-                <strong><?php echo esc_html($lu['member_name']); ?></strong>
-                <span class="level-badge" style="background:<?php echo esc_attr($level_colors[(int)$lu['old_level']] ?? '#999'); ?>">L<?php echo (int)$lu['old_level']; ?></span>
-                <span class="pulse-lu-arrow">&#8594;</span>
-                <span class="level-badge" style="background:<?php echo esc_attr($level_colors[(int)$lu['new_level']] ?? '#999'); ?>">L<?php echo (int)$lu['new_level']; ?></span>
-              </div>
-            <?php endforeach; ?>
-          </div>
-        <?php endif; ?>
       </div>
 
       <?php
@@ -511,6 +466,34 @@ if ($next_meeting) {
       </div>
 
     </div>
+  </section>
+  <?php endif; ?>
+
+  <!-- ══════════════════════════════════════════ ROLE DIVERSITY LEADERS -->
+  <?php if (!empty($diversity_leaders)) : ?>
+  <section class="section diversity-section">
+    <p class="eyebrow">Breadth Award</p>
+    <h2>Role Diversity Leaders</h2>
+    <p class="section-sub">Members who have taken on the widest range of meeting roles.</p>
+    <ol class="diversity-list">
+      <?php foreach ($diversity_leaders as $i => $m) : ?>
+        <li class="diversity-row">
+          <span class="diversity-rank"><?php echo ($i + 1); ?></span>
+          <div class="diversity-info">
+            <strong><?php echo esc_html($m['full_name']); ?></strong>
+            <small><?php echo esc_html($m['pathway']); ?></small>
+          </div>
+          <span class="level-badge" style="background:<?php echo esc_attr($level_colors[(int)($m['level_completed'] ?? 0)] ?? '#999'); ?>">L<?php echo (int) ($m['level_completed'] ?? 0); ?></span>
+          <div class="diversity-tally">
+            <strong><?php echo (int) $m['distinct_roles']; ?></strong>
+            <small>roles</small>
+          </div>
+          <?php if (!empty($m['roles_played'])) : ?>
+            <small class="diversity-role-list"><?php echo esc_html($m['roles_played']); ?></small>
+          <?php endif; ?>
+        </li>
+      <?php endforeach; ?>
+    </ol>
   </section>
   <?php endif; ?>
 
@@ -551,71 +534,8 @@ if ($next_meeting) {
     </div>
   </section>
 
-  <!-- ══════════════════════════════════════════ NEW MEMBER SPOTLIGHT -->
-  <?php if ($spotlight) :
-    $sp        = $spotlight['member'];
-    $sp_joined = !empty($sp['created_at'])
-        ? (new DateTime($sp['created_at']))->format('F Y') : null;
-    $level_labels = ['Level 0 (Enrolled)', 'Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5'];
-    $sp_level  = $level_labels[(int) ($sp['level_completed'] ?? 0)] ?? 'Level 0 (Enrolled)';
-  ?>
-  <section class="section spotlight-section" id="tmc-spotlight">
-    <p class="eyebrow">Welcome to the Club</p>
-    <h2>Meet Our Newest Member</h2>
-    <div class="spotlight-card">
-      <?php if (!empty($spotlight['photo_url'])) : ?>
-      <div class="spotlight-photo-wrap">
-        <img class="spotlight-photo"
-             src="<?php echo esc_url($spotlight['photo_url']); ?>"
-             alt="<?php echo esc_attr($sp['full_name']); ?>"
-             loading="lazy">
-      </div>
-      <?php endif; ?>
-      <div class="spotlight-content">
-        <h3 class="spotlight-name"><?php echo esc_html($sp['full_name']); ?></h3>
-        <div class="spotlight-meta">
-          <span class="spotlight-badge"><?php echo esc_html($sp_level); ?></span>
-          <span class="spotlight-pathway"><?php echo esc_html($sp['pathway']); ?></span>
-          <?php if ($sp_joined) : ?>
-          <span class="spotlight-joined">Joined <?php echo esc_html($sp_joined); ?></span>
-          <?php endif; ?>
-        </div>
-        <?php if (!empty($spotlight['blurb'])) : ?>
-        <p class="spotlight-blurb">&ldquo;<?php echo esc_html($spotlight['blurb']); ?>&rdquo;</p>
-        <?php endif; ?>
-      </div>
-    </div>
-  </section>
-  <?php endif; ?>
-
-  <!-- ══════════════════════════════════════════ ROLE DIVERSITY LEADERS -->
-  <?php if (!empty($diversity_leaders)) : ?>
-  <section class="section diversity-section">
-    <p class="eyebrow">Breadth Award</p>
-    <h2>Role Diversity Leaders</h2>
-    <p class="section-sub">Members who have taken on the widest range of meeting roles.</p>
-    <ol class="diversity-list">
-      <?php foreach ($diversity_leaders as $i => $m) : ?>
-        <li class="diversity-row">
-          <span class="diversity-rank"><?php echo ($i + 1); ?></span>
-          <div class="diversity-info">
-            <strong><?php echo esc_html($m['full_name']); ?></strong>
-            <small><?php echo esc_html($m['pathway']); ?></small>
-          </div>
-          <span class="level-badge" style="background:<?php echo esc_attr($level_colors[(int)($m['level_completed'] ?? 0)] ?? '#999'); ?>">L<?php echo (int) ($m['level_completed'] ?? 0); ?></span>
-          <div class="diversity-tally">
-            <strong><?php echo (int) $m['distinct_roles']; ?></strong>
-            <small>roles</small>
-          </div>
-          <?php if (!empty($m['roles_played'])) : ?>
-            <small class="diversity-role-list"><?php echo esc_html($m['roles_played']); ?></small>
-          <?php endif; ?>
-        </li>
-      <?php endforeach; ?>
-    </ol>
-  </section>
-  <?php endif; ?>
-
+  
+  
   <!-- ══════════════════════════════════════════════════════ PATHWAYS -->
   <section class="section split" id="tmc-pathways">
     <div>
