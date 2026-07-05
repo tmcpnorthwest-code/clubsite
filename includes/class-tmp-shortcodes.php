@@ -124,8 +124,8 @@ class TMP_Shortcodes {
                     </label>
                     <div data-tmp-tt-entry style="display:none;">
                         <p class="tmp-eyebrow" style="margin-top:20px;">Table Topics Speakers</p>
-                        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
-                            <div style="flex:1;">
+                        <div class="tmp-tt-add-row" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
+                            <div style="flex:1;min-width:0;">
                                 <label style="display:block;margin-bottom:4px;font-size:0.88rem;font-weight:700;">Add speaker</label>
                                 <select data-tmp-tt-member-select style="display:block;width:100%;">
                                     <option value="">— select member —</option>
@@ -968,8 +968,8 @@ class TMP_Shortcodes {
                     </label>
                     <div data-tmp-tt-entry style="display:none;">
                         <p class="tmp-eyebrow" style="margin-top:20px;">Table Topics Speakers</p>
-                        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
-                            <div style="flex:1;">
+                        <div class="tmp-tt-add-row" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
+                            <div style="flex:1;min-width:0;">
                                 <label style="display:block;margin-bottom:4px;font-size:0.88rem;font-weight:700;">Add speaker</label>
                                 <select data-tmp-tt-member-select style="display:block;width:100%;">
                                     <option value="">— select member —</option>

@@ -1530,6 +1530,25 @@
   }
 }
 
+/* ── Table Topics: add-speaker row ───────────────────────────────────────── */
+.tmp-tt-add-row {
+  flex-wrap: wrap;
+}
+.tmp-tt-add-row > div {
+  flex: 1 1 200px;
+}
+@media (max-width: 480px) {
+  .tmp-tt-add-row {
+    align-items: stretch;
+  }
+  .tmp-tt-add-row > div {
+    flex: 1 1 100%;
+  }
+  .tmp-tt-add-row > button {
+    flex: 1 1 100%;
+  }
+}
+
 /* ── VPE Tab navigation ──────────────────────────────────────────────── */
 .tmp-tab-nav {
   display: flex;
