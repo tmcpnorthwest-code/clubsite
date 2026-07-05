@@ -1016,6 +1016,32 @@
   font-size: 0.88rem;
 }
 
+.tmp-meeting-report__winners {
+  grid-column: 1 / -1;
+}
+
+.tmp-meeting-winners {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tmp-meeting-winner-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: #fff7e0;
+  border-left: 4px solid #d69b24;
+  border-radius: 4px;
+  font-size: 0.88rem;
+}
+
+.tmp-meeting-winner-cat {
+  color: var(--tmp-muted);
+  font-size: 0.78rem;
+}
+
 /* ── VPE voting panel ────────────────────────────────────────────────────── */
 
 .tmp-vote-cat-summary {

@@ -127,6 +127,20 @@
          </div>`
       : '';
 
+    const winnerLabels = { table_topics: 'Best Table Topics Speaker', speaker: 'Best Speaker', evaluator: 'Best Evaluator' };
+    const winnersHtml = data.winners && data.winners.length
+      ? `<div class="tmp-meeting-report__winners">
+          <p class="tmp-eyebrow" style="margin-bottom:8px;">Meeting winners</p>
+          <div class="tmp-meeting-winners">
+            ${data.winners.map((w) => `
+              <div class="tmp-meeting-winner-item">
+                <span class="tmp-meeting-winner-cat">${esc(winnerLabels[w.category] || w.category)}</span>
+                <strong>${esc(w.display_name)}</strong>${w.is_tie ? ' <small>(tie)</small>' : ''}
+              </div>`).join('')}
+          </div>
+         </div>`
+      : '';
+
     const dateStr = data.meeting_date
       ? new Date(data.meeting_date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
       : '—';
@@ -156,6 +170,7 @@
           <div>${rolesHtml}</div>
         </div>
 
+        ${winnersHtml}
         ${levelUpsHtml}
       </div>`;
   }

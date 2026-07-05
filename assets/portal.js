@@ -3849,10 +3849,10 @@
     let declaredWinners   = [];
 
     // Populate meeting select with recent meetings (most recent first)
-    api('/meetings').then(meetings => {
+    const isExCom = !!panel.closest('[data-tmp-excom-panel]');
+    api('/meetings' + (isExCom ? '' : '?include_wrapped=1')).then(meetings => {
       if (!meetings || !meetings.length) return;
       const today = localDateStr(new Date());
-      const isExCom = !!panel.closest('[data-tmp-excom-panel]');
       (isExCom ? meetings.filter(m => m.meeting_date === today) : meetings.slice(0, 8)).forEach(m => {
         const opt = document.createElement('option');
         opt.value = m.id;
@@ -4006,8 +4006,21 @@
         if (row.dataset.guestName) guests.push({ name: row.dataset.guestName });
       });
 
+      completeBtn.disabled = true;
+
+      // Re-fetch wrap-up data right before saving so we pick up any winners
+      // declared (via the voting panel) since this panel was last loaded —
+      // `declaredWinners` can otherwise be a stale, pre-declaration snapshot.
+      let freshWinners = declaredWinners;
+      try {
+        const fresh = await api('/meetings/' + currentMeetingId + '/wrap-up');
+        freshWinners = (fresh.vote_winners || []).filter(w => w.is_winner);
+      } catch (err) {
+        // fall back to the in-memory snapshot if the refetch fails
+      }
+
       // Winners: auto-pulled from declared winners (is_winner = 1 set via Declare Winners)
-      const winners = declaredWinners.map(w => ({
+      const winners = freshWinners.map(w => ({
         category:     w.category,
         member_id:    w.member_id ? parseInt(w.member_id, 10) : null,
         display_name: w.display_name || '',
@@ -4015,8 +4028,6 @@
         vote_count:   parseInt(w.vote_count, 10) || 0,
         is_tie:       0,
       }));
-
-      completeBtn.disabled = true;
 
       if (feedbackEmailStatus) { feedbackEmailStatus.textContent = 'Sending emails…'; feedbackEmailStatus.style.color = 'var(--tmp-muted)'; }
       try {

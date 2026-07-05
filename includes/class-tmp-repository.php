@@ -631,9 +631,16 @@ class TMP_Repository {
         if ($meeting_id) {
             $mid = absint($meeting_id);
         } else {
+            // Prefer the most recently wrapped-up meeting so the public pulse
+            // reflects what the VPE just completed, not just the latest dated row.
             $mid = (int) $wpdb->get_var(
-                "SELECT id FROM {$meetings} WHERE meeting_date <= CURDATE() ORDER BY meeting_date DESC LIMIT 1"
+                "SELECT id FROM {$meetings} WHERE wrapped_up = 1 AND meeting_date <= CURDATE() ORDER BY meeting_date DESC LIMIT 1"
             );
+            if (!$mid) {
+                $mid = (int) $wpdb->get_var(
+                    "SELECT id FROM {$meetings} WHERE meeting_date <= CURDATE() ORDER BY meeting_date DESC LIMIT 1"
+                );
+            }
         }
 
         if (!$mid) return null;
@@ -1065,15 +1072,16 @@ class TMP_Repository {
         ), ARRAY_A);
     }
 
-    public static function meetings() {
+    public static function meetings($include_wrapped = false) {
         global $wpdb;
         $meetings    = self::meeting_table();
         $assignments = self::assignment_table();
         $members     = self::member_table();
         $requests    = self::request_table();
 
+        $where = $include_wrapped ? '1=1' : '(wrapped_up = 0 OR wrapped_up IS NULL)';
         $rows = $wpdb->get_results(
-            "SELECT * FROM {$meetings} WHERE wrapped_up = 0 OR wrapped_up IS NULL ORDER BY meeting_date DESC, id DESC LIMIT 25",
+            "SELECT * FROM {$meetings} WHERE {$where} ORDER BY meeting_date DESC, id DESC LIMIT 25",
             ARRAY_A
         );
         if (empty($rows)) {

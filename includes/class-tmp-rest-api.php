@@ -877,8 +877,9 @@ class TMP_REST_API {
 
     // ── Meetings ────────────────────────────────────────────────────────────────
 
-    public static function meetings() {
-        return rest_ensure_response(TMP_Repository::meetings());
+    public static function meetings(WP_REST_Request $request) {
+        $include_wrapped = !empty($request->get_param('include_wrapped'));
+        return rest_ensure_response(TMP_Repository::meetings($include_wrapped));
     }
 
     public static function save_meeting(WP_REST_Request $request) {
@@ -1399,6 +1400,13 @@ class TMP_REST_API {
 
         TMP_Repository::save_wrap_up($meeting_id, $body);
         delete_transient('tmp_meeting_pulse'); // bust cache so home page reflects updated data immediately
+
+        // Bust common WordPress page-cache plugins so the public pulse updates immediately
+        if (function_exists('wp_cache_clear_cache')) wp_cache_clear_cache(); // WP Super Cache
+        if (function_exists('w3tc_pgcache_flush'))   w3tc_pgcache_flush();   // W3 Total Cache
+        do_action('litespeed_purge_all');                                      // LiteSpeed Cache
+        do_action('rocket_clean_home');                                        // WP Rocket
+
         $summary = TMP_Repository::get_meeting_summary($meeting_id);
         return rest_ensure_response(['success' => true, 'summary' => $summary]);
     }
