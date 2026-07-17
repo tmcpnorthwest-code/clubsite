@@ -873,6 +873,7 @@ class TMP_Shortcodes {
                                 <p style="font-size:12px;color:#555;margin:0 0 8px;">
                                     <span data-tmp-roles-setup-hint>Using standard agenda with all roles.</span>
                                     <button type="button" class="tmp-link-button" data-tmp-customise-roles style="margin-left:6px;font-size:12px;">Customise roles ▾</button>
+                                    <button type="button" class="tmp-link-button" data-tmp-custom-meeting-preset style="margin-left:6px;font-size:12px;">Custom Meeting (limited roles) ▾</button>
                                 </p>
                                 <div data-tmp-roles-grid style="display:none;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px;">
                                     <?php foreach (TMP_Repository::get_standard_roles() as $fullName => $shortName) : ?>
@@ -880,7 +881,9 @@ class TMP_Shortcodes {
                                     <?php endforeach; ?>
                                 </div>
                                 <label>Number of Speech Slots <input type="number" name="speech_slots" value="3" min="0" max="10" /></label>
-                                <p style="font-size:11px;color:#666;margin-top:5px;">* This will automatically create matching Evaluator slots. Table Topics Speakers are added live via the Voting panel during the meeting.</p>
+                                <label>Number of Ad Hoc Speakers (guests — keynote, opening/closing, etc.) <input type="number" name="adhoc_slots" value="0" min="0" max="10" /></label>
+                                <label>Number of Fun Sessions <input type="number" name="fun_slots" value="0" min="0" max="5" /></label>
+                                <p style="font-size:11px;color:#666;margin-top:5px;">* This will automatically create matching Evaluator slots. Table Topics Speakers are added live via the Voting panel during the meeting. Ad Hoc Speakers and Fun Session organizers are assigned by name (they don't need club member accounts) from the Role Assignment panel below.</p>
                             </div>
                             <label class="tmp-wide">Agenda notes <textarea name="agenda_notes" rows="2"></textarea></label>
                             <div class="tmp-form-actions tmp-wide">

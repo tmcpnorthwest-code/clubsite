@@ -421,6 +421,21 @@
   margin: 0 0 8px;
 }
 
+.tmp-agenda-line-input {
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.tmp-agenda-line-input:hover {
+  border-color: var(--tmp-line) !important;
+  background: #fff !important;
+}
+
+.tmp-agenda-line-input:focus {
+  border-color: #8f1737 !important;
+  background: #fff !important;
+  outline: none;
+}
+
 .tmp-assignment-list {
   display: grid;
   gap: 8px;

@@ -1804,16 +1804,24 @@
                   &nbsp;<span class="tmp-dot-yellow">●</span> ${fmtSecs(ty)}
                   &nbsp;<span class="tmp-dot-red">●</span> ${fmtSecs(tr_t)}
                 </td>
+                <td class="tmp-no-print"></td>
               </tr>`
             : "";
+
+          const deleteLineCell = `<td class="tmp-no-print" style="width:34px;padding:4px;">
+            <button class="tmp-move-btn tmp-danger" data-delete-agenda-line="${a.id}" data-agenda-line-label="${esc(a.role_name)}" title="Delete this agenda line">✕</button>
+          </td>`;
 
           if (isBreak) {
             return `<tr style="background:#f5f5f5;">
               ${moveCell}
               <td style="color:var(--tmp-muted);">${start}</td>
-              <td style="color:var(--tmp-muted);">${dur}m</td>
+              <td style="color:var(--tmp-muted);">
+                <input type="number" min="0" class="tmp-agenda-line-input" data-edit-agenda-duration="${a.id}" value="${esc(a.duration || '')}" style="width:48px;padding:3px 5px;border:1px solid transparent;border-radius:4px;font-size:0.88rem;background:transparent;color:var(--tmp-muted);" />m
+              </td>
               <td style="color:var(--tmp-muted);">${end}</td>
               <td colspan="2" style="color:var(--tmp-muted);font-style:italic;text-align:center;">— Break —</td>
+              ${deleteLineCell}
             </tr>`;
           }
 
@@ -1822,8 +1830,12 @@
             <td>${start}</td>
             <td>${dur}m</td>
             <td>${end}</td>
-            <td>${esc(a.role_name)}${a.speech_title ? `<br><small style="color:var(--tmp-muted);">${esc(a.speech_title)}</small>` : ""}</td>
+            <td>
+              <input type="text" class="tmp-agenda-line-input" data-edit-agenda-line="${a.id}" value="${esc(a.role_name)}" style="width:100%;min-width:180px;padding:3px 5px;border:1px solid transparent;border-radius:4px;font-size:0.88rem;background:transparent;" />
+              ${a.speech_title ? `<br><small style="color:var(--tmp-muted);">${esc(a.speech_title)}</small>` : ""}
+            </td>
             <td>${a.member_name ? esc(a.member_name) : '<em style="color:#ef6c00;">TBA</em>'}</td>
+            ${deleteLineCell}
           </tr>${timingHint}`;
         }).join("");
 
@@ -1836,7 +1848,7 @@
         const agendaTable = agendaRows
           ? `<div class="tmp-table-wrap" style="margin-top:12px;">
               <table class="tmp-table">
-                <thead><tr><th class="tmp-no-print" style="width:54px;padding:4px;"></th><th>Start</th><th>Dur</th><th>End</th><th>Agenda Item</th><th>Member</th></tr></thead>
+                <thead><tr><th class="tmp-no-print" style="width:54px;padding:4px;"></th><th>Start</th><th>Dur</th><th>End</th><th>Agenda Item</th><th>Member</th><th class="tmp-no-print"></th></tr></thead>
                 <tbody>${agendaRows}</tbody>
               </table>
             </div>`
@@ -2031,6 +2043,7 @@
         if (primary.suitability && !primary.suitability.suitable) notes.push(`<span class="tmp-tag" style="background:#ffebee;color:#b71c1c;font-size:10px;">${esc(primary.suitability.reason)}</span>`);
 
         const isSpeakerSlot = baseRole.toLowerCase().startsWith("speaker");
+        const isGuestSlot   = /^ad hoc speaker/i.test(baseRole) || /^fun session/i.test(baseRole);
         const timerDurVal   = primary.timer_duration != null
           ? primary.timer_duration
           : (isSpeakerSlot ? Math.max(1, (Number(primary.duration) || 8) - 1) : "");
@@ -2042,10 +2055,13 @@
                <input type="text" data-assign-speech-title="${esc(primary.id)}" value="${esc(primary.speech_title || '')}" placeholder="Speech title (optional)" style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.82rem;" />
              </div>`
           : "";
+        const memberCell = isGuestSlot
+          ? `<input type="text" data-assign-guest-name="${esc(primary.id)}" value="${esc(primary.guest_name || '')}" placeholder="Guest name (not a club member)" style="width:100%;max-width:220px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;" />`
+          : `<select data-assign-roles="${esc(allIds)}" style="width:100%;max-width:220px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">${opts}</select>`;
         return `<tr>
           <td data-label="Role" style="white-space:nowrap;">${esc(baseRole)}${speakerExtras}</td>
           <td data-label="Member">
-            <select data-assign-roles="${esc(allIds)}" style="width:100%;max-width:220px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">${opts}</select>
+            ${memberCell}
           </td>
           <td data-label="Dur (min)" style="width:80px;">
             <input type="number" min="0" data-assign-duration="${esc(primary.id)}" value="${esc(primary.duration || '')}" placeholder="—" style="width:60px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;" />
@@ -2161,6 +2177,21 @@
             }
           }, 800);
         });
+
+        panel.addEventListener("change", function guestNameHandler(e) {
+          const inp = e.target.closest("[data-assign-guest-name]");
+          if (!inp) return;
+          clearTimeout(inp._saveTimer);
+          inp._saveTimer = setTimeout(async () => {
+            const aid = inp.dataset.assignGuestName;
+            try {
+              await api("/assignments", { method: "POST", body: JSON.stringify({ id: parseInt(aid), guest_name: inp.value, status: inp.value ? "Confirmed" : "Planned" }) });
+              await renderMeetings(meetingSelect.value);
+            } catch (err) {
+              console.warn("Guest name save failed", err);
+            }
+          }, 800);
+        });
       }
     }
 
@@ -2198,10 +2229,12 @@
           const lbl       = qs("[data-tmp-roles-setup-label]", root);
           const hint      = qs("[data-tmp-roles-setup-hint]", root);
           const customBtn = qs("[data-tmp-customise-roles]", root);
+          const presetBtn = qs("[data-tmp-custom-meeting-preset]", root);
           const rolesGrid = qs("[data-tmp-roles-grid]", root);
           if (lbl) lbl.textContent = "Role Slots";
           if (hint) hint.textContent = "Using standard agenda with all roles.";
           if (customBtn) { customBtn.style.display = ""; customBtn.textContent = "Customise roles ▾"; }
+          if (presetBtn) presetBtn.style.display = "";
           if (rolesGrid) rolesGrid.style.display = "none";
         }
         if (formLabel) formLabel.textContent = "Schedule New Meeting";
@@ -2223,15 +2256,21 @@
           if (rolesSetup) {
             rolesSetup.style.display = "";
             rolesSetup.querySelectorAll("input[type=checkbox]").forEach((cb) => { cb.checked = false; });
-            const slotInput = rolesSetup.querySelector("input[name=speech_slots]");
-            if (slotInput) slotInput.value = "0";
+            const slotInput  = rolesSetup.querySelector("input[name=speech_slots]");
+            const adhocInput = rolesSetup.querySelector("input[name=adhoc_slots]");
+            const funInput   = rolesSetup.querySelector("input[name=fun_slots]");
+            if (slotInput)  slotInput.value  = "0";
+            if (adhocInput) adhocInput.value = "0";
+            if (funInput)   funInput.value   = "0";
             const lbl       = qs("[data-tmp-roles-setup-label]", root);
             const hint      = qs("[data-tmp-roles-setup-hint]", root);
             const customBtn = qs("[data-tmp-customise-roles]", root);
+            const presetBtn = qs("[data-tmp-custom-meeting-preset]", root);
             const rolesGrid = qs("[data-tmp-roles-grid]", root);
             if (lbl) lbl.textContent = "Add Role Slots";
-            if (hint) hint.textContent = "Check roles to add them if not already in this meeting. Set Speech Slots > 0 to append extra Speaker + Evaluator pairs.";
+            if (hint) hint.textContent = "Check roles to add them if not already in this meeting. Set slot counts > 0 to append extra Speaker+Evaluator pairs, Ad Hoc Speakers, or Fun Sessions.";
             if (customBtn) customBtn.style.display = "none";
+            if (presetBtn) presetBtn.style.display = "none";
             if (rolesGrid) rolesGrid.style.display = "grid";
           }
           if (formLabel) formLabel.textContent = "Edit Meeting";
@@ -2501,6 +2540,30 @@
       btn.textContent = open ? "Customise roles ▾" : "Use standard template ▴";
     });
 
+    // "Custom Meeting" preset — limited-role meeting (SAA, TMOD, Presiding Officer,
+    // Table Topics Master only), zero prepared speeches, reveals Ad Hoc Speaker /
+    // Fun Session slot counts for the user to set.
+    const CUSTOM_MEETING_ROLES = ["Sergeant at Arms", "Toastmaster of the Day", "Presiding Officer", "Table Topics Master"];
+    qs("[data-tmp-custom-meeting-preset]", root)?.addEventListener("click", () => {
+      const grid = qs("[data-tmp-roles-grid]", root);
+      const customBtn = qs("[data-tmp-customise-roles]", root);
+      if (grid) {
+        grid.style.display = "grid";
+        grid.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+          cb.checked = CUSTOM_MEETING_ROLES.includes(cb.value);
+        });
+      }
+      if (customBtn) customBtn.textContent = "Use standard template ▴";
+      const slotInput  = meetingForm.elements.speech_slots;
+      const adhocInput = meetingForm.elements.adhoc_slots;
+      const funInput   = meetingForm.elements.fun_slots;
+      if (slotInput) slotInput.value = "0";
+      if (adhocInput) adhocInput.value = "1";
+      if (funInput) funInput.value = "1";
+      const hint = qs("[data-tmp-roles-setup-hint]", root);
+      if (hint) hint.textContent = "Custom Meeting: limited roles only. Adjust checkboxes and slot counts as needed.";
+    });
+
     // Auto-fill deadline = meeting date − 3 days at 18:00 when date changes
     meetingForm.elements.meeting_date?.addEventListener("change", () => {
       const dateVal = meetingForm.elements.meeting_date.value;
@@ -2530,6 +2593,42 @@
       hideSuggestions();
       if (cooloffWarning) cooloffWarning.style.display = "none";
       if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "none";
+    });
+
+    // Inline edit of agenda line text / break duration (debounced save)
+    meetingList.addEventListener("change", (e) => {
+      const textInp = e.target.closest("[data-edit-agenda-line]");
+      const durInp  = e.target.closest("[data-edit-agenda-duration]");
+
+      if (textInp) {
+        clearTimeout(textInp._saveTimer);
+        textInp._saveTimer = setTimeout(async () => {
+          const aid = parseInt(textInp.dataset.editAgendaLine, 10);
+          const val = textInp.value.trim();
+          if (!val) { alert("Agenda item text can't be empty."); return; }
+          try {
+            await api("/assignments", { method: "POST", body: JSON.stringify({ id: aid, role_name: val }) });
+            await renderMeetings(meetingSelect.value);
+          } catch (err) {
+            alert("Failed to save agenda item text: " + err.message);
+          }
+        }, 800);
+        return;
+      }
+
+      if (durInp) {
+        clearTimeout(durInp._saveTimer);
+        durInp._saveTimer = setTimeout(async () => {
+          const aid = parseInt(durInp.dataset.editAgendaDuration, 10);
+          const dur = Number(durInp.value) || 0;
+          try {
+            await api("/assignments", { method: "POST", body: JSON.stringify({ id: aid, duration: dur }) });
+            await renderMeetings(meetingSelect.value);
+          } catch (err) {
+            alert("Failed to save break duration: " + err.message);
+          }
+        }, 800);
+      }
     });
 
     // Meeting list event delegation
@@ -2565,6 +2664,23 @@
           console.error("Reorder failed", err);
         }
         await renderMeetings(meetingSelect.value);
+        return;
+      }
+
+      const deleteLine = e.target.closest("[data-delete-agenda-line]");
+      if (deleteLine) {
+        const aid   = parseInt(deleteLine.dataset.deleteAgendaLine, 10);
+        const label = deleteLine.dataset.agendaLineLabel || "this agenda line";
+        if (!confirm(`Delete "${label}" from the agenda?\n\nThis removes just this one line — other lines for the same role are kept. Use "Rebuild Agenda" to restore the standard template.`)) return;
+        deleteLine.disabled = true;
+        try {
+          await api(`/assignments/${aid}`, { method: "DELETE" });
+          await renderMeetings(meetingSelect.value);
+          updateMemberDashboard().catch(() => {});
+        } catch (err) {
+          alert("Failed to delete agenda line: " + err.message);
+          deleteLine.disabled = false;
+        }
         return;
       }
 

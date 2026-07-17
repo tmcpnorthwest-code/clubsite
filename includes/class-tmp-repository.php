@@ -466,7 +466,8 @@ class TMP_Repository {
         if (array_key_exists($base_role, self::get_standard_roles())) {
             return true;
         }
-        return (bool) preg_match('/^(Speaker|Evaluator)\s+\d+$/i', $base_role);
+        return (bool) preg_match('/^(Speaker|Evaluator|Ad Hoc Speaker)\s+\d+$/i', $base_role)
+            || (bool) preg_match('/^Fun Session(\s+\d+)?$/i', $base_role);
     }
 
     // -------------------------------------------------------------------------
@@ -784,13 +785,15 @@ class TMP_Repository {
         // Member assignments, speech titles, and per-slot durations (Speaker, TTM) are preserved.
         // Other role durations reset to template defaults.
         $existing = $wpdb->get_results($wpdb->prepare(
-            "SELECT role_name, member_id, speech_title, presentation_series, status, duration, timer_duration
+            "SELECT role_name, member_id, guest_name, speech_title, presentation_series, status, duration, timer_duration
              FROM {$atbl} WHERE meeting_id = %d ORDER BY sort_order",
             $meeting_id
         ), ARRAY_A);
 
-        $saved        = []; // base_role → {member_id, speech_title, presentation_series, status, duration, timer_duration}
+        $saved        = []; // base_role → {member_id, guest_name, speech_title, presentation_series, status, duration, timer_duration}
         $speaker_nums = [];   // actual slot numbers that exist in the DB
+        $adhoc_nums   = [];   // actual Ad Hoc Speaker slot numbers that exist in the DB
+        $fun_nums     = [];   // actual Fun Session slot numbers that exist in the DB
         $role_set     = [];
 
         foreach ($existing as $row) {
@@ -798,6 +801,12 @@ class TMP_Repository {
 
             if (preg_match('/^Speaker\s+(\d+)$/i', $base, $m)) {
                 $speaker_nums[(int) $m[1]] = true;
+            }
+            if (preg_match('/^Ad Hoc Speaker\s+(\d+)$/i', $base, $m)) {
+                $adhoc_nums[(int) $m[1]] = true;
+            }
+            if (preg_match('/^Fun Session(?:\s+(\d+))?$/i', $base, $m)) {
+                $fun_nums[isset($m[1]) && $m[1] !== '' ? (int) $m[1] : 1] = true;
             }
 
             if (array_key_exists($base, self::get_standard_roles())) {
@@ -810,6 +819,7 @@ class TMP_Repository {
                 $prev_timer_dur = $saved[$base]['timer_duration'] ?? null;
                 $saved[$base] = [
                     'member_id'           => $row['member_id'] ? absint($row['member_id']) : null,
+                    'guest_name'          => $row['guest_name'] ?? null,
                     'speech_title'        => $row['speech_title'] ?? null,
                     'presentation_series' => $row['presentation_series'] ?? null,
                     'status'              => $row['status'] ?? 'Planned',
@@ -835,6 +845,27 @@ class TMP_Repository {
             }
         }
         $total_speeches = count($speaker_nums);
+
+        ksort($adhoc_nums);
+        $adhoc_nums = array_keys($adhoc_nums);
+        foreach ($adhoc_nums as $new_zero_idx => $old_num) {
+            $new_num = $new_zero_idx + 1;
+            if ($old_num !== $new_num && isset($saved["Ad Hoc Speaker {$old_num}"])) {
+                $saved["Ad Hoc Speaker {$new_num}"] = $saved["Ad Hoc Speaker {$old_num}"];
+                unset($saved["Ad Hoc Speaker {$old_num}"]);
+            }
+        }
+        $total_adhoc = count($adhoc_nums);
+
+        ksort($fun_nums);
+        $fun_nums = array_keys($fun_nums);
+        $total_fun = count($fun_nums);
+        // Re-key single-slot "Fun Session" (no number) to "Fun Session 1" so the
+        // loop below (which always uses numbered labels when total_fun > 1) can find it.
+        if ($total_fun === 1 && isset($saved['Fun Session']) && !isset($saved['Fun Session 1'])) {
+            $saved['Fun Session 1'] = $saved['Fun Session'];
+        }
+
         $selected_roles = array_keys($role_set);
 
         // Step 2: Delete all existing assignment rows for this meeting
@@ -908,14 +939,35 @@ class TMP_Repository {
         if (in_array('Table Topics Evaluator', $selected_roles))
             $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'TT Session Evaluation', 'dur' => 3];
 
-        // ── Evaluation Session ────────────────────────────────────────────────
-        if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Evaluation Session', 'dur' => 1];
-        for ($i = 1; $i <= $total_speeches; $i++) {
-            $agenda[]     = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
+        // ── Evaluation Session (only when there are speeches to evaluate) ──────
+        if ($total_speeches > 0) {
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Evaluation Session', 'dur' => 1];
+            for ($i = 1; $i <= $total_speeches; $i++) {
+                $agenda[]     = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
+            }
+            if (in_array('Timer', $selected_roles))
+                $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
         }
-        if (in_array('Timer', $selected_roles))
-            $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
+
+        // ── Ad Hoc Speakers (guests — keynote, opening/closing remarks, etc.) ──
+        for ($i = 1; $i <= $total_adhoc; $i++) {
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Ad Hoc Speaker {$i}", 'dur' => 1];
+            $ah_dur = isset($saved["Ad Hoc Speaker $i"]['duration']) && $saved["Ad Hoc Speaker $i"]['duration'] > 0
+                      ? (int) $saved["Ad Hoc Speaker $i"]['duration'] : $durs['speaker'];
+            $agenda[]     = ['role' => "Ad Hoc Speaker $i", 'note' => 'Guest Speech', 'dur' => $ah_dur];
+        }
+
+        // ── Fun Session ──────────────────────────────────────────────────────
+        for ($i = 1; $i <= $total_fun; $i++) {
+            $label = $total_fun > 1 ? "Fun Session $i" : 'Fun Session';
+            if (in_array('Toastmaster of the Day', $selected_roles))
+                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces {$label}", 'dur' => 1];
+            $fun_dur = isset($saved["Fun Session $i"]['duration']) && $saved["Fun Session $i"]['duration'] > 0
+                       ? (int) $saved["Fun Session $i"]['duration'] : 10;
+            $agenda[]     = ['role' => $label, 'note' => 'Organizes fun session', 'dur' => $fun_dur];
+        }
 
         // ── Role-player Reports ───────────────────────────────────────────────
         if (in_array('Grammarian', $selected_roles))
@@ -951,19 +1003,20 @@ class TMP_Repository {
                 'role_name'           => $full_name,
                 'duration'            => $dur,
                 'timer_duration'      => $timer_dur,
-                'status'              => ($s && $s['member_id']) ? ($s['status'] ?: 'Confirmed') : 'Planned',
+                'status'              => ($s && ($s['member_id'] || $s['guest_name'])) ? ($s['status'] ?: 'Confirmed') : 'Planned',
                 'sort_order'          => $order,
                 'time_green'          => $tg,
                 'time_yellow'         => $ty,
                 'time_red'            => $tr,
                 'member_id'           => $s['member_id'] ?? null,
+                'guest_name'          => $s['guest_name'] ?? null,
                 'speech_title'        => $s['speech_title'] ?? null,
                 'presentation_series' => $s['presentation_series'] ?? null,
             ]);
             $order += 10;
         }
 
-        return ['rebuilt' => count($agenda), 'speech_slots' => $total_speeches];
+        return ['rebuilt' => count($agenda), 'speech_slots' => $total_speeches, 'adhoc_slots' => $total_adhoc, 'fun_slots' => $total_fun];
     }
 
     // -------------------------------------------------------------------------
@@ -1103,7 +1156,7 @@ class TMP_Repository {
             $meeting_reqs = array_filter($all_requests, fn($r) => (int) $r['meeting_id'] === (int) $meeting['id']);
 
             $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
-                "SELECT a.*, m.full_name AS member_name
+                "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name
                  FROM {$assignments} a
                  LEFT JOIN {$members} m ON m.id = a.member_id
                  WHERE a.meeting_id = %d
@@ -1154,7 +1207,7 @@ class TMP_Repository {
         if (!$meeting) return null;
 
         $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
-            "SELECT a.*, m.full_name AS member_name
+            "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name
              FROM {$assignments} a
              LEFT JOIN {$members} m ON m.id = a.member_id
              WHERE a.meeting_id = %d
@@ -2272,8 +2325,10 @@ class TMP_Repository {
             // Add any missing role slots the user checked in edit mode
             $selected_roles = is_array($data['roles'] ?? null) ? array_map('sanitize_text_field', $data['roles']) : [];
             $new_slot_count = isset($data['speech_slots']) ? absint($data['speech_slots']) : 0;
+            $new_adhoc_count = isset($data['adhoc_slots']) ? absint($data['adhoc_slots']) : 0;
+            $new_fun_count   = isset($data['fun_slots']) ? absint($data['fun_slots']) : 0;
 
-            if (!empty($selected_roles) || $new_slot_count > 0) {
+            if (!empty($selected_roles) || $new_slot_count > 0 || $new_adhoc_count > 0 || $new_fun_count > 0) {
                 $atbl = self::assignment_table();
                 $existing_names = $wpdb->get_col($wpdb->prepare(
                     "SELECT role_name FROM {$atbl} WHERE meeting_id = %d ORDER BY sort_order", $id
@@ -2309,6 +2364,26 @@ class TMP_Repository {
                         $order += 10;
                         [$tg, $ty, $tr] = self::get_timing_for_role("Evaluator $i (Evaluation)", 3);
                         self::save_assignment(['meeting_id' => $id, 'role_name' => "Evaluator $i (Evaluation)", 'duration' => 3, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
+                        $order += 10;
+                    }
+                }
+
+                if ($new_adhoc_count > 0) {
+                    $current_adhoc = count(array_filter($existing_bases, fn($b) => (bool) preg_match('/^Ad Hoc Speaker\s+\d+$/i', $b)));
+                    $durs = self::get_agenda_durations();
+                    for ($i = $current_adhoc + 1; $i <= $new_adhoc_count; $i++) {
+                        [$tg, $ty, $tr] = self::get_timing_for_role("Ad Hoc Speaker $i (Guest Speech)", $durs['speaker']);
+                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Ad Hoc Speaker $i (Guest Speech)", 'duration' => $durs['speaker'], 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
+                        $order += 10;
+                    }
+                }
+
+                if ($new_fun_count > 0) {
+                    $current_fun = count(array_filter($existing_bases, fn($b) => (bool) preg_match('/^Fun Session(\s+\d+)?$/i', $b)));
+                    for ($i = $current_fun + 1; $i <= $new_fun_count; $i++) {
+                        $label = $new_fun_count > 1 || $current_fun > 0 ? "Fun Session $i" : 'Fun Session';
+                        [$tg, $ty, $tr] = self::get_timing_for_role("{$label} (Organizes fun session)", 10);
+                        self::save_assignment(['meeting_id' => $id, 'role_name' => "{$label} (Organizes fun session)", 'duration' => 10, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
                         $order += 10;
                     }
                 }
@@ -2375,14 +2450,33 @@ class TMP_Repository {
             if (in_array('Table Topics Evaluator', $selected_roles))
                 $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'TT Session Evaluation', 'dur' => 3];
 
-            // ── Evaluation Session ────────────────────────────────────────────
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Evaluation Session', 'dur' => 1];
-            for ($i = 1; $i <= $speech_slots; $i++) {
-                $agenda[]     = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
+            // ── Evaluation Session (only when there are speeches to evaluate) ──
+            if ($speech_slots > 0) {
+                if (in_array('Toastmaster of the Day', $selected_roles))
+                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Evaluation Session', 'dur' => 1];
+                for ($i = 1; $i <= $speech_slots; $i++) {
+                    $agenda[]     = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
+                }
+                if (in_array('Timer', $selected_roles))
+                    $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
             }
-            if (in_array('Timer', $selected_roles))
-                $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
+
+            // ── Ad Hoc Speakers (guests — keynote, opening/closing remarks, etc.) ──
+            $adhoc_slots = absint($data['adhoc_slots'] ?? 0);
+            for ($i = 1; $i <= $adhoc_slots; $i++) {
+                if (in_array('Toastmaster of the Day', $selected_roles))
+                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Ad Hoc Speaker {$i}", 'dur' => 1];
+                $agenda[]     = ['role' => "Ad Hoc Speaker $i", 'note' => 'Guest Speech', 'dur' => $durs['speaker']];
+            }
+
+            // ── Fun Session ──────────────────────────────────────────────────
+            $fun_slots = absint($data['fun_slots'] ?? 0);
+            for ($i = 1; $i <= $fun_slots; $i++) {
+                $label = $fun_slots > 1 ? "Fun Session $i" : 'Fun Session';
+                if (in_array('Toastmaster of the Day', $selected_roles))
+                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces {$label}", 'dur' => 1];
+                $agenda[]     = ['role' => $label, 'note' => 'Organizes fun session', 'dur' => 10];
+            }
 
             // ── Role-player Reports ───────────────────────────────────────────
             if (in_array('Grammarian', $selected_roles))
@@ -2526,6 +2620,7 @@ class TMP_Repository {
         $record = [];
         if (isset($data['meeting_id']))              $record['meeting_id']         = absint($data['meeting_id']);
         if (array_key_exists('member_id', $data))    $record['member_id']          = !empty($data['member_id']) ? absint($data['member_id']) : null;
+        if (array_key_exists('guest_name', $data))   $record['guest_name']         = !empty($data['guest_name']) ? sanitize_text_field($data['guest_name']) : null;
         if (isset($data['role_name']))           $record['role_name']          = sanitize_text_field($data['role_name']);
         if (isset($data['speech_title']))        $record['speech_title']       = sanitize_text_field($data['speech_title']);
         if (isset($data['duration']))            $record['duration']           = absint($data['duration']);

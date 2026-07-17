@@ -68,6 +68,7 @@ class TMP_Activator {
         self::migrate_v170_request_role_name();
         self::migrate_v180_chapter_number();
         self::migrate_v190_ex_com_role();
+        self::migrate_v200_guest_name();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -202,6 +203,7 @@ class TMP_Activator {
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             meeting_id BIGINT UNSIGNED NOT NULL,
             member_id BIGINT UNSIGNED NULL,
+            guest_name VARCHAR(190) NULL,
             role_name VARCHAR(120) NOT NULL,
             speech_title VARCHAR(190) NULL,
             duration INT UNSIGNED NOT NULL DEFAULT 0,
@@ -705,6 +707,15 @@ class TMP_Activator {
      */
     private static function migrate_v190_ex_com_role() {
         self::create_roles(); // add_role is idempotent; also re-grants caps to all roles
+    }
+
+    private static function migrate_v200_guest_name() {
+        global $wpdb;
+        $assignments = $wpdb->prefix . 'tmp_role_assignments';
+        $cols = $wpdb->get_col("DESCRIBE {$assignments}");
+        if (!in_array('guest_name', $cols, true)) {
+            $wpdb->query("ALTER TABLE {$assignments} ADD COLUMN guest_name VARCHAR(190) NULL AFTER member_id");
+        }
     }
 
     private static function migrate_v180_chapter_number() {
