@@ -3511,6 +3511,139 @@ class TMP_Repository {
         return ['found' => $found, 'sent' => $sent, 'failed' => $found - $sent];
     }
 
+    /**
+     * Sends a single email (admin in To, all assigned members in Bcc) with the
+     * published agenda attached as an HTML file. Fired when a meeting's agenda
+     * is published via toggle_publish_agenda().
+     */
+    public static function notify_agenda_published(int $meeting_id) {
+        global $wpdb;
+
+        $meeting = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM " . self::meeting_table() . " WHERE id = %d", $meeting_id
+        ), ARRAY_A);
+        if (!$meeting) return new WP_Error('not_found', 'Meeting not found', ['status' => 404]);
+
+        $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
+            "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name, m.email
+             FROM " . self::assignment_table() . " a
+             LEFT JOIN " . self::member_table() . " m ON m.id = a.member_id
+             WHERE a.meeting_id = %d
+             ORDER BY a.sort_order ASC, a.id ASC",
+            $meeting_id
+        ), ARRAY_A) ?: [];
+
+        $bcc_emails = [];
+        foreach ($meeting['assignments'] as &$assignment) {
+            if ($assignment['time_green'] === null) {
+                [$tg, $ty, $tr] = self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null);
+                $assignment['time_green']  = $tg;
+                $assignment['time_yellow'] = $ty;
+                $assignment['time_red']    = $tr;
+            }
+            if (!empty($assignment['email'])) $bcc_emails[] = $assignment['email'];
+        }
+        unset($assignment);
+        $bcc_emails = array_unique($bcc_emails);
+
+        $admin_email = get_option('admin_email');
+        if (empty($bcc_emails) && empty($admin_email)) return ['found' => 0, 'sent' => 0];
+
+        $agenda_html = self::render_agenda_html($meeting);
+
+        $upload_dir = wp_upload_dir();
+        $tmp_path   = trailingslashit($upload_dir['basedir']) . 'tmp-agenda-' . $meeting_id . '-' . time() . '.html';
+        file_put_contents($tmp_path, $agenda_html);
+
+        $date_fmt = date('l, F j, Y', strtotime($meeting['meeting_date']));
+        $subject  = "Meeting Agenda Published — {$date_fmt}";
+        $message  = sprintf(
+            "Hi,\n\nThe agenda for the meeting on %s (%s) has been published.\n\nPlease find the full agenda with role assignments attached.\n\nRegards,\nVP Education",
+            $date_fmt,
+            $meeting['theme'] ?? ''
+        );
+        $headers = [];
+        if (!empty($bcc_emails)) $headers[] = 'Bcc: ' . implode(', ', $bcc_emails);
+
+        $sent = wp_mail($admin_email, $subject, $message, $headers, [$tmp_path]);
+
+        @unlink($tmp_path);
+
+        return ['found' => count($bcc_emails), 'sent' => $sent ? count($bcc_emails) : 0];
+    }
+
+    /**
+     * Renders a standalone HTML agenda document (same layout as the client-side
+     * print view) for use as an email attachment.
+     */
+    private static function render_agenda_html($meeting) {
+        $esc = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+
+        [$startH, $startMin] = array_map('intval', explode(':', $meeting['start_time'] ?: '18:30:00'));
+        $start_total = $startH * 60 + $startMin;
+        $t           = $start_total;
+        $fmt_time    = fn($mins) => sprintf('%02d:%02d', (intdiv($mins, 60)) % 24, $mins % 60);
+        $fmt_t       = function ($secs) {
+            $n = (int) $secs;
+            if (!$n) return '';
+            $mm = intdiv($n, 60);
+            $ss = $n % 60;
+            return $ss === 0 ? (string) $mm : sprintf('%d:%02d', $mm, $ss);
+        };
+
+        $date_str  = date('j F Y', strtotime($meeting['meeting_date']));
+        $venue     = $meeting['venue'] ?? get_option('tmp_default_venue', '');
+        $club_name = get_bloginfo('name');
+        $theme     = $meeting['theme'] ?? '';
+
+        $tmod_name = '';
+        foreach ($meeting['assignments'] as $a) {
+            if (!empty($a['member_name']) && preg_match('/toastmaster of the day|tmod/i', $a['role_name'])) {
+                $tmod_name = $a['member_name'];
+                break;
+            }
+        }
+
+        $rows_html = '<tr><td>' . $fmt_time($start_total - 20) . '</td><td></td><td></td><td></td><td>Gathering &amp; Networking</td><td>All Participants</td></tr>';
+        foreach ($meeting['assignments'] as $a) {
+            $start = $fmt_time($t);
+            $dur   = (int) ($a['duration'] ?? 0);
+            $t    += $dur;
+            $is_break = stripos($a['role_name'], 'break') === 0;
+
+            if ($is_break) {
+                $rows_html .= '<tr><td>' . $start . '</td><td></td><td></td><td></td><td colspan="2" style="text-align:center;font-weight:bold;">— Break —</td></tr>';
+                continue;
+            }
+
+            $rows_html .= '<tr>'
+                . '<td>' . $esc($start) . '</td>'
+                . '<td style="color:#2e7d32;text-align:center;">' . $esc($fmt_t($a['time_green'])) . '</td>'
+                . '<td style="color:#b8860b;text-align:center;">' . $esc($fmt_t($a['time_yellow'])) . '</td>'
+                . '<td style="color:#c62828;text-align:center;">' . $esc($fmt_t($a['time_red'])) . '</td>'
+                . '<td>' . $esc($a['role_name']) . ($a['speech_title'] ? '<br><span style="font-size:10px;color:#777;">' . $esc($a['speech_title']) . '</span>' : '') . '</td>'
+                . '<td style="font-style:italic;">' . $esc($a['member_name'] ?? '') . '</td>'
+                . '</tr>';
+        }
+
+        $notes_html = !empty($meeting['agenda_notes'])
+            ? '<p style="margin-top:20px;font-size:11px;color:#666;font-style:italic;white-space:pre-wrap;">' . $esc($meeting['agenda_notes']) . '</p>'
+            : '';
+
+        return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Meeting Agenda – ' . $esc($meeting['meeting_date']) . '</title>'
+            . '<style>body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:24px;}'
+            . 'table{width:100%;border-collapse:collapse;margin-top:10px;}'
+            . 'thead tr{background:#18324a;color:#fff;}thead th{padding:8px;font-size:11px;text-transform:uppercase;}'
+            . 'tbody tr{border-bottom:1px solid #e8e8e8;}td{padding:8px;}</style></head><body>'
+            . '<h2 style="color:#8f1737;margin-bottom:4px;">' . $esc($club_name) . '</h2>'
+            . '<p style="margin:0 0 12px;color:#444;">' . $esc($date_str) . ($venue ? ' &middot; ' . $esc($venue) : '') . '</p>'
+            . '<p style="margin:0 0 16px;">Theme: <strong>' . $esc($theme) . '</strong>' . ($tmod_name ? ' &middot; TMOD: <strong>' . $esc($tmod_name) . '</strong>' : '') . '</p>'
+            . '<table><thead><tr><th>Time</th><th>Green</th><th>Yellow</th><th>Red</th><th style="text-align:left;">Activity</th><th style="text-align:left;">Presenter</th></tr></thead>'
+            . '<tbody>' . $rows_html . '</tbody></table>'
+            . $notes_html
+            . '</body></html>';
+    }
+
     // =========================================================================
     // VOTING
     // =========================================================================

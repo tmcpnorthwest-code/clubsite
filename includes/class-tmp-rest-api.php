@@ -1436,6 +1436,10 @@ class TMP_REST_API {
         do_action('litespeed_purge_all');                                      // LiteSpeed Cache
         do_action('rocket_clean_home');                                        // WP Rocket
 
+        if ($new_state === 1) {
+            TMP_Repository::notify_agenda_published($id);
+        }
+
         return rest_ensure_response(['is_published' => $new_state]);
     }
 
