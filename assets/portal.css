@@ -1633,3 +1633,50 @@
   justify-content: center;
   line-height: 1.4;
 }
+
+/* ── VPE Meeting lifecycle stage nav (distinct from the top-level tab bar above) ── */
+.tmp-meeting-bar { margin-bottom: 14px; }
+.tmp-stage-pills {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.tmp-stage-pill {
+  flex: 1;
+  text-align: center;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--tmp-line);
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--tmp-muted);
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.tmp-stage-pill-sub {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 500;
+  margin-top: 2px;
+  opacity: 0.85;
+}
+.tmp-stage-pill:hover { border-color: var(--tmp-teal); }
+.tmp-stage-pill--active {
+  background: var(--tmp-teal);
+  color: #fff;
+  border-color: var(--tmp-teal);
+}
+
+.tmp-stage-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.tmp-stage-badge--setup  { background: #fff3e0; color: #e65100; }
+.tmp-stage-badge--dayof  { background: #eef4fa; color: #1e4a6e; }
+.tmp-stage-badge--done   { background: #e8f5e9; color: #2e7d32; }
+.tmp-stage-badge--urgent { background: #fff8e1; color: #ef6c00; }

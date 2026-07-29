@@ -469,7 +469,7 @@
       root._renderJourney = renderJourney;
       await renderJourney();
 
-      // ── Level status (speech + role progress for L1–L3) ───────────────────────
+      // ── Level status (speech + role progress for L1–L5) ───────────────────────
       const renderProgressSummary = async () => {
         const summaryPanel = qs("[data-tmp-progress-summary-panel]", root);
         const nextActionPanel = qs("[data-tmp-next-action-panel]", root);
@@ -483,14 +483,7 @@
         const levelCompleted = data.level_completed || 0;
         const workingLevel = data.level || Math.min(levelCompleted + 1, 5);
 
-        if (workingLevel > 3) {
-          // L4+ members: hide progress panel, show next action
-          if (summaryPanel) summaryPanel.style.display = "none";
-          if (nextActionPanel) nextActionPanel.style.display = "";
-          return;
-        }
-
-        // L1-L3 members: show progress panel, hide next action
+        // All levels 1-5 now have tracked speech + role progress: show progress panel, hide next action
         if (summaryPanel) summaryPanel.style.display = "";
         if (nextActionPanel) nextActionPanel.style.display = "none";
 
@@ -537,12 +530,6 @@
         root._levelStatus = data;
         const lvl = data.level;
         if (nextLvlEl) nextLvlEl.textContent = lvl + 1;
-
-        if (lvl > 3) {
-          statusEl.innerHTML = `<p style="color:var(--tmp-muted);font-size:0.88rem;">Level ${lvl} progress is coordinated with your VPE. Contact your VPE for guidance on L4+ requirements.</p>`;
-          if (lvlUpSect) lvlUpSect.style.display = "none";
-          return;
-        }
 
         const sp       = data.speech_progress;
         const gaps     = data.role_gaps || [];
@@ -1110,7 +1097,7 @@
       const infoBox = qs("[data-tmp-role-info]", reqForm);
       if (infoBox) {
         let infoHtml = "";
-        // Speech encouragement for L1–L3 members who still need speeches
+        // Speech encouragement for members who still need speeches at their level
         const lvlSt = root._levelStatus;
         if (lvlSt && lvlSt.speech_progress && !lvlSt.speech_progress.met) {
           const hasSpeakerSlot = unique.some((r) => /^speaker/i.test(r.display) || /ice breaker/i.test(r.display));
@@ -1517,6 +1504,9 @@
     const meetingList    = qs("[data-tmp-meeting-list]", root);
     const compactList    = qs("[data-tmp-meetings-compact-list]", root);
     const meetingCount   = qs("[data-tmp-meeting-count]", root);
+    const stageBadge     = qs("[data-tmp-meeting-status-badge]", root);
+    const stageBtns      = qsa("[data-tmp-stage-btn]", root);
+    const stageBodies    = qsa("[data-tmp-stage-body]", root);
     const vpeSearch      = qs("[data-tmp-vpe-search]", root);
     const vpePathway     = qs("[data-tmp-vpe-pathway]", root);
     const vpeLevel       = qs("[data-tmp-vpe-level]", root);
@@ -1625,6 +1615,7 @@
     };
 
     async function renderMembers(force = false) {
+      if (!unifiedRows) return; // Ex Com-only users don't have the Members tab
       if (force || !root._allMembers) {
         try {
           root._allMembers = await api("/members");
@@ -1743,19 +1734,35 @@
 
     // -- Meetings list --------------------------------------------------------
     async function renderMeetings(selectedId = null) {
-      const meetings = await api("/meetings") || [];
+      const meetings = await api("/meetings?include_wrapped=1") || [];
       root._meetings = Array.isArray(meetings) ? meetings : [];
+      updateMeetingsTabBadge(root, meetings);
 
       if (meetingCount) meetingCount.textContent = `${meetings.length} ${meetings.length === 1 ? "meeting" : "meetings"}`;
       const prevMeetingVal = meetingSelect.value;
+      // Shared picker: show every not-yet-wrapped meeting, but cap wrapped history to the 8 most recent
+      // (meetings arrive ordered by meeting_date DESC, so the first ones seen are the most recent).
+      let wrappedSeen = 0;
+      const optionMeetings = meetings.filter((m) => {
+        if (!m.wrapped_up) return true;
+        wrappedSeen += 1;
+        return wrappedSeen <= 8;
+      });
       meetingSelect.innerHTML =
         '<option value="">— Select or create meeting —</option>' +
         '<option value="new">+ Schedule New Meeting</option>' +
-        meetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}</option>`).join("");
+        optionMeetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}${m.wrapped_up ? " ✓" : ""}</option>`).join("");
 
       renderPendingRequests(root).catch(() => {});
-      if (selectedId) meetingSelect.value = selectedId;
-      else if (prevMeetingVal) meetingSelect.value = prevMeetingVal;
+      if (selectedId) {
+        meetingSelect.value = selectedId;
+      } else if (prevMeetingVal) {
+        meetingSelect.value = prevMeetingVal;
+      } else {
+        const today = localDateStr(new Date());
+        const todaysMeeting = meetings.find((m) => m.meeting_date === today);
+        if (todaysMeeting) meetingSelect.value = String(todaysMeeting.id);
+      }
       updateRoles();
       applyMeetingSelection(meetingSelect.value);
 
@@ -2204,7 +2211,53 @@
       applyMeetingSelection(val);
     });
 
+    // -- Lifecycle stage (Setup / Day-of / Wrap-up) --------------------------
+    function deriveStage(meeting) {
+      if (!meeting) return { stage: "setup", badgeClass: "", badgeText: "" };
+      const today = localDateStr(new Date());
+      if (meeting.wrapped_up) {
+        return { stage: "wrapup", badgeClass: "tmp-stage-badge--done", badgeText: "✅ Wrapped up" };
+      }
+      if (meeting.meeting_date === today) {
+        return { stage: "dayof", badgeClass: "tmp-stage-badge--dayof", badgeText: "🔵 Today — Day of meeting" };
+      }
+      if (meeting.meeting_date < today) {
+        return { stage: "wrapup", badgeClass: "tmp-stage-badge--urgent", badgeText: "🟠 Needs wrap-up" };
+      }
+      return { stage: "setup", badgeClass: "tmp-stage-badge--setup", badgeText: "🟡 Upcoming — needs setup" };
+    }
+
+    function setActiveStage(stage) {
+      // Ex Com-only users have no "setup" pill/body (no tmp_manage_meetings) — fall back to Day-of.
+      const hasStage = stageBtns.some((btn) => btn.dataset.tmpStageBtn === stage);
+      if (!hasStage) stage = "dayof";
+      stageBtns.forEach((btn) => btn.classList.toggle("tmp-stage-pill--active", btn.dataset.tmpStageBtn === stage));
+      stageBodies.forEach((body) => { body.style.display = body.dataset.tmpStageBody === stage ? "" : "none"; });
+    }
+
+    stageBtns.forEach((btn) => {
+      btn.addEventListener("click", () => setActiveStage(btn.dataset.tmpStageBtn));
+    });
+
     function applyMeetingSelection(val) {
+      const bridgeId = (val && val !== "new") ? val : "";
+      root._votingPanel?.setMeeting(bridgeId);
+      root._wrapupPanel?.setMeeting(bridgeId);
+
+      if (!bridgeId) {
+        if (stageBadge) stageBadge.style.display = "none";
+        setActiveStage("setup");
+      } else {
+        const meeting = (root._meetings || []).find((x) => String(x.id) === bridgeId);
+        const { stage, badgeClass, badgeText } = deriveStage(meeting);
+        if (stageBadge) {
+          stageBadge.className = "tmp-stage-badge " + badgeClass;
+          stageBadge.textContent = badgeText;
+          stageBadge.style.display = "";
+        }
+        setActiveStage(stage);
+      }
+
       const meetingFormWrap      = qs("[data-tmp-meeting-form-wrap]", root);
       const roleAssignmentWrap   = qs("[data-tmp-role-assignment-wrap]", root);
       const meetingAgendaWrap    = qs("[data-tmp-meeting-agenda-wrap]", root);
@@ -3325,10 +3378,7 @@
     const body       = qs("[data-tmp-requests-body]", root);
     const toggleBtn  = qs("[data-tmp-requests-toggle]", root);
     const approveBtn = qs("[data-tmp-approve-all-btn]", root);
-    if (!list) {
-      console.error("Pending requests elements not found");
-      return;
-    }
+    if (!list) return; // Ex Com-only users don't have the Members tab
 
     if (!root._requestsToggleBound) {
       root._requestsToggleBound = true;
@@ -3574,13 +3624,13 @@
     const speakerFeedbackList = qs('[data-tmp-speaker-feedback-list]', panel);
     const feedbackEmailStatus = qs('[data-tmp-speaker-feedback-email-status]', panel);
 
-    // Populate meeting dropdown from existing meetings data
+    // Populate meeting dropdown from existing meetings data (VPE page: no local select — driven by the shared picker instead)
     api('/meetings').then(meetings => {
       if (!meetings || !meetings.length) return;
       votingMeetings = meetings;
+      if (!meetingSelect) return;
       const today = localDateStr(new Date());
-      const isExCom = !!panel.closest('[data-tmp-excom-panel]');
-      (isExCom ? meetings.filter(m => m.meeting_date === today) : meetings).forEach(m => {
+      meetings.forEach(m => {
         const opt = document.createElement('option');
         opt.value = m.id;
         opt.textContent = m.meeting_date + (m.theme ? ' — ' + m.theme : '');
@@ -3613,7 +3663,7 @@
       else ttNameInput.value = '';
     });
 
-    meetingSelect.addEventListener('change', () => onMeetingChange(meetingSelect.value));
+    meetingSelect?.addEventListener('change', () => onMeetingChange(meetingSelect.value));
 
     function onMeetingChange(mid) {
       currentMeetingId = mid ? parseInt(mid) : null;
@@ -3936,6 +3986,10 @@
         });
       });
     }
+
+    // Bridge for the VPE Meetings tab's shared "Current Meeting" selector — no-op on the ExCom page
+    const vpeRoot = qs("[data-tmp-vpe]");
+    if (vpeRoot) vpeRoot._votingPanel = { setMeeting: onMeetingChange };
   }
 
   // ── VPE Meeting Wrap-Up Panel ────────────────────────────────────────────────
@@ -3964,12 +4018,11 @@
     let rolePerformers    = [];
     let declaredWinners   = [];
 
-    // Populate meeting select with recent meetings (most recent first)
-    const isExCom = !!panel.closest('[data-tmp-excom-panel]');
-    api('/meetings' + (isExCom ? '' : '?include_wrapped=1')).then(meetings => {
-      if (!meetings || !meetings.length) return;
+    // Populate meeting select with recent meetings (most recent first) — VPE page: no local select, driven by the shared picker instead
+    api('/meetings?include_wrapped=1').then(meetings => {
+      if (!meetings || !meetings.length || !meetingSelect) return;
       const today = localDateStr(new Date());
-      (isExCom ? meetings.filter(m => m.meeting_date === today) : meetings.slice(0, 8)).forEach(m => {
+      meetings.slice(0, 8).forEach(m => {
         const opt = document.createElement('option');
         opt.value = m.id;
         opt.textContent = m.meeting_date + (m.theme ? ' — ' + m.theme : '');
@@ -3979,7 +4032,7 @@
       if (meetingSelect.value) loadWrapUp(parseInt(meetingSelect.value, 10));
     }).catch(() => {});
 
-    meetingSelect.addEventListener('change', () => {
+    meetingSelect?.addEventListener('change', () => {
       const mid = parseInt(meetingSelect.value, 10);
       if (mid) loadWrapUp(mid);
       else { wrapupContent.style.display = 'none'; wrapupBadge.style.display = 'none'; }
@@ -4170,6 +4223,16 @@
         completeBtn.disabled = false;
       }
     });
+
+    // Bridge for the VPE Meetings tab's shared "Current Meeting" selector — no-op on the ExCom page
+    const vpeRoot = qs("[data-tmp-vpe]");
+    if (vpeRoot) vpeRoot._wrapupPanel = {
+      setMeeting: (mid) => {
+        const id = parseInt(mid, 10);
+        if (id) loadWrapUp(id);
+        else { wrapupContent.style.display = 'none'; wrapupBadge.style.display = 'none'; }
+      }
+    };
   }
 
   // ── SAA Attendance (member dashboard) ────────────────────────────────────────
@@ -5443,6 +5506,18 @@
     badge.style.display = total > 0 ? "inline-flex" : "none";
   }
 
+  // Meetings tab badge — lights up when today has a meeting still needing attention
+  // (voting/wrap-up), for both VPE and Ex Com. Reuses the meeting list renderMeetings()
+  // already fetched, rather than a separate API call.
+  function updateMeetingsTabBadge(root, meetings) {
+    const badge = qs('[data-tab-badge="meetings"]', root);
+    if (!badge) return;
+    const today = localDateStr(new Date());
+    const needsAttention = (meetings || []).some((m) => m.meeting_date === today && !m.wrapped_up);
+    badge.textContent = "!";
+    badge.style.display = needsAttention ? "inline-flex" : "none";
+  }
+
   function initVPETabs() {
     const root = qs("[data-tmp-vpe]");
     if (!root) return;
@@ -5462,7 +5537,7 @@
       activateTab(btn.dataset.tab);
     });
     const saved = (() => { try { return sessionStorage.getItem(STORAGE_KEY); } catch (_) { return null; } })();
-    activateTab(saved || "members");
+    activateTab(saved || "dashboard");
   }
 
   // ===========================================================================
@@ -5527,32 +5602,6 @@
         if (submitBtn) submitBtn.disabled = false;
       }
     });
-  }
-
-  // ===========================================================================
-  // EX COM MEETING-DAY PANEL
-  // Shows the voting + wrap-up panels at the top of the member dashboard only
-  // when: (a) user is Ex Com, (b) today has a meeting, (c) meeting is not complete.
-  // The panels themselves are initialized by initVotingPanel() / initWrapUpPanel()
-  // which auto-select today's meeting — this function only controls visibility.
-  // ===========================================================================
-
-  async function initExComPanel() {
-    const wrapper = qs("[data-tmp-excom-panel]");
-    if (!wrapper) return; // PHP did not render it (user is not Ex Com)
-
-    try {
-      const meetings = await api("/meetings");
-      const today = localDateStr(new Date());
-      const todayMeeting = (meetings || []).find(
-        (m) => m.meeting_date === today && m.wrapped_up == 0
-      );
-      if (todayMeeting) {
-        wrapper.style.display = "";
-      }
-    } catch (_) {
-      // If API fails (permissions issue or network), panel stays hidden
-    }
   }
 
   // ===========================================================================
@@ -5635,7 +5684,6 @@
   initEnrolment();
   initVotingPanel();
   initWrapUpPanel();
-  initExComPanel();
   initExComSpotlightPanel();
   initRecognitionPanel();
   initMentorRating();

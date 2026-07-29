@@ -851,6 +851,18 @@ class TMP_REST_API {
                 $updated_users++;
             }
 
+            $club_position = self::csv_value($row, $indexes, 'Current Position');
+            if ($club_position !== '') {
+                $wp_user = new WP_User($user_id);
+                if (!in_array('tm_admin', $wp_user->roles, true)) {
+                    if (stripos($club_position, 'VP Education') !== false) {
+                        $wp_user->add_role('tm_vp_education');
+                    } else {
+                        $wp_user->add_role('tm_ex_com');
+                    }
+                }
+            }
+
             $credential        = strtoupper(self::csv_value($row, $indexes, 'Credentials'));
             $pathways_enrolled = self::csv_value($row, $indexes, 'Pathways Enrolled');
             $parsed            = self::parse_credential($credential, $pathways_enrolled);
@@ -867,6 +879,7 @@ class TMP_REST_API {
                 'state'             => self::normalize_member_state(self::csv_value($row, $indexes, 'Status (*)')),
                 'paid_until'        => self::normalize_date(self::csv_value($row, $indexes, 'Paid Until')),
                 'pathways_enrolled' => $pathways_enrolled,
+                'club_position'     => $club_position,
             ]);
 
             $imported++;
@@ -1731,8 +1744,8 @@ class TMP_REST_API {
         if (!TMP_Repository::get_member($m_id)) {
             return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
         }
-        if ($level < 1 || $level > 3) {
-            return new WP_Error('tmp_invalid_level', 'Offset is only valid for levels 1–3.', ['status' => 400]);
+        if ($level < 1 || $level > 5) {
+            return new WP_Error('tmp_invalid_level', 'Offset is only valid for levels 1–5.', ['status' => 400]);
         }
 
         global $wpdb;

@@ -69,6 +69,7 @@ class TMP_Activator {
         self::migrate_v180_chapter_number();
         self::migrate_v190_ex_com_role();
         self::migrate_v200_guest_name();
+        self::migrate_v210_club_position();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -168,6 +169,7 @@ class TMP_Activator {
             mentor_id BIGINT UNSIGNED NULL,
             next_action VARCHAR(255) NULL,
             officer_notes TEXT NULL,
+            club_position VARCHAR(190) NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY  (id),
@@ -718,6 +720,19 @@ class TMP_Activator {
         }
     }
 
+    /**
+     * v0.21.0: Add club_position to members — drives automatic tm_vp_education/tm_ex_com
+     * role assignment on CSV import (see TMP_REST_API::import_members()).
+     */
+    private static function migrate_v210_club_position() {
+        global $wpdb;
+        $members = $wpdb->prefix . 'tmp_members';
+        $cols = $wpdb->get_col("DESCRIBE {$members}");
+        if (!in_array('club_position', $cols, true)) {
+            $wpdb->query("ALTER TABLE {$members} ADD COLUMN club_position VARCHAR(190) NULL AFTER officer_notes");
+        }
+    }
+
     private static function migrate_v180_chapter_number() {
         global $wpdb;
         $meetings = $wpdb->prefix . 'tmp_meetings';
@@ -760,7 +775,6 @@ class TMP_Activator {
         self::maybe_create_page('member-login', 'Member Login', '[tm_member_login]');
         self::maybe_create_page('member-dashboard', 'Member Dashboard', '[tm_member_dashboard]');
         self::maybe_create_page('club-admin', 'Club Admin', '[tm_admin_portal]');
-        self::maybe_create_page('vp-education', 'VP Education', '[tm_vp_education]');
         self::maybe_create_page('club-home', 'Club Home', '[tm_public_dashboard]');
         self::maybe_create_page('speech-feedback', 'Speech Feedback', '[tm_feedback_form]');
     }

@@ -518,6 +518,7 @@ class TMP_Repository {
                                             : null,
             'next_action'                => sanitize_text_field($data['next_action'] ?? ''),
             'officer_notes'              => sanitize_textarea_field($data['officer_notes'] ?? ''),
+            'club_position'              => sanitize_text_field($data['club_position'] ?? ''),
             'updated_at'                 => $now,
         );
 
@@ -4352,7 +4353,7 @@ class TMP_Repository {
     }
 
     // -------------------------------------------------------------------------
-    // Pathways Level Progress (L1–L3 inference engine)
+    // Pathways Level Progress (L1–L5 inference engine)
     // -------------------------------------------------------------------------
 
     private static function pathway_offsets_table() {
@@ -4366,11 +4367,11 @@ class TMP_Repository {
     }
 
     /**
-     * Minimum speeches required per level (all 11 paths share the same counts for L1–L3).
-     * L4+ not tracked here — too complex for speech-count inference.
+     * Minimum speeches required per level (all 11 paths share the same 5/4/4/3/3 counts,
+     * per the official TI Base Camp per-path level breakdown).
      */
     public static function get_pathways_speech_requirements(): array {
-        $default = [1 => 5, 2 => 3, 3 => 3];
+        $default = [1 => 5, 2 => 4, 3 => 4, 4 => 3, 5 => 3];
         return [
             'Dynamic Leadership'      => $default,
             'Effective Coaching'      => $default,
@@ -4389,10 +4390,10 @@ class TMP_Repository {
 
     /**
      * Counts speeches at a given level for a member and compares to the path requirement.
-     * Returns null for L4+ (not tracked by inference).
+     * Returns null for out-of-range levels.
      */
     public static function get_member_level_speech_progress($member_id, $level): ?array {
-        if ($level < 1 || $level > 3) {
+        if ($level < 1 || $level > 5) {
             return null;
         }
 
@@ -4439,7 +4440,7 @@ class TMP_Repository {
     }
 
     /**
-     * Combined level status: speech progress (L1–L3 only) + club role gaps.
+     * Combined level status: speech progress (L1–L5) + club role gaps.
      */
     public static function get_member_full_level_status($member_id): array {
         $member = self::get_member((int) $member_id);
@@ -4451,7 +4452,7 @@ class TMP_Repository {
         $all_roles_met = empty(array_filter($role_gaps, fn($g) => !$g['met']));
 
         if ($speech_progress === null) {
-            // L4+ — only role gaps tracked
+            // Out-of-range level — only role gaps tracked
             $ready          = $all_roles_met;
             $verdict        = $ready ? 'complete' : 'incomplete';
             $verdict_detail = $ready ? [] : array_map(
