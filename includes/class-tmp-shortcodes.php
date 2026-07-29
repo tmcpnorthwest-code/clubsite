@@ -118,6 +118,9 @@ class TMP_Shortcodes {
                     Meetings
                     <span class="tmp-tab-badge" data-tab-badge="meetings" style="display:none;"></span>
                 </button>
+                <?php if ($can_ex_com): ?>
+                <button class="tmp-tab-btn" data-tab="spotlight">Spotlight</button>
+                <?php endif; ?>
                 <?php if ($can_manage_meetings): ?>
                 <button class="tmp-tab-btn" data-tab="recognition">Recognition</button>
                 <?php endif; ?>
@@ -470,18 +473,6 @@ class TMP_Shortcodes {
             <!-- ══ MEMBERS TAB ══ -->
             <div data-tab-body="members" style="display:none;">
 
-                <!-- Level Advancement Requests — collapsible, auto-expands when there are requests -->
-                <section class="tmp-panel" data-tmp-vpe-levelup-queue>
-                    <button class="tmp-collapsible-toggle" data-tmp-levelup-toggle aria-expanded="false">
-                        Level Advancement Requests
-                        <span data-tmp-levelup-pending-count class="tmp-badge" style="display:none;margin-left:6px;"></span>
-                        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
-                    </button>
-                    <div data-tmp-levelup-request-list style="display:none;padding-top:12px;">
-                        <p style="color:var(--tmp-muted);font-size:0.88rem;">No pending requests.</p>
-                    </div>
-                </section>
-
                 <!-- Pending Role Requests — collapsible, auto-expands when there are requests -->
                 <section class="tmp-panel">
                     <button class="tmp-collapsible-toggle" data-tmp-requests-toggle aria-expanded="false">
@@ -820,7 +811,12 @@ class TMP_Shortcodes {
                 </section>
                 </div><!-- /data-tmp-stage-body="wrapup" -->
 
-                <!-- New Member Spotlight — meeting/officer content, shown to anyone with meeting-day access -->
+            </div><!-- /tab-body meetings -->
+            <?php endif; ?>
+
+            <?php if ($can_ex_com): ?>
+            <!-- ══ SPOTLIGHT TAB ══ -->
+            <div data-tab-body="spotlight" style="display:none;">
                 <section class="tmp-panel" data-tmp-excom-spotlight-panel>
                     <p class="tmp-eyebrow">Homepage spotlight</p>
                     <h3>New Member Spotlight</h3>
@@ -851,8 +847,7 @@ class TMP_Shortcodes {
                         </div>
                     </form>
                 </section>
-
-            </div><!-- /tab-body meetings -->
+            </div><!-- /tab-body spotlight -->
             <?php endif; ?>
 
             <?php if ($can_manage_meetings): ?>

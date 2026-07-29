@@ -20,6 +20,10 @@
   // Returns YYYY-MM-DD in local time — avoids UTC-offset off-by-one from toISOString()
   const localDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
+  // $wpdb returns every column as a raw string, so wrapped_up comes back as "0"/"1" —
+  // "0" is truthy in JS, so never check it directly with `if (m.wrapped_up)`. Use this instead.
+  const isWrapped = (m) => Number(m?.wrapped_up) === 1;
+
   function roleSort(roleName) {
     const n = (roleName || "").replace(/\s*\(.*?\)\s*/g, "").trim().toLowerCase();
     const sm = n.match(/^speaker\s*(\d+)$/);
@@ -1744,14 +1748,14 @@
       // (meetings arrive ordered by meeting_date DESC, so the first ones seen are the most recent).
       let wrappedSeen = 0;
       const optionMeetings = meetings.filter((m) => {
-        if (!m.wrapped_up) return true;
+        if (!isWrapped(m)) return true;
         wrappedSeen += 1;
         return wrappedSeen <= 8;
       });
       meetingSelect.innerHTML =
         '<option value="">— Select or create meeting —</option>' +
         '<option value="new">+ Schedule New Meeting</option>' +
-        optionMeetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}${m.wrapped_up ? " ✓" : ""}</option>`).join("");
+        optionMeetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}${isWrapped(m) ? " ✓" : ""}</option>`).join("");
 
       renderPendingRequests(root).catch(() => {});
       if (selectedId) {
@@ -2215,7 +2219,7 @@
     function deriveStage(meeting) {
       if (!meeting) return { stage: "setup", badgeClass: "", badgeText: "" };
       const today = localDateStr(new Date());
-      if (meeting.wrapped_up) {
+      if (isWrapped(meeting)) {
         return { stage: "wrapup", badgeClass: "tmp-stage-badge--done", badgeText: "✅ Wrapped up" };
       }
       if (meeting.meeting_date === today) {
@@ -4884,118 +4888,6 @@
   }
 
   // ===========================================================================
-  // LEVEL UP QUEUE (VPE)
-  // ===========================================================================
-
-  async function initLevelUpQueue() {
-    const root = qs("[data-tmp-vpe]");
-    if (!root) return;
-    const listEl    = qs("[data-tmp-levelup-request-list]", root);
-    const countEl   = qs("[data-tmp-levelup-pending-count]", root);
-    const toggleBtn = qs("[data-tmp-levelup-toggle]", root);
-    if (!listEl) return;
-
-    const openSection = () => {
-      listEl.style.display = "";
-      if (toggleBtn) { toggleBtn.setAttribute("aria-expanded", "true"); const ch = toggleBtn.querySelector(".tmp-chevron"); if (ch) ch.style.transform = "rotate(90deg)"; }
-    };
-    toggleBtn?.addEventListener("click", () => {
-      const open = listEl.style.display !== "none";
-      listEl.style.display = open ? "none" : "";
-      toggleBtn.setAttribute("aria-expanded", String(!open));
-      const ch = toggleBtn.querySelector(".tmp-chevron");
-      if (ch) ch.style.transform = open ? "" : "rotate(90deg)";
-    });
-
-    const requests = await api("/vpe/level-up-requests").catch(() => []);
-    root._pendingLevelUpCount = (requests || []).length;
-    updateMembersTabBadge(root);
-
-    if (!requests || requests.length === 0) {
-      if (countEl) countEl.style.display = "none";
-      return;
-    }
-
-    if (countEl) { countEl.textContent = requests.length; countEl.style.display = "inline-flex"; }
-    openSection();
-
-    listEl.innerHTML = requests.map((req) => {
-      const ev      = req.evidence || {};
-      const sp      = ev.speech_progress;
-      const gaps    = ev.role_gaps || [];
-      const unmet   = gaps.filter((g) => !g.met);
-      const complete = req.system_verdict === "complete";
-      const verdictBadge = complete
-        ? `<span class="tmp-badge" style="background:#e8f5e9;color:#2e7d32;">✅ Evidence complete</span>`
-        : `<span class="tmp-badge" style="background:#fff3e0;color:#e65100;">⚠ Evidence incomplete</span>`;
-
-      const spLine = sp
-        ? `<p style="margin:4px 0;font-size:0.85rem;">Speeches: ${sp.done}/${sp.needed}${sp.met ? " ✓" : " — needs " + (sp.needed - sp.done) + " more"}</p>`
-        : "";
-      const unmetLines = unmet.map((g) => `<p style="margin:4px 0;font-size:0.85rem;color:#e65100;">• Club role: ${esc(g.label)} not completed</p>`).join("");
-      const memberNote = req.member_note ? `<p style="margin:6px 0;font-size:0.85rem;font-style:italic;">"${esc(req.member_note)}"</p>` : "";
-
-      return `<div class="tmp-levelup-req-card" data-req-id="${req.id}" style="border:1px solid var(--tmp-line);border-radius:6px;padding:14px;margin-bottom:12px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-          <div>
-            <strong>${esc(req.member_name)}</strong>
-            <span style="color:var(--tmp-muted);font-size:0.88rem;margin-left:8px;">Level ${req.from_level} → Level ${req.to_level}</span>
-            <span style="color:var(--tmp-muted);font-size:0.8rem;margin-left:8px;">${esc(req.created_at?.split(" ")[0] || "")}</span>
-          </div>
-          ${verdictBadge}
-        </div>
-        <div style="margin:10px 0 0;padding:10px;background:#f9f9f9;border-radius:4px;font-size:0.88rem;">
-          ${spLine}${unmetLines}${memberNote}
-        </div>
-        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <button class="tmp-button tmp-primary tmp-small-button" data-approve-req="${req.id}">Approve</button>
-          <button class="tmp-button tmp-secondary tmp-small-button" data-deny-req="${req.id}">Deny</button>
-          <input type="text" placeholder="VPE note (optional)" data-vpe-note="${req.id}"
-            style="flex:1;min-width:160px;padding:6px 10px;border:1px solid var(--tmp-line);border-radius:4px;font-size:0.85rem;" />
-        </div>
-      </div>`;
-    }).join("");
-
-    listEl.addEventListener("click", async (e) => {
-      const approveBtn = e.target.closest("[data-approve-req]");
-      const denyBtn    = e.target.closest("[data-deny-req]");
-      const btn        = approveBtn || denyBtn;
-      if (!btn || btn._pending) return;
-
-      const reqId  = btn.dataset.approveReq || btn.dataset.denyReq;
-      const action = approveBtn ? "approve" : "deny";
-      const noteEl = listEl.querySelector(`[data-vpe-note="${reqId}"]`);
-      const note   = noteEl ? noteEl.value : "";
-
-      if (action === "deny" && !note.trim()) {
-        alert("Please add a note explaining the denial.");
-        noteEl?.focus();
-        return;
-      }
-
-      btn._pending = true;
-      btn.disabled = true;
-      btn.textContent = "Saving…";
-      try {
-        await api(`/vpe/level-up-requests/${reqId}/review`, {
-          method: "POST",
-          body: JSON.stringify({ action, note }),
-        });
-        // Remove card and refresh
-        listEl.querySelector(`[data-req-id="${reqId}"]`)?.remove();
-        const remaining = listEl.querySelectorAll("[data-req-id]").length;
-        if (countEl) { countEl.textContent = remaining; if (!remaining) countEl.style.display = "none"; }
-        if (!remaining) listEl.innerHTML = "<p style=\"color:var(--tmp-muted);font-size:0.88rem;\">No pending requests.</p>";
-      } catch (err) {
-        alert("Error: " + err.message);
-        btn._pending = false;
-        btn.disabled = false;
-        btn.textContent = approveBtn ? "Approve" : "Deny";
-      }
-    });
-  }
-
-  // ===========================================================================
   // LEVEL PROGRESS PANEL (VPE)
   // ===========================================================================
 
@@ -5501,7 +5393,7 @@
   function updateMembersTabBadge(root) {
     const badge = qs('[data-tab-badge="members"]', root);
     if (!badge) return;
-    const total = (root._pendingLevelUpCount || 0) + (root._pendingRolesCount || 0);
+    const total = root._pendingRolesCount || 0;
     badge.textContent = total;
     badge.style.display = total > 0 ? "inline-flex" : "none";
   }
@@ -5513,7 +5405,7 @@
     const badge = qs('[data-tab-badge="meetings"]', root);
     if (!badge) return;
     const today = localDateStr(new Date());
-    const needsAttention = (meetings || []).some((m) => m.meeting_date === today && !m.wrapped_up);
+    const needsAttention = (meetings || []).some((m) => m.meeting_date === today && !isWrapped(m));
     badge.textContent = "!";
     badge.style.display = needsAttention ? "inline-flex" : "none";
   }
@@ -5680,7 +5572,6 @@
   initMeetingHubPage();
   initAdmin();
   initVPEducation();
-  initLevelUpQueue();
   initEnrolment();
   initVotingPanel();
   initWrapUpPanel();
