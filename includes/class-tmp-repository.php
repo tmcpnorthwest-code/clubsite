@@ -4170,6 +4170,37 @@ class TMP_Repository {
     }
 
     /**
+     * Data for the public [tm_meeting_hub] page — one static link that hosts every
+     * speaker's feedback link plus the Moment of Glory vote link for whichever
+     * meeting is currently published. Follows the same is_published visibility
+     * rule already used by get_published_agenda()/the public agenda section.
+     */
+    public static function get_meeting_hub_data() {
+        $meeting = self::get_published_agenda();
+        if (!$meeting) return null;
+
+        $speakers = [];
+        foreach (($meeting['assignments'] ?? []) as $a) {
+            if (stripos((string) $a['role_name'], 'Speaker') !== 0) continue;
+            if (empty($a['member_name'])) continue;
+            $speakers[] = [
+                'assignment_id' => (int) $a['id'],
+                'role_name'     => $a['role_name'],
+                'speaker_name'  => $a['member_name'],
+                'speech_title'  => $a['speech_title'],
+            ];
+        }
+
+        return [
+            'meeting_id'   => (int) $meeting['id'],
+            'meeting_date' => $meeting['meeting_date'],
+            'theme'        => $meeting['theme'] ?? '',
+            'poll_open'    => (bool) ($meeting['poll_open'] ?? false),
+            'speakers'     => $speakers,
+        ];
+    }
+
+    /**
      * SAA marks attendance for a meeting. Accepts VPE-style attendance array. Idempotent.
      */
     public static function save_saa_attendance($meeting_id, $data) {

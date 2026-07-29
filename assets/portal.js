@@ -4766,6 +4766,61 @@
   }
 
   // ===========================================================================
+  // MEETING HUB (public) — one static link listing every speaker's feedback
+  // link plus the Moment of Glory vote link, which activates once poll_open.
+  // ===========================================================================
+
+  function initMeetingHubPage() {
+    const page = qs('[data-tmp-hub-page]');
+    if (!page) return;
+    const body = qs('[data-tmp-hub-body]', page);
+    if (!body) return;
+
+    function render(data) {
+      if (!data || !data.meeting_id) {
+        body.innerHTML = '<p style="color:var(--tmp-muted);">No meeting is currently published. Check back closer to the next meeting.</p>';
+        return;
+      }
+
+      const dt = data.meeting_date ? new Date(data.meeting_date + 'T00:00:00') : null;
+      const dateLabel = dt ? dt.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '';
+
+      const speakerCards = (data.speakers || []).map(s => `
+        <div class="tmp-hub-card" style="border:1px solid var(--tmp-line);border-radius:8px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div>
+            <strong>${esc(s.speaker_name)}</strong>
+            <span style="color:var(--tmp-muted);font-size:0.85rem;"> · ${esc(s.role_name)}</span>
+            ${s.speech_title ? `<br><span style="font-size:0.85rem;color:var(--tmp-muted);">"${esc(s.speech_title)}"</span>` : ''}
+          </div>
+          ${s.feedback_url
+            ? `<a class="tmp-button tmp-primary" href="${esc(s.feedback_url)}">Give Feedback</a>`
+            : `<span style="color:var(--tmp-muted);font-size:0.85rem;">Link unavailable</span>`}
+        </div>`).join('');
+
+      const voteSection = data.poll_open && data.vote_url
+        ? `<a class="tmp-button tmp-primary" style="width:100%;text-align:center;" href="${esc(data.vote_url)}">&#127942; Vote for Moment of Glory</a>`
+        : `<button class="tmp-button" disabled style="width:100%;opacity:0.5;cursor:not-allowed;">&#127942; Moment of Glory Voting — not open yet</button>`;
+
+      body.innerHTML = `
+        <h2 style="margin:4px 0 2px;">${esc(data.theme || 'This Week’s Meeting')}</h2>
+        <p style="color:var(--tmp-muted);margin:0 0 18px;font-size:0.88rem;">${esc(dateLabel)}</p>
+        ${speakerCards || '<p style="color:var(--tmp-muted);">No speakers assigned yet.</p>'}
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--tmp-line);">
+          ${voteSection}
+        </div>`;
+    }
+
+    function load() {
+      apiPublic('/meeting-hub').then(render).catch(() => {
+        body.innerHTML = '<p style="color:var(--tmp-muted);">Could not load the meeting hub. Please refresh.</p>';
+      });
+    }
+
+    load();
+    setInterval(load, 15000);
+  }
+
+  // ===========================================================================
   // LEVEL UP QUEUE (VPE)
   // ===========================================================================
 
@@ -5573,6 +5628,7 @@
   initSAAPollPanel();
   initMemberVoting();
   initVotingPage();
+  initMeetingHubPage();
   initAdmin();
   initVPEducation();
   initLevelUpQueue();

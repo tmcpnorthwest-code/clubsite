@@ -14,6 +14,7 @@ class TMP_Shortcodes {
         add_shortcode('tm_public_dashboard',[__CLASS__, 'public_dashboard']);
         add_shortcode('tm_voting',          [__CLASS__, 'voting_page']);
         add_shortcode('tm_feedback_form',   [__CLASS__, 'feedback_form']);
+        add_shortcode('tm_meeting_hub',     [__CLASS__, 'meeting_hub_page']);
         add_action('wp_enqueue_scripts',    [__CLASS__, 'register_assets']);
     }
 
@@ -1324,6 +1325,30 @@ class TMP_Shortcodes {
                     <p style="color:var(--tmp-muted);">Checking for active poll…</p>
                 </div>
                 <div data-tmp-vote-page-status style="margin-top:16px;font-size:0.9rem;font-weight:600;"></div>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * [tm_meeting_hub] — public "Meeting Hub" page.
+     * One static, shareable link (no per-meeting hash) that always shows whichever
+     * meeting is currently published: each speaker's feedback link, plus the
+     * Moment of Glory vote link, which lights up once the poll opens. Replaces
+     * having to hand out separate feedback + vote links every meeting.
+     */
+    public static function meeting_hub_page() {
+        self::enqueue();
+
+        ob_start();
+        ?>
+        <div class="tmp-portal tmp-hub-page" data-tmp-hub-page>
+            <div class="tmp-panel" style="max-width:640px;margin:0 auto;">
+                <p class="tmp-eyebrow" style="color:var(--tmp-teal);">Meeting Hub</p>
+                <div data-tmp-hub-body>
+                    <p style="color:var(--tmp-muted);">Loading…</p>
+                </div>
             </div>
         </div>
         <?php

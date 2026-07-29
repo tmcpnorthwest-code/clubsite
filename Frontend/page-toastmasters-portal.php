@@ -77,6 +77,15 @@ if (class_exists('TMP_Repository')) {
     }
 }
 
+// Meeting Hub — static link to the [tm_meeting_hub] page (speaker feedback + Moment of Glory links)
+$meeting_hub_url = null;
+foreach (get_pages() as $tmc_page) {
+    if (has_shortcode($tmc_page->post_content, 'tm_meeting_hub')) {
+        $meeting_hub_url = get_permalink($tmc_page->ID);
+        break;
+    }
+}
+
 // Voting: find today's meeting (if any) and its nominees
 $today_meeting    = null;
 $voting_nominees  = null;
@@ -218,6 +227,9 @@ if ($next_meeting) {
       <a href="#tmc-gallery">Gallery</a>
       <a href="#tmc-pathways">Pathways</a>
       <a href="#tmc-lastmeeting">Our last Meeting</a>
+      <?php if ($meeting_hub_url) : ?>
+        <a href="<?php echo esc_url($meeting_hub_url); ?>">Meeting Hub</a>
+      <?php endif; ?>
       <a href="#tmc-membership">Join</a>
       <a href="<?php echo esc_url(home_url('/member-dashboard/')); ?>" class="button primary" style="padding:8px 18px;font-size:0.88rem;">Member Login</a>
     </div>
@@ -605,6 +617,9 @@ if ($next_meeting) {
       <a href="#tmc-top">Home</a>
       <a href="#tmc-gallery">Gallery</a>
       <a href="#tmc-pathways">Pathways</a>
+      <?php if ($meeting_hub_url) : ?>
+        <a href="<?php echo esc_url($meeting_hub_url); ?>">Meeting Hub</a>
+      <?php endif; ?>
       <a href="<?php echo esc_url(home_url('/member-dashboard/')); ?>">Member Login</a>
       <a href="#tmc-membership">Join</a>
     </nav>

@@ -247,6 +247,13 @@ class TMP_REST_API {
             'permission_callback' => '__return_true',
         ]);
 
+        // ── Meeting Hub (public) — speaker feedback links + Moment of Glory link ─
+        register_rest_route('toastmasters/v1', '/meeting-hub', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_meeting_hub'],
+            'permission_callback' => '__return_true',
+        ]);
+
         // ── Timer defaults ────────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/settings/timing-rules', [
             [
@@ -1296,6 +1303,44 @@ class TMP_REST_API {
 
     public static function get_active_poll() {
         return rest_ensure_response(TMP_Repository::get_active_poll());
+    }
+
+    public static function get_meeting_hub() {
+        $data = TMP_Repository::get_meeting_hub_data();
+        if (!$data) {
+            return rest_ensure_response(['meeting_id' => null]);
+        }
+
+        $feedback_page_url = null;
+        $voting_page_url   = null;
+        foreach (get_pages() as $p) {
+            if (!$feedback_page_url && has_shortcode($p->post_content, 'tm_feedback_form')) {
+                $feedback_page_url = get_permalink($p->ID);
+            }
+            if (!$voting_page_url && has_shortcode($p->post_content, 'tm_voting')) {
+                $voting_page_url = get_permalink($p->ID);
+            }
+            if ($feedback_page_url && $voting_page_url) break;
+        }
+
+        foreach ($data['speakers'] as &$s) {
+            $s['feedback_url'] = $feedback_page_url
+                ? add_query_arg(
+                    ['aid' => $s['assignment_id'], 'hash' => TMP_Repository::generate_feedback_hash($s['assignment_id'])],
+                    $feedback_page_url
+                  )
+                : null;
+        }
+        unset($s);
+
+        $data['vote_url'] = $voting_page_url
+            ? add_query_arg(
+                ['mid' => $data['meeting_id'], 'hash' => TMP_Repository::generate_vote_hash($data['meeting_id'])],
+                $voting_page_url
+              )
+            : null;
+
+        return rest_ensure_response($data);
     }
 
     public static function generate_vote_token(WP_REST_Request $req) {
