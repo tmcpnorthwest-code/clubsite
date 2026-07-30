@@ -809,7 +809,7 @@
       }
     });
 
-    // Meeting Activity expand/collapse toggle
+    // "Role requests for upcoming meetings" expand/collapse toggle
     const meetingToggle = qs("[data-tmp-meeting-toggle]", root);
     const meetingBody   = qs("[data-tmp-meeting-body]",   root);
     meetingToggle?.addEventListener("click", () => {
@@ -820,7 +820,7 @@
       if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
     });
 
-    // Meeting Activity pill-tabs
+    // "Role requests for upcoming meetings" pill-tabs
     meetingBody?.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-tmp-activity-tab]");
       if (!btn) return;
@@ -1048,19 +1048,36 @@
       }
     });
 
-    // Change password collapsible
-    const pwToggle = qs("[data-tmp-change-password-toggle]", root);
-    const pwBody   = qs("[data-tmp-change-password-body]",   root);
-    pwToggle?.addEventListener("click", () => {
-      const open = pwToggle.getAttribute("aria-expanded") === "true";
-      pwToggle.setAttribute("aria-expanded", String(!open));
-      if (pwBody) pwBody.style.display = open ? "none" : "block";
-      const chevron = qs(".tmp-chevron", pwToggle);
-      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+  }
+
+  // ── Change Password modal — lives in the shared topbar, present on every portal page ──
+  function initChangePasswordModal() {
+    const modal = qs("[data-tmp-change-password-modal]");
+    if (!modal) return;
+
+    const openBtn  = qs("[data-tmp-change-password-open]");
+    const closeBtns = qsa("[data-tmp-change-password-close]", modal);
+
+    const open = () => { modal.style.display = "flex"; };
+    const close = () => {
+      modal.style.display = "none";
+      const form = qs("[data-tmp-change-password-form]", modal);
+      form?.reset();
+      const status = qs("[data-tmp-change-password-status]", modal);
+      if (status) status.textContent = "";
+      bars.forEach((b) => { b.style.background = "var(--tmp-line)"; });
+      if (strengthLabel) strengthLabel.textContent = "";
+    };
+
+    openBtn?.addEventListener("click", open);
+    closeBtns.forEach((btn) => btn.addEventListener("click", close));
+    modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && modal.style.display !== "none") close();
     });
 
     // Show/hide password toggles
-    qs("[data-tmp-change-password-panel]", root)?.addEventListener("click", (e) => {
+    modal.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-pw-reveal]");
       if (!btn) return;
       const wrap  = btn.closest(".tmp-pw-field-wrap");
@@ -1073,11 +1090,11 @@
     });
 
     // Password strength meter
-    const newPwInput    = qs("[data-tmp-new-password]", root);
-    const strengthWrap  = qs("[data-tmp-pw-strength]", root);
-    const strengthLabel = qs("[data-pw-strength-label]", root);
+    const newPwInput    = qs("[data-tmp-new-password]", modal);
+    const strengthWrap  = qs("[data-tmp-pw-strength]", modal);
+    const strengthLabel = qs("[data-pw-strength-label]", modal);
     const bars          = strengthWrap ? Array.from(strengthWrap.querySelectorAll("[data-pw-bar]")) : [];
-    const levels = [
+    const strengthLevels = [
       { label: "Too short",  color: "#e53935" },
       { label: "Weak",       color: "#fb8c00" },
       { label: "Fair",       color: "#fdd835" },
@@ -1097,19 +1114,19 @@
       const score = scorePassword(newPwInput.value);
       const lvl   = newPwInput.value.length === 0 ? -1 : score;
       bars.forEach((bar, i) => {
-        bar.style.background = lvl >= 0 && i <= lvl ? levels[lvl].color : "var(--tmp-line)";
+        bar.style.background = lvl >= 0 && i <= lvl ? strengthLevels[lvl].color : "var(--tmp-line)";
       });
       if (strengthLabel) {
-        strengthLabel.textContent = lvl >= 0 ? levels[lvl].label : "";
-        strengthLabel.style.color = lvl >= 0 ? levels[lvl].color : "var(--tmp-muted)";
+        strengthLabel.textContent = lvl >= 0 ? strengthLevels[lvl].label : "";
+        strengthLabel.style.color = lvl >= 0 ? strengthLevels[lvl].color : "var(--tmp-muted)";
       }
     });
 
-    const cpForm = qs("[data-tmp-change-password-form]", root);
+    const cpForm = qs("[data-tmp-change-password-form]", modal);
     cpForm?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const form   = e.currentTarget;
-      const status = qs("[data-tmp-change-password-status]", root);
+      const status = qs("[data-tmp-change-password-status]", modal);
       const newPw  = form.elements.new_password.value;
       const confPw = form.elements.confirm_password.value;
       if (newPw !== confPw) {
@@ -1125,10 +1142,7 @@
           body: JSON.stringify({ current_password: form.elements.current_password.value, new_password: newPw }),
         });
         if (status) { status.textContent = "✓ Password updated!"; status.style.color = "#2e7d32"; }
-        form.reset();
-        bars.forEach((b) => { b.style.background = "var(--tmp-line)"; });
-        if (strengthLabel) strengthLabel.textContent = "";
-        setTimeout(() => { if (status) status.textContent = ""; }, 3000);
+        setTimeout(close, 1200);
       } catch (err) {
         if (status) { status.textContent = err.message; status.style.color = "#c62828"; }
       } finally {
@@ -5483,6 +5497,7 @@
   }
 
   initMemberDashboard();
+  initChangePasswordModal();
   initSAAAttendance();
   initSAAPollPanel();
   initMemberVoting();

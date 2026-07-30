@@ -262,6 +262,76 @@
   color: var(--tmp-burgundy);
 }
 
+.tmp-topbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 6px;
+  background: white;
+  color: var(--tmp-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.tmp-topbar-btn:hover {
+  border-color: var(--tmp-navy);
+  color: var(--tmp-navy);
+}
+
+/* ── Change Password modal ──────────────────────────────────────────────── */
+
+.tmp-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(23, 23, 27, 0.5);
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.tmp-modal-card {
+  position: relative;
+  width: min(460px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--tmp-surface);
+  border-radius: 10px;
+  padding: 28px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.tmp-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--tmp-muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.tmp-modal-close:hover {
+  color: var(--tmp-ink);
+  background: var(--tmp-canvas);
+}
+
+.tmp-modal-hint {
+  font-size: 0.85rem;
+  color: var(--tmp-muted);
+  margin: 0 0 20px;
+}
+
 /* ── Buttons — scoped under .tmp-portal to beat theme overrides ──────────── */
 
 .tmp-portal .tmp-button,
@@ -2082,7 +2152,7 @@
 .tmp-role-check:not(.tmp-met) .tmp-rc-name { color: var(--tmp-muted); }
 .tmp-role-check .tmp-rc-action { margin-left: auto; font-size: 0.76rem; }
 
-/* ── My Dashboard: Meeting Activity pill-tabs ───────────────────────────── */
+/* ── My Dashboard: Role requests for upcoming meetings — pill-tabs ───────── */
 .tmp-activity-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
 .tmp-activity-tabs button {
   padding: 7px 14px;

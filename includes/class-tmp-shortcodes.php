@@ -294,10 +294,18 @@ class TMP_Shortcodes {
                     <div data-tmp-level-status>Loading...</div>
                 </article>
 
-                <!-- Meeting Activity — expandable card, collapsed by default -->
+                <!-- Mentor dashboard (visible only if current user is a mentor) — sits in the
+                     same grid as My Mentor / Your Progress so it uses this row's space directly. -->
+                <article class="tmp-panel tmp-wide" data-tmp-mentor-dashboard style="display:none;">
+                    <p class="tmp-eyebrow">Mentor dashboard</p>
+                    <h3>My Mentees</h3>
+                    <div data-tmp-mentee-list>Loading mentees...</div>
+                </article>
+
+                <!-- Role requests for upcoming meetings — expandable card, collapsed by default -->
                 <article class="tmp-panel tmp-wide" data-tmp-meeting-card>
                     <button class="tmp-collapsible-toggle" data-tmp-meeting-toggle aria-expanded="false">
-                        Meeting Activity
+                        Role requests for upcoming meetings
                         <span data-tmp-meeting-badge class="tmp-badge" style="display:none;"></span>
                         <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
                     </button>
@@ -382,76 +390,6 @@ class TMP_Shortcodes {
                 <p class="tmp-eyebrow">Recognition</p>
                 <h3>My Awards</h3>
                 <div data-tmp-my-recognition-list></div>
-            </div>
-
-            <!-- Mentor dashboard (visible only if current user is a mentor) -->
-            <div class="tmp-panel" data-tmp-mentor-dashboard style="display:none;">
-                <p class="tmp-eyebrow">Mentor Dashboard</p>
-                <h3>My Mentees</h3>
-                <div data-tmp-mentee-list>Loading mentees...</div>
-            </div>
-
-            <!-- Change Password -->
-            <div class="tmp-panel" data-tmp-change-password-panel>
-                <button class="tmp-collapsible-toggle" data-tmp-change-password-toggle aria-expanded="false" style="width:100%;text-align:left;">
-                    <span style="display:flex;align-items:center;gap:10px;">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                        Change Password
-                    </span>
-                    <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
-                </button>
-                <div data-tmp-change-password-body style="display:none;margin-top:20px;">
-                    <p class="tmp-eyebrow">Account Security</p>
-                    <p style="font-size:0.88rem;color:var(--tmp-muted);margin:0 0 20px;">Choose a strong password. After saving, other active sessions will be signed out automatically.</p>
-                    <form data-tmp-change-password-form class="tmp-form" style="background:none;border:none;padding:0;max-width:460px;">
-                        <label class="tmp-wide">
-                            Current password
-                            <div class="tmp-pw-field-wrap">
-                                <input type="password" name="current_password" required autocomplete="current-password" />
-                                <button type="button" class="tmp-pw-reveal" data-pw-reveal tabindex="-1" aria-label="Show password">
-                                    <svg class="tmp-eye-open" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                    <svg class="tmp-eye-shut" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                                </button>
-                            </div>
-                        </label>
-                        <label class="tmp-wide">
-                            New password
-                            <div class="tmp-pw-field-wrap">
-                                <input type="password" name="new_password" required autocomplete="new-password" minlength="8" data-tmp-new-password />
-                                <button type="button" class="tmp-pw-reveal" data-pw-reveal tabindex="-1" aria-label="Show password">
-                                    <svg class="tmp-eye-open" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                    <svg class="tmp-eye-shut" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                                </button>
-                            </div>
-                            <div data-tmp-pw-strength style="margin-top:8px;">
-                                <div style="display:flex;gap:4px;">
-                                    <div data-pw-bar="1" style="height:3px;flex:1;border-radius:2px;background:var(--tmp-line);transition:background .2s;"></div>
-                                    <div data-pw-bar="2" style="height:3px;flex:1;border-radius:2px;background:var(--tmp-line);transition:background .2s;"></div>
-                                    <div data-pw-bar="3" style="height:3px;flex:1;border-radius:2px;background:var(--tmp-line);transition:background .2s;"></div>
-                                    <div data-pw-bar="4" style="height:3px;flex:1;border-radius:2px;background:var(--tmp-line);transition:background .2s;"></div>
-                                </div>
-                                <p data-pw-strength-label style="font-size:0.78rem;margin:5px 0 0;color:var(--tmp-muted);min-height:1.2em;"></p>
-                            </div>
-                        </label>
-                        <label class="tmp-wide">
-                            Confirm new password
-                            <div class="tmp-pw-field-wrap">
-                                <input type="password" name="confirm_password" required autocomplete="new-password" />
-                                <button type="button" class="tmp-pw-reveal" data-pw-reveal tabindex="-1" aria-label="Show password">
-                                    <svg class="tmp-eye-open" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                    <svg class="tmp-eye-shut" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                                </button>
-                            </div>
-                        </label>
-                        <div class="tmp-form-actions tmp-wide" style="margin-top:4px;">
-                            <button class="tmp-button tmp-primary" type="submit" style="gap:8px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                                Update Password
-                            </button>
-                            <span data-tmp-change-password-status style="font-size:13px;align-self:center;"></span>
-                        </div>
-                    </form>
-                </div>
             </div>
 
             <?php if ($can_meetings_tab): ?></div><!-- /data-tab-body="dashboard" --><?php endif; ?>
@@ -1134,9 +1072,73 @@ class TMP_Shortcodes {
                 <span class="tmp-portal-topbar__user"><?php echo esc_html($user->display_name); ?></span>
                 <a class="tmp-portal-topbar__home" href="<?php echo esc_url($home_url); ?>">&#8592; Club Home</a>
             </div>
-            <a class="tmp-signout-btn" href="<?php echo esc_url($logout_url); ?>">
-                &#10148; Sign out
-            </a>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <button type="button" class="tmp-topbar-btn" data-tmp-change-password-open>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    Change Password
+                </button>
+                <a class="tmp-signout-btn" href="<?php echo esc_url($logout_url); ?>">
+                    &#10148; Sign out
+                </a>
+            </div>
+        </div>
+
+        <!-- Change Password modal — shared across every portal page via the topbar -->
+        <div class="tmp-modal-overlay" data-tmp-change-password-modal style="display:none;">
+            <div class="tmp-modal-card" role="dialog" aria-modal="true" aria-labelledby="tmp-cp-modal-title">
+                <button type="button" class="tmp-modal-close" data-tmp-change-password-close aria-label="Close">&times;</button>
+                <h3 id="tmp-cp-modal-title">Change Password</h3>
+                <p class="tmp-modal-hint">Choose a strong password. After saving, other active sessions will be signed out automatically.</p>
+                <form data-tmp-change-password-form class="tmp-form" style="background:none;border:none;padding:0;">
+                    <label class="tmp-wide">
+                        Current password
+                        <div class="tmp-pw-field-wrap">
+                            <input type="password" name="current_password" required autocomplete="current-password" />
+                            <button type="button" class="tmp-pw-reveal" data-pw-reveal tabindex="-1" aria-label="Show password">
+                                <svg class="tmp-eye-open" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg class="tmp-eye-shut" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            </button>
+                        </div>
+                    </label>
+                    <label class="tmp-wide">
+                        New password
+                        <div class="tmp-pw-field-wrap">
+                            <input type="password" name="new_password" required autocomplete="new-password" minlength="8" data-tmp-new-password />
+                            <button type="button" class="tmp-pw-reveal" data-pw-reveal tabindex="-1" aria-label="Show password">
+                                <svg class="tmp-eye-open" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg class="tmp-eye-shut" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            </button>
+                        </div>
+                        <div data-tmp-pw-strength style="margin-top:8px;">
+                            <div style="display:flex;gap:4px;">
+                                <div data-pw-bar="1" style="height:3px;flex:1;border-radius:2px;background:var(--tmp-line);transition:background .2s;"></div>
+                                <div data-pw-bar="2" style="height:3px;flex:1;border-radius:2px;background:var(--tmp-line);transition:background .2s;"></div>
+                                <div data-pw-bar="3" style="height:3px;flex:1;border-radius:2px;background:var(--tmp-line);transition:background .2s;"></div>
+                                <div data-pw-bar="4" style="height:3px;flex:1;border-radius:2px;background:var(--tmp-line);transition:background .2s;"></div>
+                            </div>
+                            <p data-pw-strength-label style="font-size:0.78rem;margin:5px 0 0;color:var(--tmp-muted);min-height:1.2em;"></p>
+                        </div>
+                    </label>
+                    <label class="tmp-wide">
+                        Confirm new password
+                        <div class="tmp-pw-field-wrap">
+                            <input type="password" name="confirm_password" required autocomplete="new-password" />
+                            <button type="button" class="tmp-pw-reveal" data-pw-reveal tabindex="-1" aria-label="Show password">
+                                <svg class="tmp-eye-open" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg class="tmp-eye-shut" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            </button>
+                        </div>
+                    </label>
+                    <div class="tmp-form-actions tmp-wide" style="margin-top:4px;">
+                        <button type="button" class="tmp-button tmp-secondary" data-tmp-change-password-close>Cancel</button>
+                        <button class="tmp-button tmp-primary" type="submit" style="gap:8px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                            Update Password
+                        </button>
+                        <span data-tmp-change-password-status style="font-size:13px;align-self:center;"></span>
+                    </div>
+                </form>
+            </div>
         </div>
         <?php
         return ob_get_clean();
