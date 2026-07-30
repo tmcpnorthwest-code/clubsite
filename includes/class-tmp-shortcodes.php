@@ -294,9 +294,10 @@ class TMP_Shortcodes {
                     <div data-tmp-level-status>Loading...</div>
                 </article>
 
-                <!-- Mentor dashboard (visible only if current user is a mentor) — sits in the
-                     same grid as My Mentor / Your Progress so it uses this row's space directly. -->
-                <article class="tmp-panel tmp-wide" data-tmp-mentor-dashboard style="display:none;">
+                <!-- Mentor dashboard (visible only if current user is a mentor) — a normal
+                     single-column card so it fills the grid slot next to Your Progress instead
+                     of forcing its own full-width row. -->
+                <article class="tmp-panel" data-tmp-mentor-dashboard style="display:none;">
                     <p class="tmp-eyebrow">Mentor dashboard</p>
                     <h3>My Mentees</h3>
                     <div data-tmp-mentee-list>Loading mentees...</div>
