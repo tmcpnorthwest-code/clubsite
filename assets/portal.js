@@ -3359,31 +3359,6 @@
     });
     } // /if (canManageMeetings && setupStageBody)
 
-    // Approve All Recommended button
-    qs("[data-tmp-approve-all-btn]", root)?.addEventListener("click", async (e) => {
-      const btn = e.target;
-      if (btn.disabled) return;
-      if (!confirm("Approve all recommended requests for all upcoming meetings?")) return;
-      btn.disabled = true;
-      btn.textContent = "Approving all…";
-      try {
-        const result = await api("/assignments/approve-all-recommended", { method: "POST", body: JSON.stringify({}) });
-        if (result.success) {
-          alert(`✓ Approved ${result.approved} request${result.approved !== 1 ? 's' : ''}!`);
-          await renderMeetings();
-        } else if (result.failed && result.failed.length > 0) {
-          const failures = result.failed.map((f) => `${f.member}: ${f.reason}`).join("\n");
-          alert(`⚠ Some approvals failed:\n\n${failures}`);
-          await renderMeetings();
-        }
-      } catch (err) {
-        alert("Bulk approval failed: " + err.message);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "Approve All Recommended";
-      }
-    });
-
     try {
       root._dueForRoles = await api("/members/due-for-roles").catch(() => []);
       const lsSummary   = await api("/vpe/members/level-summary").catch(() => []);
@@ -3399,9 +3374,10 @@
   }
 
   async function renderPendingRequests(root) {
-    const count       = qs("[data-tmp-request-count]", root);
-    const list        = qs("[data-tmp-vpe-requests]", root);
-    const approveBtn  = qs("[data-tmp-approve-all-btn]", root);
+    const count        = qs("[data-tmp-request-count]", root);
+    const list         = qs("[data-tmp-vpe-requests]", root);
+    const filterRow    = qs("[data-tmp-request-filter-row]", root);
+    const filterSelect = qs("[data-tmp-request-role-filter]", root);
     const meetingSelect = qs("[data-tmp-meeting-select]", root);
     if (!list) return; // Ex Com-only users don't have this card
 
@@ -3409,7 +3385,7 @@
     if (!selectedMeetingId || selectedMeetingId === "new") {
       list.innerHTML = "<p style=\"color:var(--tmp-muted);font-size:0.88rem;\">Select a meeting above to see its pending role requests.</p>";
       if (count) count.style.display = "none";
-      if (approveBtn) approveBtn.style.display = "none";
+      if (filterRow) filterRow.style.display = "none";
       root._pendingRolesCount = 0;
       updateMeetingsTabBadge(root);
       return;
@@ -3433,48 +3409,95 @@
 
     if (!meeting || totalRequests === 0) {
       list.innerHTML = "<p style=\"color:var(--tmp-muted);font-size:0.88rem;\">No pending requests for this meeting.</p>";
-      if (approveBtn) approveBtn.style.display = "none";
+      if (filterRow) filterRow.style.display = "none";
       return;
     }
 
-    if (approveBtn) approveBtn.style.display = "block";
+    // Roles are already de-duplicated by base role name server-side (e.g. "Speaker 1"/"Speaker 2"
+    // both collapse into a single "Speaker" role bucket with a combined requests[] list).
+    const rolesWithCounts = meeting.roles.map((r) => ({ roleName: r.roleName, requestCount: r.requests.length }));
 
-    // Flatten all role-grouped requests and order by member name, not by role.
-    const allRequests = [];
-    for (const role of meeting.roles) {
-      for (const req of role.requests) allRequests.push({ ...req, roleName: role.roleName });
+    // Rebuild the filter dropdown, preserving the current selection if it's still valid.
+    if (filterRow && filterSelect) {
+      filterRow.style.display = "block";
+      const prevValue = filterSelect.value;
+      filterSelect.innerHTML = '<option value="">All Roles</option>' + rolesWithCounts.map((r) =>
+        `<option value="${esc(r.roleName)}" ${r.requestCount === 0 ? "disabled" : ""}>${esc(r.roleName)} (${r.requestCount})</option>`
+      ).join("");
+      filterSelect.value = rolesWithCounts.some((r) => r.roleName === prevValue && r.requestCount > 0) ? prevValue : "";
     }
-    allRequests.sort((a, b) => a.memberName.localeCompare(b.memberName));
+    const activeFilter = filterSelect?.value || "";
 
-    list.innerHTML = allRequests.map((req) => {
-        const roleName = req.roleName;
-        const priorityClass = req.priority === 1 ? " tmp-priority-badge--p1" : "";
-        const recommendedBadge = req.isRecommended
-          ? '<span class="tmp-priority-badge tmp-priority-badge--recommended">✓ Recommended</span>'
-          : "";
-        const reasonsHtml = req.reasons && req.reasons.length > 0
-          ? `<div class="tmp-request-reasons">${req.reasons.map((r) => `<span class="tmp-priority-badge">${esc(r)}</span>`).join("")}</div>`
-          : "";
-        return `<div class="tmp-request-card">
-          <div class="tmp-request-main">
-            <strong>${esc(req.memberName)}</strong> (L${req.memberLevel}, ${esc(req.pathway)}) requested <strong>${esc(roleName)}</strong>
-            <span class="tmp-priority-badge${priorityClass}">P${req.priority}</span>
-            ${recommendedBadge}
-            ${reasonsHtml}
-          </div>
-          <div class="tmp-request-actions">
-            <button class="tmp-icon-btn tmp-icon-btn--approve" type="button" data-approve-request="${req.requestId}" data-member-id="${req.memberId}" data-meeting-id="${req.meetingId}" data-role-name="${esc(roleName)}" title="Approve">✓</button>
-          </div>
+    const rolesToShow = meeting.roles.filter((r) => r.requests.length > 0);
+
+    // Map memberId -> every role they've requested this meeting, so a card can show
+    // "Also requested: X, Y" for the roles other than the one its own group is under.
+    const requestsByMember = new Map();
+    for (const role of meeting.roles) {
+      for (const req of role.requests) {
+        if (!requestsByMember.has(req.memberId)) requestsByMember.set(req.memberId, []);
+        requestsByMember.get(req.memberId).push({ roleName: role.roleName, priority: req.priority });
+      }
+    }
+
+    list.innerHTML = rolesToShow.map((role) => {
+        const roleName = role.roleName;
+        const requests = [...role.requests].sort((a, b) => a.memberName.localeCompare(b.memberName));
+        const cardsHtml = requests.map((req) => {
+          const priorityClass = req.priority === 1 ? " tmp-priority-badge--p1" : "";
+          const recommendedBadge = req.isRecommended
+            ? '<span class="tmp-priority-badge tmp-priority-badge--recommended">✓ Recommended</span>'
+            : "";
+          const reasonsHtml = req.reasons && req.reasons.length > 0
+            ? `<div class="tmp-request-reasons">${req.reasons.map((r) => `<span class="tmp-priority-badge">${esc(r)}</span>`).join("")}</div>`
+            : "";
+          const otherRoles = (requestsByMember.get(req.memberId) || []).filter((r) => r.roleName !== roleName);
+          const otherRolesHtml = otherRoles.length > 0
+            ? `<div class="tmp-request-other-roles">Also requested: ${otherRoles.map((r) => `<span class="tmp-priority-badge">${esc(r.roleName)} (P${r.priority})</span>`).join(" ")}</div>`
+            : "";
+          return `<div class="tmp-request-card">
+            <div class="tmp-request-main">
+              <strong>${esc(req.memberName)}</strong> (L${req.memberLevel}, ${esc(req.pathway)})
+              <span class="tmp-priority-badge${priorityClass}">P${req.priority}</span>
+              ${recommendedBadge}
+              ${reasonsHtml}
+              ${otherRolesHtml}
+            </div>
+            <div class="tmp-request-actions">
+              <button class="tmp-icon-btn tmp-icon-btn--approve" type="button" data-approve-request="${req.requestId}" data-member-id="${req.memberId}" data-meeting-id="${req.meetingId}" data-role-name="${esc(roleName)}" title="Approve">✓</button>
+            </div>
+          </div>`;
+        }).join("");
+
+        return `<div class="tmp-role-group" data-tmp-role-group="${esc(roleName)}" style="${activeFilter && activeFilter !== roleName ? "display:none;" : ""}">
+          <button type="button" class="tmp-collapsible-toggle tmp-role-group__header" data-tmp-role-group-toggle aria-expanded="true">
+            <span>${esc(roleName)}</span>
+            <span class="tmp-badge">${requests.length}</span>
+            <span class="tmp-chevron" aria-hidden="true" style="transform:rotate(90deg);">&#9658;</span>
+          </button>
+          <div class="tmp-role-group__body">${cardsHtml}</div>
         </div>`;
       }).join("");
 
-    // Register the approve-click handler only once per root element.
+    // Register delegated handlers only once per root element.
     // renderPendingRequests is called after every approval, so without this guard
     // each re-render would stack another listener on the same element, causing
     // duplicate API calls that trigger the "already approved" guard on the server.
     if (!root._vpeApproveListenerAdded) {
       root._vpeApproveListenerAdded = true;
       qs("[data-tmp-vpe-requests]", root)?.addEventListener("click", async (e) => {
+        const toggleBtn = e.target.closest("[data-tmp-role-group-toggle]");
+        if (toggleBtn) {
+          const group = toggleBtn.closest("[data-tmp-role-group]");
+          const body  = qs(".tmp-role-group__body", group);
+          const chevron = qs(".tmp-chevron", toggleBtn);
+          const expanded = toggleBtn.getAttribute("aria-expanded") === "true";
+          toggleBtn.setAttribute("aria-expanded", String(!expanded));
+          if (body) body.style.display = expanded ? "none" : "";
+          if (chevron) chevron.style.transform = expanded ? "" : "rotate(90deg)";
+          return;
+        }
+
         const btn = e.target.closest("[data-approve-request]");
         if (!btn || btn.disabled) return;
 
@@ -3501,6 +3524,16 @@
           alert("Error: " + err.message);
           btn.disabled = false;
         }
+      });
+    }
+
+    if (filterSelect && !root._vpeRequestFilterListenerAdded) {
+      root._vpeRequestFilterListenerAdded = true;
+      filterSelect.addEventListener("change", () => {
+        const val = filterSelect.value;
+        qsa("[data-tmp-role-group]", root).forEach((group) => {
+          group.style.display = (!val || group.dataset.tmpRoleGroup === val) ? "" : "none";
+        });
       });
     }
   }

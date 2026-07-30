@@ -668,8 +668,13 @@ class TMP_Shortcodes {
                         <span class="tmp-chevron" aria-hidden="true" style="transform:rotate(90deg);">&#9658;</span>
                     </button>
                     <div data-tmp-requests-card-body style="display:block;margin-top:14px;">
-                    <div style="margin-bottom:12px;">
-                        <button class="tmp-button tmp-primary" data-tmp-approve-all-btn style="display:none;">Approve All Recommended</button>
+                    <div class="tmp-request-filter-row" style="margin-bottom:14px;display:none;" data-tmp-request-filter-row>
+                        <label style="font-size:0.85rem;font-weight:700;display:flex;align-items:center;gap:8px;">
+                            Filter by role
+                            <select data-tmp-request-role-filter style="min-width:200px;">
+                                <option value="">All Roles</option>
+                            </select>
+                        </label>
                     </div>
                     <div data-tmp-vpe-requests>Loading requests...</div>
                     </div><!-- /data-tmp-requests-card-body -->
