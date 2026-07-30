@@ -454,9 +454,8 @@ class TMP_Shortcodes {
                             <option value="5">Level 5</option>
                         </select>
                         <select data-tmp-vpe-mentor-filter>
-                            <option value="all">All Members</option>
+                            <option value="all">All Mentors</option>
                             <option value="none">No Mentor Assigned</option>
-                            <option value="assigned">Has Mentor</option>
                         </select>
                         <select data-tmp-vpe-lp-status>
                             <option value="all">All statuses</option>
@@ -467,15 +466,18 @@ class TMP_Shortcodes {
                     </div>
                     <div class="tmp-table-wrap">
                         <table class="tmp-table" style="width:100%;">
+                            <colgroup>
+                                <col class="tmp-col-name">
+                                <col class="tmp-col-progress">
+                                <col class="tmp-col-mentor">
+                                <col class="tmp-col-actions">
+                            </colgroup>
                             <thead>
                                 <tr>
                                     <th data-sort-col="name" class="tmp-sortable">Name <span class="tmp-sort-ind">▲</span></th>
-                                    <th data-sort-col="level" class="tmp-sortable">Level <span class="tmp-sort-ind">↕</span></th>
-                                    <th>Speeches</th>
-                                    <th>Roles</th>
+                                    <th>Speeches / Roles</th>
                                     <th>Mentor</th>
-                                    <th>Status</th>
-                                    <th></th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody data-tmp-unified-rows></tbody>

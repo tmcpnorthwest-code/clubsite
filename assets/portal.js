@@ -1223,7 +1223,6 @@
     // -- Unified members table -------------------------------------------------
 
     let expandedLpId = null;
-    const trafficLabel = (t) => t === "ready" ? "🟢 Ready" : t === "stuck" ? "🔴 Stuck" : "🟡 In Progress";
 
     const loadUnifiedDetail = async (memberId, inPlace = false) => {
       const detailRow = unifiedRows?.querySelector(`[data-lp-detail="${memberId}"]`);
@@ -1340,7 +1339,7 @@
         try {
           root._allMembers = await api("/members");
         } catch (err) {
-          if (unifiedRows) unifiedRows.innerHTML = `<tr><td colspan="7" style="color:var(--tmp-burgundy)">Could not load members: ${esc(err.message)}</td></tr>`;
+          if (unifiedRows) unifiedRows.innerHTML = `<tr><td colspan="4" style="color:var(--tmp-burgundy)">Could not load members: ${esc(err.message)}</td></tr>`;
           return;
         }
       }
@@ -1353,14 +1352,29 @@
       const mentorFilt = vpeMentorFilt?.value || "all";
       const stFilt     = statusFilter?.value || "all";
 
+      if (vpeMentorFilt && (force || !vpeMentorFilt._tmpPopulated)) {
+        const mentors = new Map();
+        (all || []).forEach((m) => {
+          if (m.mentor_id && m.mentor_name) mentors.set(String(m.mentor_id), m.mentor_name);
+        });
+        const prevValue = vpeMentorFilt.value;
+        vpeMentorFilt.querySelectorAll("option[data-tmp-mentor-opt]").forEach((o) => o.remove());
+        const opts = [...mentors.entries()]
+          .sort((a, b) => a[1].localeCompare(b[1]))
+          .map(([id, name]) => `<option data-tmp-mentor-opt value="${esc(id)}">${esc(name)}</option>`).join("");
+        vpeMentorFilt.insertAdjacentHTML("beforeend", opts);
+        if ([...vpeMentorFilt.options].some((o) => o.value === prevValue)) vpeMentorFilt.value = prevValue;
+        vpeMentorFilt._tmpPopulated = true;
+      }
+
       const eligible = (all || []).filter((m) =>
         m.is_eligible &&
         (!search || m.full_name.toLowerCase().includes(search) || (m.email || "").toLowerCase().includes(search)) &&
         (pathway === "all" || m.pathway === pathway) &&
         (levelFilt === "all" || String(m.level_completed) === levelFilt) &&
         (mentorFilt === "all" ||
-         (mentorFilt === "none"     && !m.mentor_id && !m.mentor_name) ||
-         (mentorFilt === "assigned" && (m.mentor_id  ||  m.mentor_name))) &&
+         (mentorFilt === "none" && !m.mentor_id && !m.mentor_name) ||
+         (mentorFilt !== "none" && String(m.mentor_id) === mentorFilt)) &&
         (stFilt === "all" || lsMap[String(m.id)]?.traffic_light === stFilt)
       );
 
@@ -1411,44 +1425,42 @@
 
       if (!unifiedRows) return;
       if (!sortedEligible.length) {
-        unifiedRows.innerHTML = `<tr><td colspan="7" style="color:var(--tmp-muted);text-align:center;padding:16px;">No members match the selected filters.</td></tr>`;
+        unifiedRows.innerHTML = `<tr><td colspan="4" style="color:var(--tmp-muted);text-align:center;padding:16px;">No members match the selected filters.</td></tr>`;
         return;
       }
 
       unifiedRows.innerHTML = sortedEligible.map((m) => {
         const ls       = lsMap[String(m.id)];
         const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
-        const spCell   = ls ? `${ls.speech_done}/${ls.speech_needed}` : "—";
-        const roleCell = ls ? `${ls.roles_total - ls.roles_unmet}/${ls.roles_total}` : "—";
-        const trafficClass = ls ? { ready: "tmp-status-pill--ready", stuck: "tmp-status-pill--stuck" }[ls.traffic_light] || "tmp-status-pill--progress" : "";
-        const statusCell = ls
-          ? `<span class="tmp-status-pill ${trafficClass}">${trafficLabel(ls.traffic_light)}</span>`
-          : `<span class="tmp-status-pill tmp-status-pill--level">L${m.level_completed}</span>`;
+        const progressCell = ls
+          ? `${ls.speech_done}/${ls.speech_needed} <span class="tmp-m-progress-lbl">speeches</span><span class="tmp-m-progress-sep">·</span>${ls.roles_total - ls.roles_unmet}/${ls.roles_total} <span class="tmp-m-progress-lbl">roles</span>`
+          : "—";
+        const dotClass = ls ? { ready: "tmp-status-dot--ready", stuck: "tmp-status-dot--stuck" }[ls.traffic_light] || "tmp-status-dot--progress" : "tmp-status-dot--none";
+        const labelClass = ls ? { ready: "tmp-status-label--ready", stuck: "tmp-status-label--stuck" }[ls.traffic_light] || "tmp-status-label--progress" : "";
+        const statusText = ls ? { ready: "Ready", stuck: "Stuck" }[ls.traffic_light] || "In progress" : "";
+        const statusLabel = ls ? `<span class="tmp-status-label ${labelClass}">${statusText}</span>` : "";
         const mentorCell = (m.level_completed === 0 && !m.mentor_name)
           ? `<span class="tmp-no-mentor">⚠ No mentor</span>`
           : esc(m.mentor_name || "—");
         const mentorBtn = m.level_completed === 0
-          ? `<button class="tmp-small-button" type="button" data-assign-mentor="${m.id}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">${m.mentor_name ? "Change" : "Assign"} Mentor</button>`
+          ? `<button class="tmp-icon-btn tmp-icon-btn--sm" type="button" data-assign-mentor="${m.id}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}" title="${m.mentor_name ? "Change" : "Assign"} mentor">👤</button>`
           : "";
-        const actionCell = `<div class="tmp-row-actions">${mentorBtn}<button class="tmp-icon-btn" type="button" data-vpe-reset-pw="${m.id}" title="Reset password">🔑</button><button class="tmp-icon-btn" data-expand-lp="${m.id}" title="Expand details">▾</button></div>`;
+        const actionCell = `<div class="tmp-row-actions tmp-row-actions--tight">${mentorBtn}<button class="tmp-icon-btn tmp-icon-btn--sm" type="button" data-vpe-reset-pw="${m.id}" title="Reset password">🔑</button><button class="tmp-icon-btn tmp-icon-btn--sm" data-expand-lp="${m.id}" title="Expand details">▾</button></div>`;
         const initials = m.full_name.trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
         const nameCell = `<div class="tmp-m-name-cell">
-          <div class="tmp-m-avatar">${esc(initials)}</div>
+          <div class="tmp-m-avatar">${esc(initials)}<span class="tmp-status-dot ${dotClass}"></span></div>
           <div class="tmp-m-name-stack">
-            <div class="tmp-m-name">${esc(m.full_name)}${inactive ? ` <span style="color:#ef6c00;font-weight:700;font-size:0.72rem;">Inactive</span>` : ""}</div>
+            <div class="tmp-m-name">${esc(m.full_name)} <span class="tmp-status-pill tmp-status-pill--level">L${m.level_completed}</span> ${statusLabel}${inactive ? ` <span style="color:#ef6c00;font-weight:700;font-size:0.72rem;">Inactive</span>` : ""}</div>
             <div class="tmp-m-path">${esc(m.pathway)}</div>
           </div>
         </div>`;
         return `<tr data-lp-member="${m.id}" data-m-level="${m.level_completed}"${inactive ? ' style="background:#fff8e1"' : ""}>
           <td>${nameCell}</td>
-          <td>Level ${m.level_completed}</td>
-          <td${spCell === "—" ? ' data-empty' : ""}>${spCell}</td>
-          <td${roleCell === "—" ? ' data-empty' : ""}>${roleCell}</td>
+          <td class="tmp-m-progress-cell"${progressCell === "—" ? ' data-empty' : ""}>${progressCell}</td>
           <td${mentorCell === "—" ? ' data-empty' : ""}>${mentorCell}</td>
-          <td>${statusCell}</td>
           <td>${actionCell}</td>
         </tr>
-        <tr data-vpe-pw-row="${m.id}" style="display:none;"><td colspan="7" style="padding:0;background:#f9f9f9;">
+        <tr data-vpe-pw-row="${m.id}" style="display:none;"><td colspan="4" style="padding:0;background:#f9f9f9;">
           <form data-vpe-pw-form="${m.id}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px;">
             <span style="font-size:0.88rem;font-weight:600;">${esc(m.full_name)}:</span>
             <input type="password" placeholder="New password (min 8 chars)" minlength="8" required
@@ -1458,7 +1470,7 @@
             <span data-vpe-pw-status="${m.id}" style="font-size:12px;"></span>
           </form>
         </td></tr>
-        <tr data-lp-detail="${m.id}" style="display:none;"><td colspan="7" style="padding:0;"></td></tr>`;
+        <tr data-lp-detail="${m.id}" style="display:none;"><td colspan="4" style="padding:0;"></td></tr>`;
       }).join("");
     }
 
