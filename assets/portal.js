@@ -710,44 +710,71 @@
           level1_complete:      { label: "L1 Complete",       bg: "#ef6c00" },
           closed:               { label: "L1 Done",           bg: "#424242" },
         };
+        const GAP_VISIBLE_COUNT = 2;
+
         if (menteeList) menteeList.innerHTML = `
-          <div class="tmp-table-wrap"><table class="tmp-table">
-            <thead><tr><th>Mentee</th><th>Stage</th><th>Gaps</th><th>Participation</th><th>Your Next Action</th></tr></thead>
-            <tbody>${mentees.map((m) => {
+          <div class="tmp-mentee-list">${mentees.map((m, i) => {
               const unmetGaps    = (m.level_gaps || []).filter((g) => !g.met);
               const allMet       = unmetGaps.length === 0 && (m.level_gaps || []).length > 0;
               const noPathway    = (m.next_action || "").startsWith("Register for a Pathway");
               const stageMeta    = STAGE_LABELS[m.mentorship_stage] || STAGE_LABELS.no_mentor;
-              const rowStyle     = m.is_at_risk ? "background:#fff8e1" : noPathway ? "background:#fce4ec" : "";
+              const rowClass     = m.is_at_risk ? " tmp-mentee-row--risk" : noPathway ? " tmp-mentee-row--unenrolled" : "";
+              const initials     = esc(m.full_name).trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
 
-              const pathwayLabel = noPathway
-                ? `<span class="tmp-tag" style="background:#c62828;color:#fff;display:inline-block;margin-top:4px;">Not Enrolled</span>`
-                : `<small style="color:var(--tmp-muted)">${esc(m.pathway)} · L${m.level}</small>`;
+              const metaLine = noPathway
+                ? `<span class="tmp-not-enrolled-chip">Not Enrolled</span>`
+                : `<div class="tmp-mentee-meta">${esc(m.pathway)} &middot; Level ${m.level}</div>`;
 
-              const gapsHtml = noPathway ? "—"
+              const visibleGaps = unmetGaps.slice(0, GAP_VISIBLE_COUNT);
+              const hiddenGaps  = unmetGaps.slice(GAP_VISIBLE_COUNT);
+              const gapChip = (g) => `<span class="tmp-gap-chip">&#9888; ${esc(g.label)}</span>`;
+              const gapsHtml = noPathway ? ""
                 : allMet
-                  ? `<span style="color:#2e7d32;font-size:0.85rem;">✓ All L${m.level} reqs met</span>`
-                  : unmetGaps.length === 0
-                    ? "—"
-                    : unmetGaps.map((g) =>
-                        `<span class="tmp-tag" style="background:#fff3e0;color:#e65100;font-size:0.78rem;display:inline-block;margin:2px 2px 2px 0;">⚠ ${esc(g.label)}</span>`
-                      ).join("");
+                  ? `<span class="tmp-all-met">&#10003; All L${m.level} reqs met</span>`
+                  : unmetGaps.length === 0 ? "" : `
+                    ${visibleGaps.map(gapChip).join("")}
+                    ${hiddenGaps.length > 0 ? `
+                      <span class="tmp-gap-chip tmp-gap-chip--extra" data-tmp-gap-more="${i}" style="cursor:pointer;">&#9888; +${hiddenGaps.length} more</span>
+                      <span data-tmp-gap-hidden="${i}" style="display:none;">${hiddenGaps.map(gapChip).join("")}</span>
+                    ` : ""}`;
 
-              const participationHtml = `${m.recent_participation_count} / ${m.total_recent_meetings_checked}`
-                + (m.is_at_risk ? ` <span style="color:red;font-weight:bold;font-size:0.8rem;">AT RISK</span>` : "");
+              const participationText = `${esc(m.recent_participation_count)}/${esc(m.total_recent_meetings_checked)} meetings`
+                + (m.is_at_risk ? ` &middot; AT RISK` : "");
 
-              const mentorActionHtml = noPathway
-                ? `<a href="https://www.toastmasters.org/pathways-overview" target="_blank" rel="noopener" style="color:var(--tmp-burgundy);text-decoration:underline;font-size:0.85rem;">Help register on TI →</a>`
-                : `<small style="color:var(--tmp-muted)">${esc(m.mentor_next_action || "—")}</small>`;
+              const nextActionHtml = noPathway
+                ? `<div class="tmp-mentee-next"><a href="https://www.toastmasters.org/pathways-overview" target="_blank" rel="noopener">Help register on TI &rarr;</a></div>`
+                : m.mentor_next_action ? `<div class="tmp-mentee-next">${esc(m.mentor_next_action)}</div>` : "";
 
-              return `<tr style="${rowStyle}">
-                <td data-label="Mentee"><strong>${esc(m.full_name)}</strong><br>${pathwayLabel}</td>
-                <td data-label="Stage"><span class="tmp-tag" style="background:${stageMeta.bg};color:#fff;">${esc(stageMeta.label)}</span></td>
-                <td data-label="Gaps">${gapsHtml}</td>
-                <td data-label="Participation">${participationHtml}</td>
-                <td data-label="Your Next Action">${mentorActionHtml}</td>
-              </tr>`;
-            }).join("")}</tbody></table></div>`;
+              return `<div class="tmp-mentee-row${rowClass}">
+                <div class="tmp-mentee-avatar">${initials || "?"}</div>
+                <div class="tmp-mentee-main">
+                  <div class="tmp-mentee-topline">
+                    <span class="tmp-mentee-name">${esc(m.full_name)}</span>
+                    <span class="tmp-tag" style="background:${stageMeta.bg};color:#fff;">${esc(stageMeta.label)}</span>
+                    ${noPathway ? metaLine : ""}
+                  </div>
+                  ${noPathway ? "" : metaLine}
+                  <div class="tmp-mentee-status">
+                    <span class="tmp-mentee-participation${m.is_at_risk ? " tmp-at-risk-text" : ""}">${participationText}</span>
+                    ${gapsHtml}
+                  </div>
+                  ${nextActionHtml}
+                </div>
+              </div>`;
+            }).join("")}</div>`;
+
+        if (menteeList && !menteeList._gapToggleAdded) {
+          menteeList._gapToggleAdded = true;
+          menteeList.addEventListener("click", (e) => {
+            const btn = e.target.closest("[data-tmp-gap-more]");
+            if (!btn) return;
+            const hidden = qs(`[data-tmp-gap-hidden="${btn.dataset.tmpGapMore}"]`, menteeList);
+            if (!hidden) return;
+            const showing = hidden.style.display !== "none";
+            hidden.style.display = showing ? "none" : "contents";
+            btn.style.display = showing ? "" : "none";
+          });
+        }
       }
 
     } catch (err) {
@@ -809,16 +836,9 @@
       }
     });
 
-    // "Role requests for upcoming meetings" expand/collapse toggle
-    const meetingToggle = qs("[data-tmp-meeting-toggle]", root);
-    const meetingBody   = qs("[data-tmp-meeting-body]",   root);
-    meetingToggle?.addEventListener("click", () => {
-      const open = meetingToggle.getAttribute("aria-expanded") === "true";
-      meetingToggle.setAttribute("aria-expanded", String(!open));
-      if (meetingBody) meetingBody.style.display = open ? "none" : "block";
-      const chevron = qs(".tmp-chevron", meetingToggle);
-      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
-    });
+    // "Role requests for upcoming meetings" pill-tabs — lives in its own top-level tab now,
+    // so there's no expand/collapse toggle to wire up, just the inner pill-tab switching.
+    const meetingBody = qs("[data-tmp-meeting-body]", root);
 
     // "Role requests for upcoming meetings" pill-tabs
     meetingBody?.addEventListener("click", (e) => {
@@ -5342,10 +5362,10 @@
     badge.style.display = needsAttention ? "inline-flex" : "none";
   }
 
-  function initVPETabs() {
-    const root = qs("[data-tmp-vpe]");
+  function initDashboardTabs() {
+    const root = qs("[data-tmp-member-dashboard]");
     if (!root) return;
-    const STORAGE_KEY = "tmp_vpe_tab";
+    const STORAGE_KEY = "tmp_dashboard_tab";
     const activateTab = (tab) => {
       qsa("[data-tab]", root).forEach((btn) => {
         btn.classList.toggle("tmp-tab-btn--active", btn.dataset.tab === tab);
@@ -5512,7 +5532,7 @@
   initRecognitionPanel();
   initMentorRating();
   initMyRecognition();
-  initVPETabs();
+  initDashboardTabs();
   initFeedbackForm();
 
   // Hide the WordPress page title (rendered by the theme above our portal shortcode)

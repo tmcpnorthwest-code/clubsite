@@ -105,17 +105,20 @@ class TMP_Shortcodes {
         <div class="tmp-portal" data-tmp-member-dashboard <?php if ($can_meetings_tab): ?>data-tmp-vpe<?php endif; ?>>
             <?php echo self::portal_topbar(); ?>
 
-            <?php if ($can_meetings_tab): ?>
-            <!-- Tab navigation -->
+            <!-- Tab navigation — always shown; every member gets My Dashboard + Request Role,
+                 VPE/Ex-Com/Admin get additional tabs based on their capabilities. -->
             <nav class="tmp-tab-nav" data-tmp-tab-nav>
                 <button class="tmp-tab-btn" data-tab="dashboard">My Dashboard</button>
+                <button class="tmp-tab-btn" data-tab="request-role">Request Role</button>
                 <?php if ($can_manage_meetings): ?>
                 <button class="tmp-tab-btn" data-tab="members">Members</button>
                 <?php endif; ?>
+                <?php if ($can_meetings_tab): ?>
                 <button class="tmp-tab-btn" data-tab="meetings">
-                    Meetings
+                    Manage Meetings
                     <span class="tmp-tab-badge" data-tab-badge="meetings" style="display:none;"></span>
                 </button>
+                <?php endif; ?>
                 <?php if ($can_ex_com): ?>
                 <button class="tmp-tab-btn" data-tab="spotlight">Spotlight</button>
                 <?php endif; ?>
@@ -123,9 +126,8 @@ class TMP_Shortcodes {
                 <button class="tmp-tab-btn" data-tab="recognition">Recognition</button>
                 <?php endif; ?>
             </nav>
-            <?php endif; ?>
 
-            <?php if ($can_meetings_tab): ?><div data-tab-body="dashboard"><?php endif; ?>
+            <div data-tab-body="dashboard">
 
             <div class="tmp-panel tmp-member-summary-card">
                 <p class="tmp-eyebrow">Member dashboard</p>
@@ -303,14 +305,51 @@ class TMP_Shortcodes {
                     <div data-tmp-mentee-list>Loading mentees...</div>
                 </article>
 
-                <!-- Role requests for upcoming meetings — expandable card, collapsed by default -->
-                <article class="tmp-panel tmp-wide" data-tmp-meeting-card>
-                    <button class="tmp-collapsible-toggle" data-tmp-meeting-toggle aria-expanded="false">
-                        Role requests for upcoming meetings
+            </div><!-- .tmp-grid -->
+
+            <!-- Rate Your Mentor — shown by JS when member has a mentor -->
+            <div class="tmp-panel" data-tmp-mentor-rating-panel style="display:none;">
+                <p class="tmp-eyebrow">Mentor feedback</p>
+                <h3>Rate Your Mentor</h3>
+                <p style="font-size:0.85rem;color:var(--tmp-muted);margin:0 0 14px;" data-tmp-mentor-rating-desc></p>
+                <div data-tmp-mentor-rating-submitted style="display:none;">
+                    <p style="color:var(--tmp-teal);font-weight:600;" data-tmp-mentor-rating-done-msg></p>
+                </div>
+                <form data-tmp-mentor-rating-form style="display:none;">
+                    <div style="display:flex;gap:6px;margin-bottom:12px;" data-tmp-star-picker>
+                        <?php for ($i = 1; $i <= 5; $i++): ?>
+                        <label style="cursor:pointer;font-size:1.6rem;color:#ccc;" data-star="<?php echo $i; ?>">
+                            <input type="radio" name="rating" value="<?php echo $i; ?>" style="display:none;" required />
+                            &#9733;
+                        </label>
+                        <?php endfor; ?>
+                    </div>
+                    <label style="display:block;margin-bottom:12px;">
+                        Comments (optional)
+                        <textarea name="feedback" rows="3" style="display:block;width:100%;margin-top:4px;padding:8px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" placeholder="What did your mentor do well? Any suggestions?"></textarea>
+                    </label>
+                    <button class="tmp-button tmp-primary" type="submit">Submit Rating</button>
+                    <span data-tmp-mentor-rating-status style="margin-left:10px;font-size:0.82rem;"></span>
+                </form>
+            </div>
+
+            <!-- Recognition history — shown by JS if member has any awards -->
+            <div class="tmp-panel" data-tmp-my-recognition style="display:none;">
+                <p class="tmp-eyebrow">Recognition</p>
+                <h3>My Awards</h3>
+                <div data-tmp-my-recognition-list></div>
+            </div>
+
+            </div><!-- /data-tab-body="dashboard" -->
+
+            <!-- ══ REQUEST ROLE TAB — visible to every member ══ -->
+            <div data-tab-body="request-role" style="display:none;">
+                <article class="tmp-panel" data-tmp-meeting-card>
+                    <div class="tmp-card-head">
+                        <h3 style="margin:0;">Role requests for upcoming meetings</h3>
                         <span data-tmp-meeting-badge class="tmp-badge" style="display:none;"></span>
-                        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
-                    </button>
-                    <div data-tmp-meeting-body style="display:none;">
+                    </div>
+                    <div data-tmp-meeting-body>
                         <div class="tmp-activity-tabs">
                             <button class="tmp-activity-tab--btn tmp-activity-tab--active" data-tmp-activity-tab="active-requests">Active Requests</button>
                             <button class="tmp-activity-tab--btn" data-tmp-activity-tab="assigned-roles">Assigned Roles</button>
@@ -357,43 +396,7 @@ class TMP_Shortcodes {
 
                     </div><!-- /data-tmp-meeting-body -->
                 </article>
-
-            </div><!-- .tmp-grid -->
-
-            <!-- Rate Your Mentor — shown by JS when member has a mentor -->
-            <div class="tmp-panel" data-tmp-mentor-rating-panel style="display:none;">
-                <p class="tmp-eyebrow">Mentor feedback</p>
-                <h3>Rate Your Mentor</h3>
-                <p style="font-size:0.85rem;color:var(--tmp-muted);margin:0 0 14px;" data-tmp-mentor-rating-desc></p>
-                <div data-tmp-mentor-rating-submitted style="display:none;">
-                    <p style="color:var(--tmp-teal);font-weight:600;" data-tmp-mentor-rating-done-msg></p>
-                </div>
-                <form data-tmp-mentor-rating-form style="display:none;">
-                    <div style="display:flex;gap:6px;margin-bottom:12px;" data-tmp-star-picker>
-                        <?php for ($i = 1; $i <= 5; $i++): ?>
-                        <label style="cursor:pointer;font-size:1.6rem;color:#ccc;" data-star="<?php echo $i; ?>">
-                            <input type="radio" name="rating" value="<?php echo $i; ?>" style="display:none;" required />
-                            &#9733;
-                        </label>
-                        <?php endfor; ?>
-                    </div>
-                    <label style="display:block;margin-bottom:12px;">
-                        Comments (optional)
-                        <textarea name="feedback" rows="3" style="display:block;width:100%;margin-top:4px;padding:8px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" placeholder="What did your mentor do well? Any suggestions?"></textarea>
-                    </label>
-                    <button class="tmp-button tmp-primary" type="submit">Submit Rating</button>
-                    <span data-tmp-mentor-rating-status style="margin-left:10px;font-size:0.82rem;"></span>
-                </form>
-            </div>
-
-            <!-- Recognition history — shown by JS if member has any awards -->
-            <div class="tmp-panel" data-tmp-my-recognition style="display:none;">
-                <p class="tmp-eyebrow">Recognition</p>
-                <h3>My Awards</h3>
-                <div data-tmp-my-recognition-list></div>
-            </div>
-
-            <?php if ($can_meetings_tab): ?></div><!-- /data-tab-body="dashboard" --><?php endif; ?>
+            </div><!-- /data-tab-body="request-role" -->
 
             <?php if ($can_manage_meetings): ?>
             <!-- ══ MEMBERS TAB ══ -->

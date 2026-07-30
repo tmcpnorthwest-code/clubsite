@@ -2152,6 +2152,99 @@
 .tmp-role-check:not(.tmp-met) .tmp-rc-name { color: var(--tmp-muted); }
 .tmp-role-check .tmp-rc-action { margin-left: auto; font-size: 0.76rem; }
 
+/* ── My Dashboard: My Mentees — compact card rows (no table) ─────────────── */
+
+.tmp-mentee-list { display: flex; flex-direction: column; gap: 10px; }
+
+.tmp-mentee-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--tmp-line);
+}
+
+.tmp-mentee-row--risk {
+  border-color: rgba(214, 155, 36, 0.45);
+  background: rgba(214, 155, 36, 0.06);
+}
+
+.tmp-mentee-row--unenrolled {
+  border-color: rgba(143, 23, 55, 0.35);
+  background: rgba(143, 23, 55, 0.05);
+}
+
+.tmp-mentee-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--tmp-navy);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+.tmp-mentee-main { flex: 1; min-width: 0; }
+
+.tmp-mentee-topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.tmp-mentee-name { font-weight: 700; font-size: 0.92rem; }
+
+.tmp-mentee-meta { color: var(--tmp-muted); font-size: 0.78rem; }
+
+.tmp-mentee-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+
+.tmp-mentee-participation { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+.tmp-at-risk-text { color: var(--tmp-burgundy); font-weight: 800; }
+
+.tmp-gap-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(214, 155, 36, 0.18);
+  color: #96650f;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+
+.tmp-gap-chip--extra:hover { background: rgba(214, 155, 36, 0.3); }
+
+.tmp-all-met { color: var(--tmp-teal); font-weight: 700; font-size: 0.8rem; }
+
+.tmp-not-enrolled-chip {
+  background: var(--tmp-burgundy);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.tmp-mentee-next { margin-top: 6px; font-size: 0.8rem; color: var(--tmp-muted); }
+.tmp-mentee-next a { color: var(--tmp-teal); font-weight: 700; text-decoration: none; }
+.tmp-mentee-next a:hover { text-decoration: underline; }
+
 /* ── My Dashboard: Role requests for upcoming meetings — pill-tabs ───────── */
 .tmp-activity-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
 .tmp-activity-tabs button {
