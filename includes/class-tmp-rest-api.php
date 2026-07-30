@@ -317,18 +317,6 @@ class TMP_REST_API {
             'permission_callback' => 'is_user_logged_in',
         ]);
 
-        register_rest_route('toastmasters/v1', '/me/level-up-request', [
-            'methods'             => WP_REST_Server::CREATABLE,
-            'callback'            => [__CLASS__, 'submit_level_up_request'],
-            'permission_callback' => 'is_user_logged_in',
-        ]);
-
-        register_rest_route('toastmasters/v1', '/me/level-up-requests', [
-            'methods'             => WP_REST_Server::READABLE,
-            'callback'            => [__CLASS__, 'get_my_level_up_requests'],
-            'permission_callback' => 'is_user_logged_in',
-        ]);
-
         register_rest_route('toastmasters/v1', '/mentor/mentee-alerts', [
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => [__CLASS__, 'get_mentee_alerts'],
@@ -338,18 +326,6 @@ class TMP_REST_API {
         register_rest_route('toastmasters/v1', '/vpe/members/level-summary', [
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => [__CLASS__, 'get_vpe_level_summary'],
-            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
-        ]);
-
-        register_rest_route('toastmasters/v1', '/vpe/level-up-requests', [
-            'methods'             => WP_REST_Server::READABLE,
-            'callback'            => [__CLASS__, 'get_vpe_level_up_requests'],
-            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
-        ]);
-
-        register_rest_route('toastmasters/v1', '/vpe/level-up-requests/(?P<id>\d+)/review', [
-            'methods'             => WP_REST_Server::CREATABLE,
-            'callback'            => [__CLASS__, 'review_level_up_request'],
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
@@ -1592,35 +1568,6 @@ class TMP_REST_API {
         return rest_ensure_response(TMP_Repository::get_member_full_level_status($member['id']));
     }
 
-    public static function submit_level_up_request(WP_REST_Request $request) {
-        $member = TMP_Repository::current_member();
-        if (!$member) {
-            return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
-        }
-        $note   = sanitize_textarea_field($request->get_json_params()['note'] ?? '');
-        $result = TMP_Repository::submit_level_up_request($member['id'], $note);
-        if (is_wp_error($result)) return $result;
-        return rest_ensure_response(['id' => $result]);
-    }
-
-    public static function get_my_level_up_requests() {
-        global $wpdb;
-        $member = TMP_Repository::current_member();
-        if (!$member) {
-            return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
-        }
-        $table = $wpdb->prefix . 'tmp_level_up_requests';
-        $rows  = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, from_level, to_level, status, member_note, system_verdict, vpe_note, created_at, reviewed_at
-               FROM {$table}
-              WHERE member_id = %d
-              ORDER BY created_at DESC
-              LIMIT 10",
-            $member['id']
-        ), ARRAY_A);
-        return rest_ensure_response($rows ?: []);
-    }
-
     public static function get_mentee_alerts() {
         $member = TMP_Repository::current_member();
         if (!$member) {
@@ -1677,61 +1624,6 @@ class TMP_REST_API {
             return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
         }
         return rest_ensure_response(TMP_Repository::get_member_full_level_status((int) $request['id']));
-    }
-
-    public static function get_vpe_level_up_requests() {
-        global $wpdb;
-        $table   = $wpdb->prefix . 'tmp_level_up_requests';
-        $members = $wpdb->prefix . 'tmp_members';
-        $rows = $wpdb->get_results(
-            "SELECT r.id, r.member_id, r.from_level, r.to_level, r.status,
-                    r.member_note, r.evidence, r.system_verdict, r.created_at,
-                    m.full_name, m.pathway
-               FROM {$table} r
-               JOIN {$members} m ON m.id = r.member_id
-              WHERE r.status = 'pending'
-              ORDER BY r.created_at ASC",
-            ARRAY_A
-        );
-
-        $result = [];
-        foreach ($rows as $row) {
-            $evidence = json_decode($row['evidence'], true);
-            $result[] = [
-                'id'             => (int) $row['id'],
-                'member_id'      => (int) $row['member_id'],
-                'member_name'    => $row['full_name'],
-                'pathway'        => $row['pathway'],
-                'from_level'     => (int) $row['from_level'],
-                'to_level'       => (int) $row['to_level'],
-                'member_note'    => $row['member_note'],
-                'system_verdict' => $row['system_verdict'],
-                'evidence'       => $evidence,
-                'created_at'     => $row['created_at'],
-            ];
-        }
-        return rest_ensure_response($result);
-    }
-
-    public static function review_level_up_request(WP_REST_Request $request) {
-        $body       = $request->get_json_params();
-        $action     = $body['action'] ?? '';
-        $note       = sanitize_textarea_field($body['note'] ?? '');
-        $request_id = (int) $request['id'];
-        $vpe_id     = get_current_user_id();
-
-        if ($action === 'approve') {
-            $ok = TMP_Repository::approve_level_up_request($request_id, $vpe_id, $note);
-        } elseif ($action === 'deny') {
-            $ok = TMP_Repository::deny_level_up_request($request_id, $vpe_id, $note);
-        } else {
-            return new WP_Error('tmp_invalid_action', 'Action must be approve or deny.', ['status' => 400]);
-        }
-
-        if (!$ok) {
-            return new WP_Error('tmp_not_found', 'Request not found or already reviewed.', ['status' => 404]);
-        }
-        return rest_ensure_response(['ok' => true]);
     }
 
     public static function save_pathway_offset(WP_REST_Request $request) {

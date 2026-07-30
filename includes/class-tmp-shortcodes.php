@@ -127,26 +127,23 @@ class TMP_Shortcodes {
 
             <?php if ($can_meetings_tab): ?><div data-tab-body="dashboard"><?php endif; ?>
 
-            <div class="tmp-panel">
+            <div class="tmp-panel tmp-member-summary-card">
                 <p class="tmp-eyebrow">Member dashboard</p>
-                <div class="tmp-member-header">
-                    <div class="tmp-member-header-info">
-                        <h2 data-tmp-member-name>Loading dashboard</h2>
-                        <p data-tmp-member-summary></p>
-                        <dl class="tmp-profile-list" style="margin-top:14px;">
-                            <div><dt>Status</dt><dd data-tmp-state></dd></div>
-                            <div><dt>Current Project</dt><dd data-tmp-project></dd></div>
-                            <div><dt>Paid Until</dt><dd data-tmp-paid-until></dd></div>
-                        </dl>
+                <div class="tmp-member-topline">
+                    <span class="tmp-member-topline-name" data-tmp-member-name>Loading dashboard</span>
+                    <span class="tmp-member-topline-sep">&middot;</span>
+                    <span data-tmp-member-summary></span>
+                    <span class="tmp-member-topline-sep">&middot;</span>
+                    <span class="tmp-status-pill" data-tmp-state><span class="tmp-status-pill-dot"></span></span>
+                    <span class="tmp-member-topline-sep">&middot;</span>
+                    <span data-tmp-paid-until></span>
+                </div>
+                <div class="tmp-member-progress">
+                    <div class="tmp-card-head">
+                        <span class="tmp-member-progress-label">Pathways Progress</span>
+                        <span data-tmp-progress class="tmp-member-progress-pct">0%</span>
                     </div>
-                    <div class="tmp-member-header-progress">
-                        <div class="tmp-card-head">
-                            <h3 style="margin:0">Pathways Progress</h3>
-                            <span data-tmp-progress style="color:var(--tmp-teal);font-weight:900;">0%</span>
-                        </div>
-                        <div class="tmp-progress" style="margin-top:10px;"><span data-tmp-progress-bar></span></div>
-                        <ol class="tmp-levels" data-tmp-levels></ol>
-                    </div>
+                    <div class="tmp-level-track" data-tmp-levels></div>
                 </div>
             </div>
 

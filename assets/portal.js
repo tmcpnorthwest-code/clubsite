@@ -300,18 +300,6 @@
   // MEMBER DASHBOARD
   // ===========================================================================
 
-  function paidUntilDisplay(member) {
-    if (member.is_exempt_from_unpaid_block) return { text: "Exempt (New Member)", color: "var(--tmp-teal)" };
-    if (!member.paid_until) return { text: "Not on file", color: "var(--tmp-muted)" };
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const due   = new Date(member.paid_until);
-    const days  = Math.round((due - today) / 86400000);
-    const fmt   = due.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
-    if (days < 0)   return { text: `Expired ${fmt}`, color: "#c62828" };
-    if (days <= 30) return { text: `Due ${fmt} (${days}d)`, color: "#ef6c00" };
-    return { text: `Paid until ${fmt}`, color: "#2e7d32" };
-  }
-
   async function updateMemberDashboard() {
     const root = qs("[data-tmp-member-dashboard]");
     if (!root) return;
@@ -324,64 +312,61 @@
 
       const setField = (sel, val) => { const el = qs(sel, root); if (el) el.textContent = val; };
       setField("[data-tmp-member-name]",    member.full_name);
-      setField("[data-tmp-member-summary]", `${member.pathway} - Level ${levelCompleted}`);
+      setField("[data-tmp-member-summary]", `${member.pathway}, Level ${levelCompleted}`);
       setField("[data-tmp-progress]",       `${pct}%`);
-      const bar = qs("[data-tmp-progress-bar]", root); if (bar) bar.style.width = `${pct}%`;
-      setField("[data-tmp-state]",          member.state || "Active");
-      setField("[data-tmp-project]",        member.current_project || "Not assigned");
-      setField("[data-tmp-next-action]",    member.next_action || "No next action recorded.");
-      const paid = paidUntilDisplay(member);
+      const stateEl = qs("[data-tmp-state]", root);
+      if (stateEl) stateEl.innerHTML = `<span class="tmp-status-pill-dot"></span>${esc(member.state || "Active")}`;
       const paidEl = qs("[data-tmp-paid-until]", root);
-      if (paidEl) { paidEl.textContent = paid.text; paidEl.style.color = paid.color; }
+      if (paidEl) paidEl.textContent = member.paid_until
+        ? `Paid until ${new Date(member.paid_until).toLocaleDateString("en-US", { month: "short", year: "numeric" })}`
+        : "Not on file";
 
       const levelsEl = qs("[data-tmp-levels]", root);
       if (levelsEl) levelsEl.innerHTML = levels.map((lbl, i) => {
         const n   = i + 1;
-        const cls = n <= levelCompleted ? "tmp-done" : n === levelCompleted + 1 ? "tmp-active" : "";
-        return `<li class="${cls}">${esc(lbl)}</li>`;
+        const cls = n <= levelCompleted ? "tmp-done" : n === levelCompleted + 1 ? "tmp-current" : "";
+        return `<div class="tmp-level-step ${cls}"><span class="tmp-level-step-tip">${esc(lbl)}</span><span class="tmp-level-step-node"></span><span class="tmp-level-step-label">L${n}</span></div>`;
       }).join("");
 
-      // Define which milestones are visible at each level
-      const milestonesByLevel = {
-        0: ['joined', 'orientation'],
-        1: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
-        2: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
-        3: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
-        4: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
-        5: ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'],
-      };
-      const visibleMilestones = milestonesByLevel[levelCompleted] || milestonesByLevel[5];
+      // "My Milestones" is an L0/L1 onboarding tracker (joined → orientation → first role →
+      // ice breaker → level 1 complete). Once a member has completed Level 1, none of these
+      // apply anymore, so hide the whole card rather than showing a stale/irrelevant checklist.
+      const milestonesCard = qs("[data-tmp-milestones]", root)?.closest(".tmp-panel");
+      if (milestonesCard) milestonesCard.style.display = levelCompleted >= 1 ? "none" : "";
 
-      const milestoneEls = qsa("[data-m]", root);
-      let nextActiveEl = null;
-      milestoneEls.forEach((el) => {
-        const key = el.dataset.m;
-        const isVisible = visibleMilestones.includes(key);
-        el.style.display = isVisible ? "" : "none";
-        el.classList.remove("tmp-done", "tmp-active");
-        if (isVisible) {
-          const isDone = !!(member.milestones && member.milestones[key]) ||
-            (key === 'level1_completed' && levelCompleted >= 1);
-          if (isDone) {
-            el.classList.add("tmp-done");
-            el.title = member.milestones && member.milestones[key]
-              ? `Completed: ${member.milestones[key]}`
-              : "Level 1 Completed";
-          } else if (!nextActiveEl) {
-            nextActiveEl = el;
+      if (levelCompleted < 1) {
+        const visibleMilestones = ['joined', 'orientation', 'first_role', 'icebreaker_draft', 'icebreaker_delivered', 'level1_completed'];
+        const milestoneEls = qsa("[data-m]", root);
+        let nextActiveEl = null;
+        milestoneEls.forEach((el) => {
+          const key = el.dataset.m;
+          const isVisible = visibleMilestones.includes(key);
+          el.style.display = isVisible ? "" : "none";
+          el.classList.remove("tmp-done", "tmp-active");
+          if (isVisible) {
+            const isDone = !!(member.milestones && member.milestones[key]) ||
+              (key === 'level1_completed' && levelCompleted >= 1);
+            if (isDone) {
+              el.classList.add("tmp-done");
+              el.title = member.milestones && member.milestones[key]
+                ? `Completed: ${member.milestones[key]}`
+                : "Level 1 Completed";
+            } else if (!nextActiveEl) {
+              nextActiveEl = el;
+            }
           }
-        }
-      });
-      if (nextActiveEl) nextActiveEl.classList.add("tmp-active");
+        });
+        if (nextActiveEl) nextActiveEl.classList.add("tmp-active");
 
-      // Add note about TI website for pathways details
-      const milestonesPanel = qs("[data-tmp-milestones]", root);
-      if (milestonesPanel && !qs("[data-tmp-ti-note]", milestonesPanel)) {
-        const note = document.createElement("p");
-        note.setAttribute("data-tmp-ti-note", "");
-        note.style.cssText = "margin-top:12px;padding:10px;background:#f0f7ff;border-left:4px solid #1976d2;font-size:12px;color:#333;";
-        note.innerHTML = `For detailed information about Pathways levels and requirements, visit <a href="https://www.toastmasters.org/pathways" target="_blank" rel="noopener" style="color:#1976d2;font-weight:bold;text-decoration:none;">Toastmasters Pathways Overview &rarr;</a>`;
-        milestonesPanel.appendChild(note);
+        // Add note about TI website for pathways details
+        const milestonesPanel = qs("[data-tmp-milestones]", root);
+        if (milestonesPanel && !qs("[data-tmp-ti-note]", milestonesPanel)) {
+          const note = document.createElement("p");
+          note.setAttribute("data-tmp-ti-note", "");
+          note.style.cssText = "margin-top:12px;padding:10px;background:#f0f7ff;border-left:4px solid #1976d2;font-size:12px;color:#333;";
+          note.innerHTML = `For detailed information about Pathways levels and requirements, visit <a href="https://www.toastmasters.org/pathways" target="_blank" rel="noopener" style="color:#1976d2;font-weight:bold;text-decoration:none;">Toastmasters Pathways Overview &rarr;</a>`;
+          milestonesPanel.appendChild(note);
+        }
       }
 
       // ── Mentor card — shown only for Level 0 and Level 1 members ──────────
@@ -442,9 +427,6 @@
       const renderLevelStatus = async () => {
         const statusEl  = qs("[data-tmp-level-status]", root);
         const nextLvlEl = qs("[data-tmp-next-level]", root);
-        const lvlUpSect = qs("[data-tmp-levelup-section]", root);
-        const lvlUpStat = qs("[data-tmp-levelup-request-status]", root);
-        const lvlUpBtn  = qs("[data-tmp-request-levelup]", root);
         if (!statusEl) return;
 
         const data = await api("/me/level-status").catch(() => null);
@@ -452,7 +434,7 @@
 
         root._levelStatus = data;
         const lvl = data.level;
-        if (nextLvlEl) nextLvlEl.textContent = lvl + 1;
+        if (nextLvlEl) nextLvlEl.textContent = lvl;
 
         const sp       = data.speech_progress;
         const gaps     = data.role_gaps || [];
@@ -509,56 +491,12 @@
         const summaryColor = ready ? "var(--tmp-teal)" : "#e65100";
         const summaryIcon  = ready ? "🟢" : "🟡";
         const summaryText  = ready
-          ? "All requirements met — ready to request Level Up!"
+          ? "All requirements met for this level."
           : verdict.join(" · ");
         const summaryHtml  = `<p style="font-weight:600;font-size:0.9rem;color:${summaryColor};margin:0;">${summaryIcon} ${esc(summaryText)}</p>`;
 
         statusEl.innerHTML = speechHtml + rolesHtml + summaryHtml;
-
-        // Level-up section: show only for L1–L2
-        if (lvlUpSect && lvl <= 2) {
-          lvlUpSect.style.display = "";
-          // Check for existing pending request
-          const requests = await api("/me/level-up-requests").catch(() => []);
-          const pending  = (requests || []).find((r) => r.status === "pending");
-          if (pending) {
-            if (lvlUpBtn) lvlUpBtn.style.display = "none";
-            if (lvlUpStat) lvlUpStat.innerHTML = `<p style="color:var(--tmp-muted);font-size:0.88rem;">⏳ Level Up request submitted on ${esc(pending.created_at?.split(" ")[0] || "—")} — awaiting VPE review.</p>`;
-            const denied = (requests || []).find((r) => r.status === "denied");
-            if (denied && lvlUpStat) {
-              lvlUpStat.innerHTML += `<p style="color:var(--tmp-burgundy);font-size:0.88rem;margin-top:4px;">❌ Previous request was not approved. VPE note: ${esc(denied.vpe_note || "No note provided.")}</p>`;
-            }
-          } else {
-            if (lvlUpBtn) {
-              lvlUpBtn.style.display = ready ? "" : "none";
-              if (lvlUpStat && !ready) lvlUpStat.innerHTML = `<p style="color:var(--tmp-muted);font-size:0.88rem;">Complete all Level ${lvl} requirements above to unlock the Level Up request.</p>`;
-              else if (lvlUpStat) lvlUpStat.innerHTML = "";
-            }
-          }
-        } else if (lvlUpSect) {
-          lvlUpSect.style.display = "none";
-        }
       };
-
-      // Level-up request submit
-      qs("[data-tmp-levelup-section]", root)?.addEventListener("click", async (e) => {
-        const btn = e.target.closest("[data-tmp-request-levelup]");
-        if (!btn || btn._pending) return;
-        const note = prompt("Optional note to your VPE (press Cancel to abort):") ?? false;
-        if (note === false) return;
-        btn._pending = true;
-        btn.disabled = true;
-        btn.textContent = "Submitting…";
-        try {
-          await api("/me/level-up-request", { method: "POST", body: JSON.stringify({ note }) });
-          await renderLevelStatus();
-        } catch (err) {
-          alert("Could not submit: " + err.message);
-          btn._pending = false;
-          btn.disabled = false;
-          btn.textContent = "Request Level Up";
-        }
-      });
 
       await renderLevelStatus();
 

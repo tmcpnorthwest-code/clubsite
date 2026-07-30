@@ -50,18 +50,118 @@
   margin-top: 24px;
 }
 
-/* ── Member header (two-column: info left, progress right) ───────────────── */
+/* ── Member summary card (single-line identity + condensed progress) ─────── */
 
-.tmp-member-header {
+.tmp-member-summary-card { display: flex; flex-direction: column; gap: 18px; }
+
+.tmp-member-topline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px 14px;
+  font-size: 0.98rem;
+}
+
+.tmp-member-topline-name {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.tmp-member-topline-sep { color: var(--tmp-line); }
+
+.tmp-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: rgba(15, 118, 110, 0.14);
+  color: var(--tmp-teal);
+}
+
+.tmp-status-pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.tmp-member-progress { padding-top: 16px; border-top: 1px solid var(--tmp-line); }
+
+.tmp-member-progress-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--tmp-muted);
+}
+
+.tmp-member-progress-pct { font-size: 0.85rem; font-weight: 800; color: var(--tmp-teal); }
+
+.tmp-level-track {
+  position: relative;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 32px;
-  align-items: start;
+  grid-template-columns: repeat(5, 1fr);
+  margin-top: 12px;
 }
 
-.tmp-member-header-progress .tmp-levels {
-  margin-top: 14px;
+.tmp-level-track::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 10%;
+  right: 10%;
+  height: 3px;
+  background: var(--tmp-line);
+  border-radius: 3px;
 }
+
+.tmp-level-step {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.tmp-level-step-node {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 3px solid var(--tmp-surface);
+  box-shadow: 0 0 0 1px var(--tmp-line);
+  background: var(--tmp-line);
+}
+
+.tmp-level-step.tmp-done .tmp-level-step-node { background: var(--tmp-teal); box-shadow: 0 0 0 1px var(--tmp-teal); }
+.tmp-level-step.tmp-current .tmp-level-step-node { background: var(--tmp-burgundy); box-shadow: 0 0 0 1px var(--tmp-burgundy); }
+
+.tmp-level-step-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--tmp-muted);
+}
+
+.tmp-level-step.tmp-done .tmp-level-step-label { color: var(--tmp-teal); }
+.tmp-level-step.tmp-current .tmp-level-step-label { color: var(--tmp-burgundy); }
+
+.tmp-level-step-tip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: var(--tmp-ink);
+  color: var(--tmp-surface);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.tmp-level-step:hover .tmp-level-step-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* ── Grid layout ─────────────────────────────────────────────────────────── */
 
@@ -351,58 +451,6 @@
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--tmp-teal), var(--tmp-gold));
-}
-
-.tmp-levels {
-  display: grid;
-  gap: 10px;
-  padding: 0;
-  margin: 20px 0 0;
-  list-style: none;
-}
-
-.tmp-levels li {
-  padding: 12px;
-  border-radius: 8px;
-  background: #f6f1e9;
-  color: var(--tmp-muted);
-}
-
-.tmp-levels .tmp-done {
-  color: var(--tmp-teal);
-  font-weight: 800;
-}
-
-.tmp-levels .tmp-active {
-  border: 1px solid rgba(143, 23, 55, 0.34);
-  color: var(--tmp-burgundy);
-  font-weight: 800;
-  background: #fff2f4;
-}
-
-.tmp-profile-list {
-  display: grid;
-  gap: 12px;
-  margin: 0;
-}
-
-.tmp-profile-list div {
-  display: grid;
-  gap: 4px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--tmp-line);
-}
-
-.tmp-profile-list dt {
-  color: var(--tmp-muted);
-  font-size: 0.82rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.tmp-profile-list dd {
-  margin: 0;
-  font-weight: 750;
 }
 
 .tmp-agenda {
@@ -734,11 +782,6 @@
 /* ── Responsive: ≤ 820px ─────────────────────────────────────────────────── */
 
 @media (max-width: 820px) {
-  .tmp-member-header {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-
   .tmp-grid {
     grid-template-columns: 1fr;
   }

@@ -4361,11 +4361,6 @@ class TMP_Repository {
         return $wpdb->prefix . 'tmp_pathway_offsets';
     }
 
-    private static function level_up_requests_table() {
-        global $wpdb;
-        return $wpdb->prefix . 'tmp_level_up_requests';
-    }
-
     /**
      * Minimum speeches required per level (all 11 paths share the same 5/4/4/3/3 counts,
      * per the official TI Base Camp per-path level breakdown).
@@ -4538,87 +4533,6 @@ class TMP_Repository {
             ];
         }
         return $result;
-    }
-
-    /**
-     * Member submits a formal level-up request. Returns new request ID or WP_Error.
-     */
-    public static function submit_level_up_request($member_id, $note = '') {
-        global $wpdb;
-        $table  = self::level_up_requests_table();
-        $member = self::get_member((int) $member_id);
-        $level  = (int)($member['level'] ?? 1);
-
-        if ($level >= 3) {
-            return new WP_Error('tmp_level_limit', 'Level-up requests are only supported for L1→L2 and L2→L3.');
-        }
-
-        $existing = $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$table} WHERE member_id = %d AND status = 'pending'",
-            $member_id
-        ));
-        if ($existing) {
-            return new WP_Error('tmp_duplicate_request', 'A pending level-up request already exists.');
-        }
-
-        $status  = self::get_member_full_level_status((int) $member_id);
-        $verdict = $status['system_verdict'];
-
-        $wpdb->insert($table, [
-            'member_id'      => (int) $member_id,
-            'from_level'     => $level,
-            'to_level'       => $level + 1,
-            'status'         => 'pending',
-            'member_note'    => sanitize_textarea_field($note),
-            'evidence'       => wp_json_encode($status),
-            'system_verdict' => $verdict,
-            'created_at'     => current_time('mysql'),
-        ]);
-
-        return (int) $wpdb->insert_id;
-    }
-
-    /**
-     * VPE approves a level-up request. Bumps the member's level.
-     */
-    public static function approve_level_up_request($request_id, $vpe_user_id, $note = ''): bool {
-        global $wpdb;
-        $table = self::level_up_requests_table();
-
-        $req = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$table} WHERE id = %d AND status = 'pending'",
-            $request_id
-        ), ARRAY_A);
-        if (!$req) {
-            return false;
-        }
-
-        $wpdb->update($table, [
-            'status'      => 'approved',
-            'vpe_note'    => sanitize_textarea_field($note),
-            'reviewed_at' => current_time('mysql'),
-            'reviewed_by' => (int) $vpe_user_id,
-        ], ['id' => (int) $request_id]);
-
-        self::upsert_member((int) $req['member_id'], ['level' => (int) $req['to_level']]);
-        return true;
-    }
-
-    /**
-     * VPE denies a level-up request.
-     */
-    public static function deny_level_up_request($request_id, $vpe_user_id, $note = ''): bool {
-        global $wpdb;
-        $table = self::level_up_requests_table();
-
-        $updated = $wpdb->update($table, [
-            'status'      => 'denied',
-            'vpe_note'    => sanitize_textarea_field($note),
-            'reviewed_at' => current_time('mysql'),
-            'reviewed_by' => (int) $vpe_user_id,
-        ], ['id' => (int) $request_id, 'status' => 'pending']);
-
-        return (bool) $updated;
     }
 
     /**
