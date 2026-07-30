@@ -8,7 +8,6 @@ class TMP_Shortcodes {
     public static function init() {
         add_shortcode('tm_member_login',    [__CLASS__, 'member_login']);
         add_shortcode('tm_member_dashboard',[__CLASS__, 'member_dashboard']);
-        add_shortcode('tm_admin_portal',    [__CLASS__, 'admin_portal']);
         add_shortcode('tm_recognition_wall',[__CLASS__, 'recognition_wall']);
         add_shortcode('tm_public_dashboard',[__CLASS__, 'public_dashboard']);
         add_shortcode('tm_voting',          [__CLASS__, 'voting_page']);
@@ -401,6 +400,27 @@ class TMP_Shortcodes {
             <?php if ($can_manage_meetings): ?>
             <!-- ══ MEMBERS TAB ══ -->
             <div data-tab-body="members" style="display:none;">
+
+                <!-- CSV member import — collapsed by default -->
+                <section class="tmp-panel">
+                    <button class="tmp-collapsible-toggle" data-tmp-import-toggle aria-expanded="false" style="width:100%;text-align:left;">
+                        <span>Import Members from CSV</span>
+                        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+                    </button>
+                    <div data-tmp-import-body style="display:none;margin-top:16px;">
+                        <form class="tmp-form" data-tmp-import-form>
+                            <div class="tmp-wide">
+                                <p>Customer ID becomes the WordPress username. Credentials like PM1 or DL3 become Pathway and Level. Blank credentials become No pathway registered. An optional "Current Position" column grants extra dashboard tabs — any position containing "VP Education" grants the VP Education tabs; any other non-blank position grants the Ex Com meeting-day tab.</p>
+                            </div>
+                            <label>Membership CSV <input type="file" name="file" accept=".csv,text/csv" required /></label>
+                            <label>Default password <input type="text" name="default_password" value="Welcome@123" minlength="8" required /></label>
+                            <div class="tmp-form-actions tmp-wide">
+                                <button class="tmp-button tmp-primary" type="submit">Import Members</button>
+                                <span class="tmp-inline-status" data-tmp-import-status></span>
+                            </div>
+                        </form>
+                    </div>
+                </section>
 
                 <!-- Unified member table: all levels, speech/role progress for L1–L5, mentor column -->
                 <section class="tmp-panel">
@@ -809,29 +829,38 @@ class TMP_Shortcodes {
                 <section class="tmp-panel" data-tmp-excom-spotlight-panel>
                     <p class="tmp-eyebrow">Homepage spotlight</p>
                     <h3>New Member Spotlight</h3>
-                    <p>Select a member and add a welcome message. This card appears on the homepage after "Our Meetings in Action".</p>
+                    <p>Feature a brand-new member on the homepage with a welcome message.</p>
                     <form class="tmp-form" data-tmp-spotlight-form>
                         <label class="tmp-wide">
-                            Member
+                            Member <span style="font-weight:400;color:var(--tmp-muted);">(Level 0 only)</span>
                             <select data-tmp-spotlight-member required>
-                                <option value="">— pick a member —</option>
+                                <option value="">— pick a new member —</option>
                             </select>
+                        </label>
+                        <label class="tmp-wide">
+                            Photo
+                            <div class="tmp-spotlight-photo-row">
+                                <div class="tmp-spotlight-photo-preview" data-tmp-spotlight-photo-preview></div>
+                                <div>
+                                    <button type="button" class="tmp-button tmp-secondary" data-tmp-spotlight-upload-btn>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                        Upload Photo
+                                    </button>
+                                    <input type="file" accept="image/*" data-tmp-spotlight-photo-input style="display:none;" />
+                                    <p class="tmp-spotlight-photo-hint" data-tmp-spotlight-photo-hint>Becomes the member's profile picture site-wide. JPG or PNG, up to 4MB.</p>
+                                </div>
+                            </div>
                         </label>
                         <label class="tmp-wide">
                             Welcome blurb
                             <textarea data-tmp-spotlight-blurb rows="3" placeholder="e.g. Please join us in welcoming Priya — a software engineer with a passion for public speaking!"></textarea>
                         </label>
-                        <label class="tmp-wide">
-                            Photo URL
-                            <input type="url" data-tmp-spotlight-photo placeholder="https://…">
-                            <small>Upload a photo via WP Admin &rarr; Media &rarr; Add New, then copy the file URL here.</small>
-                        </label>
-                        <label class="tmp-wide" style="flex-direction:row;align-items:center;gap:10px;">
-                            <input type="checkbox" data-tmp-spotlight-active>
-                            Show this spotlight on the homepage
-                        </label>
-                        <div class="tmp-form-actions tmp-wide">
-                            <button class="tmp-button tmp-primary" type="submit">Save Spotlight</button>
+                        <div class="tmp-spotlight-publish-row tmp-wide">
+                            <span class="tmp-spotlight-live-note" data-tmp-spotlight-live-note style="display:none;">Currently live on homepage</span>
+                            <button class="tmp-button tmp-primary" type="submit">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                                Publish to Home Page
+                            </button>
                             <span class="tmp-inline-status" data-tmp-spotlight-status></span>
                         </div>
                     </form>
@@ -892,119 +921,6 @@ class TMP_Shortcodes {
                 </div>
             </div>
             <?php endif; ?>
-        </div>
-        <?php
-        return ob_get_clean();
-    }
-
-    public static function admin_portal() {
-        self::enqueue();
-        if (!current_user_can('tmp_manage_members')) {
-            return self::restricted('Club Admin', 'You need a Toastmasters Admin or Administrator account to manage members.');
-        }
-
-        ob_start();
-        ?>
-        <div class="tmp-portal" data-tmp-admin>
-            <?php echo self::portal_topbar(); ?>
-            <div class="tmp-panel">
-                <p class="tmp-eyebrow">Club admin</p>
-                <h2>Manage members, Pathways, levels, and state</h2>
-                <p>Member records saved here drive each member dashboard.</p>
-            </div>
-            <form class="tmp-panel tmp-form" data-tmp-import-form>
-                <div class="tmp-wide">
-                    <p class="tmp-eyebrow">One-time member import</p>
-                    <h3>Upload Toastmasters membership CSV</h3>
-                    <p>Customer ID becomes the WordPress username. Credentials like PM1 or DL3 become Pathway and Level. Blank credentials become No pathway registered. An optional "Current Position" column grants extra dashboard tabs — any position containing "VP Education" grants the VP Education tabs; any other non-blank position grants the Ex Com meeting-day tab.</p>
-                </div>
-                <label>Membership CSV <input type="file" name="file" accept=".csv,text/csv" required /></label>
-                <label>Default password <input type="text" name="default_password" value="Welcome@123" minlength="8" required /></label>
-                <div class="tmp-form-actions tmp-wide">
-                    <button class="tmp-button tmp-primary" type="submit">Import Members</button>
-                    <span class="tmp-inline-status" data-tmp-import-status></span>
-                </div>
-            </form>
-            <section class="tmp-panel">
-                <div class="tmp-card-head">
-                    <h3>Members</h3>
-                    <span data-tmp-member-count>0 records</span>
-                </div>
-                <div class="tmp-admin-filters" style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;background:#f9f9f9;padding:12px;border-radius:4px;border:1px solid #eee;">
-                    <input type="text" data-tmp-admin-search placeholder="Search by name or email..." style="flex:1;min-width:200px;">
-                    <select data-tmp-admin-status>
-                        <option value="all">All (Paid/Unpaid)</option>
-                        <option value="Paid">Paid Only</option>
-                        <option value="Unpaid">Unpaid Only</option>
-                    </select>
-                    <select data-tmp-admin-level>
-                        <option value="all">All Levels</option>
-                        <option value="0">Level 0 (Enrolled)</option>
-                        <option value="1">Level 1</option>
-                        <option value="2">Level 2</option>
-                        <option value="3">Level 3</option>
-                        <option value="4">Level 4</option>
-                        <option value="5">Level 5</option>
-                    </select>
-                    <select data-tmp-admin-group-by>
-                        <option value="none">No Grouping</option>
-                        <option value="state">Group by Status</option>
-                        <option value="level">Group by Level</option>
-                        <option value="pathway">Group by Pathway</option>
-                    </select>
-                </div>
-                <div style="margin-bottom:10px;">
-                    <button class="tmp-small-button" type="button" data-tmp-admin-members-toggle>Show Members</button>
-                </div>
-                <div class="tmp-table-wrap">
-                    <table class="tmp-table">
-                        <thead>
-                            <tr>
-                                <th data-sort-col="name">Name <span class="tmp-sort-ind">▲</span></th>
-                                <th>Customer ID</th>
-                                <th>Email</th>
-                                <th>Pathway</th>
-                                <th data-sort-col="level">Level <span class="tmp-sort-ind">↕</span></th>
-                                <th>State</th>
-                                <th>Recent</th>
-                                <th>Exempt?</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody data-tmp-member-table></tbody>
-                    </table>
-                </div>
-            </section>
-            <section class="tmp-panel">
-                <p class="tmp-eyebrow">Homepage spotlight</p>
-                <h3>New Member Spotlight</h3>
-                <p>Select a member and add a welcome message. This card appears on the homepage after "Our Meetings in Action".</p>
-                <form class="tmp-form" data-tmp-spotlight-form>
-                    <label class="tmp-wide">
-                        Member
-                        <select data-tmp-spotlight-member required>
-                            <option value="">— pick a member —</option>
-                        </select>
-                    </label>
-                    <label class="tmp-wide">
-                        Welcome blurb
-                        <textarea data-tmp-spotlight-blurb rows="3" placeholder="e.g. Please join us in welcoming Priya — a software engineer with a passion for public speaking!"></textarea>
-                    </label>
-                    <label class="tmp-wide">
-                        Photo URL
-                        <input type="url" data-tmp-spotlight-photo placeholder="https://…">
-                        <small>Upload a photo via WP Admin &rarr; Media &rarr; Add New, then copy the file URL here.</small>
-                    </label>
-                    <label class="tmp-wide" style="flex-direction:row;align-items:center;gap:10px;">
-                        <input type="checkbox" data-tmp-spotlight-active>
-                        Show this spotlight on the homepage
-                    </label>
-                    <div class="tmp-form-actions tmp-wide">
-                        <button class="tmp-button tmp-primary" type="submit">Save Spotlight</button>
-                        <span class="tmp-inline-status" data-tmp-spotlight-status></span>
-                    </div>
-                </form>
-            </section>
         </div>
         <?php
         return ob_get_clean();
@@ -1143,20 +1059,6 @@ class TMP_Shortcodes {
                     </div>
                 </form>
             </div>
-        </div>
-        <?php
-        return ob_get_clean();
-    }
-
-    private static function restricted($title, $message) {
-        self::enqueue();
-        ob_start();
-        ?>
-        <div class="tmp-portal tmp-login-card">
-            <p class="tmp-eyebrow"><?php echo esc_html($title); ?></p>
-            <h2>Login required</h2>
-            <p><?php echo esc_html($message); ?></p>
-            <a class="tmp-button tmp-primary" href="<?php echo esc_url(wp_login_url(get_permalink())); ?>">Login with WordPress</a>
         </div>
         <?php
         return ob_get_clean();

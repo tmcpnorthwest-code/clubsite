@@ -7,6 +7,30 @@ if (!defined('ABSPATH')) {
 class TMP_REST_API {
     public static function init() {
         add_action('rest_api_init', array(__CLASS__, 'routes'));
+        add_filter('get_avatar_url', array(__CLASS__, 'filter_avatar_url'), 10, 3);
+    }
+
+    /**
+     * Members with a photo uploaded via the New Member Spotlight form use that photo as their
+     * WordPress avatar everywhere (comments, admin, etc.) instead of falling back to Gravatar.
+     */
+    public static function filter_avatar_url($url, $id_or_email, $args) {
+        $user_id = null;
+        if (is_numeric($id_or_email)) {
+            $user_id = (int) $id_or_email;
+        } elseif (is_object($id_or_email) && isset($id_or_email->user_id)) {
+            $user_id = (int) $id_or_email->user_id;
+        } elseif (is_string($id_or_email)) {
+            $user = get_user_by('email', $id_or_email);
+            if ($user) $user_id = $user->ID;
+        }
+        if (!$user_id) return $url;
+
+        $photo_id = get_user_meta($user_id, 'tmp_profile_photo_id', true);
+        if (!$photo_id) return $url;
+
+        $photo_url = wp_get_attachment_image_url((int) $photo_id, 'thumbnail');
+        return $photo_url ?: $url;
     }
 
     public static function routes() {
@@ -1653,19 +1677,54 @@ class TMP_REST_API {
         return rest_ensure_response($raw ? json_decode($raw, true) : null);
     }
 
+    /**
+     * Publishes the New Member Spotlight. Always goes live immediately (there is no separate
+     * "save as draft" state) — accepts multipart form data so an optional photo upload can ride
+     * along in the same request. When a photo is included, it's added to the WP Media Library
+     * and set as that member's WordPress avatar (see filter_avatar_url()), not just stored as a
+     * URL for the spotlight card.
+     */
     public static function save_spotlight_setting(WP_REST_Request $request) {
-        $body      = $request->get_json_params();
-        $member_id = (int) ($body['member_id'] ?? 0);
-        $blurb     = sanitize_textarea_field($body['blurb'] ?? '');
-        $photo_url = esc_url_raw($body['photo_url'] ?? '');
-        $active    = !empty($body['active']);
+        $member_id = (int) $request->get_param('member_id');
+        $blurb     = sanitize_textarea_field((string) $request->get_param('blurb'));
 
-        if ($member_id && !TMP_Repository::get_member($member_id)) {
+        if (!$member_id) {
+            return new WP_Error('invalid_member', 'Select a member to spotlight.', ['status' => 400]);
+        }
+        $member = TMP_Repository::get_member($member_id);
+        if (!$member) {
             return new WP_Error('invalid_member', 'Member not found', ['status' => 400]);
         }
 
-        update_option('tmp_new_member_spotlight', wp_json_encode(compact('member_id', 'blurb', 'photo_url', 'active')));
-        return rest_ensure_response(['ok' => true]);
+        $photo_url = '';
+        $files = $request->get_file_params();
+        if (!empty($files['photo']['tmp_name'])) {
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+
+            $attachment_id = media_handle_upload('photo', 0);
+            if (is_wp_error($attachment_id)) {
+                return new WP_Error('tmp_upload_failed', 'Photo upload failed: ' . $attachment_id->get_error_message(), ['status' => 400]);
+            }
+
+            $photo_url = wp_get_attachment_image_url($attachment_id, 'medium') ?: '';
+
+            if (!empty($member['user_id'])) {
+                update_user_meta((int) $member['user_id'], 'tmp_profile_photo_id', $attachment_id);
+            }
+        }
+
+        $existing = get_option('tmp_new_member_spotlight', null);
+        $existing = $existing ? json_decode($existing, true) : [];
+        if (!$photo_url && !empty($existing['photo_url']) && (int) ($existing['member_id'] ?? 0) === $member_id) {
+            $photo_url = $existing['photo_url'];
+        }
+
+        $active       = true;
+        $published_at = current_time('mysql');
+        update_option('tmp_new_member_spotlight', wp_json_encode(compact('member_id', 'blurb', 'photo_url', 'active', 'published_at')));
+        return rest_ensure_response(['ok' => true, 'photo_url' => $photo_url, 'published_at' => $published_at]);
     }
 
     // ── Password management ────────────────────────────────────────────────────

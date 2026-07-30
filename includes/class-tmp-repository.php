@@ -4562,11 +4562,23 @@ class TMP_Repository {
     // New Member Spotlight
     // -------------------------------------------------------------------------
 
+    /**
+     * A spotlight is shown on the homepage for 30 days from when it was published, then
+     * automatically stops appearing (no manual "unpublish" step needed).
+     */
     public static function get_new_member_spotlight() {
         $raw = get_option('tmp_new_member_spotlight', null);
         if (!$raw) return null;
         $data = json_decode($raw, true);
         if (empty($data['active']) || empty($data['member_id'])) return null;
+
+        if (!empty($data['published_at'])) {
+            $published_ts = strtotime($data['published_at']);
+            if ($published_ts && (current_time('timestamp') - $published_ts) > (30 * DAY_IN_SECONDS)) {
+                return null;
+            }
+        }
+
         $member = self::get_member((int) $data['member_id']);
         if (!$member) return null;
         return [

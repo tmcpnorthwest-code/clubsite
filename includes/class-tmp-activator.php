@@ -774,7 +774,6 @@ class TMP_Activator {
     private static function create_pages() {
         self::maybe_create_page('member-login', 'Member Login', '[tm_member_login]');
         self::maybe_create_page('member-dashboard', 'Member Dashboard', '[tm_member_dashboard]');
-        self::maybe_create_page('club-admin', 'Club Admin', '[tm_admin_portal]');
         self::maybe_create_page('club-home', 'Club Home', '[tm_public_dashboard]');
         self::maybe_create_page('speech-feedback', 'Speech Feedback', '[tm_feedback_form]');
     }

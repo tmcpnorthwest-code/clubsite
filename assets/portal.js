@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   if (!window.TMPortal) {
     return;
   }
@@ -1172,248 +1172,6 @@
   }
 
   // ===========================================================================
-  // CLUB ADMIN
-  // ===========================================================================
-
-  async function initAdmin() {
-    const root = qs("[data-tmp-admin]");
-    if (!root) return;
-
-    const importForm   = qs("[data-tmp-import-form]", root);
-    const importStatus = qs("[data-tmp-import-status]", root);
-    const table        = qs("[data-tmp-member-table]", root);
-    const count        = qs("[data-tmp-member-count]", root);
-    const membersWrap  = qs(".tmp-table-wrap", root);
-    const toggleBtn    = qs("[data-tmp-admin-members-toggle]", root);
-
-    // Collapsed by default
-    if (membersWrap) membersWrap.style.display = "none";
-    if (!root._adminSort) root._adminSort = { col: "name", dir: "asc" };
-
-    async function render(force = false) {
-      if (force || !root._members) root._members = await api("/members");
-      const members = root._members;
-
-      const searchTerm   = (qs("[data-tmp-admin-search]", root)?.value || "").toLowerCase();
-      const groupKey     = qs("[data-tmp-admin-group-by]", root)?.value || "none";
-      const statusFilter = qs("[data-tmp-admin-status]", root)?.value || "all";
-      const levelFilter  = qs("[data-tmp-admin-level]", root)?.value || "all";
-
-      const filtered = members.filter((m) =>
-        (!searchTerm || m.full_name.toLowerCase().includes(searchTerm) || m.email.toLowerCase().includes(searchTerm)) &&
-        (statusFilter === "all" || (statusFilter === "Paid" && m.is_eligible) || (statusFilter === "Unpaid" && !m.is_eligible)) &&
-        (levelFilter === "all" || String(m.level_completed) === levelFilter)
-      );
-
-      // Sort
-      const { col: sortCol, dir: sortDir } = root._adminSort;
-      const sorted = [...filtered].sort((a, b) => {
-        const mul = sortDir === "asc" ? 1 : -1;
-        if (sortCol === "level") {
-          const ld = a.level_completed - b.level_completed;
-          return mul * (ld !== 0 ? ld : a.full_name.localeCompare(b.full_name));
-        }
-        return mul * a.full_name.localeCompare(b.full_name);
-      });
-
-      if (count) count.textContent = `${sorted.length} ${sorted.length === 1 ? "record" : "records"}`;
-
-      // Update toggle button text
-      const isOpen = membersWrap?.style.display !== "none";
-      if (toggleBtn) {
-        toggleBtn.textContent = isOpen ? `Hide Members (${sorted.length})` : `Show Members (${sorted.length})`;
-      }
-
-      // Update sort indicators in static thead
-      qs(".tmp-table thead", root)?.querySelectorAll("[data-sort-col]").forEach((th) => {
-        const ind = qs(".tmp-sort-ind", th);
-        if (ind) ind.textContent = th.dataset.sortCol === sortCol ? (sortDir === "asc" ? "▲" : "▼") : "↕";
-      });
-
-      const levelLabel = (lvl) => lvl === 0 ? "Level 0 (New — no levels completed)" : `Level ${lvl}`;
-
-      const memberToRow = (m) => {
-        const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
-        return `<tr>
-          <td><strong>${esc(m.full_name)}</strong></td>
-          <td>${esc(m.customer_id || "")}</td>
-          <td>${esc(m.email)}</td>
-          <td>${esc(m.pathway)}</td>
-          <td>${levelLabel(m.level_completed)}</td>
-          <td>${esc(m.state)}</td>
-          <td style="${inactive ? "color:#ef6c00;font-weight:bold;" : ""}">${m.recent_participation_count} / ${m.total_recent_meetings_checked}</td>
-          <td>${m.is_exempt_from_unpaid_block ? "Yes" : "No"}</td>
-          <td><div class="tmp-row-actions">
-            <button class="tmp-small-button tmp-secondary" type="button" data-reset-password="${esc(m.id)}">Reset PW</button>
-            <button class="tmp-small-button tmp-danger" type="button" data-delete-member="${esc(m.id)}">Delete</button>
-          </div></td>
-        </tr>
-        <tr data-pw-row="${esc(m.id)}" style="display:none;">
-          <td colspan="9" style="background:#f9f9f9;padding:10px 16px;border-bottom:1px solid var(--tmp-line);">
-            <form data-pw-form="${esc(m.id)}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <input type="password" placeholder="New password (min 8 chars)" minlength="8" required
-                     style="padding:6px 10px;border:1px solid var(--tmp-line);border-radius:4px;font-size:0.88rem;flex:1;min-width:180px;" />
-              <button class="tmp-small-button tmp-primary" type="submit">Set Password</button>
-              <button class="tmp-small-button" type="button" data-cancel-pw="${esc(m.id)}">Cancel</button>
-              <span data-pw-status="${esc(m.id)}" style="font-size:12px;"></span>
-            </form>
-          </td>
-        </tr>`;
-      };
-
-      if (groupKey === "none") {
-        table.innerHTML = sorted.map(memberToRow).join("");
-      } else {
-        const groups = sorted.reduce((acc, m) => {
-          const key = (groupKey === "level" ? levelLabel(m.level_completed) : m[groupKey]) || "Unassigned";
-          if (!acc[key]) acc[key] = [];
-          acc[key].push(m);
-          return acc;
-        }, {});
-        table.innerHTML = Object.keys(groups).sort().map((name) =>
-          `<tr class="tmp-group-row"><td colspan="9" style="background:#f5f5f5;font-weight:bold;padding:8px;border-bottom:1px solid #ccc;">${esc(name)} (${groups[name].length})</td></tr>` +
-          groups[name].map(memberToRow).join("")
-        ).join("");
-      }
-    }
-
-    importForm?.addEventListener("submit", async (ev) => {
-      ev.preventDefault();
-      importStatus.textContent = "Importing...";
-      const res  = await fetch(`${TMPortal.restUrl}/members/import`, { method: "POST", headers: { "X-WP-Nonce": TMPortal.nonce }, body: new FormData(importForm) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) { importStatus.textContent = data.message || "Import failed."; return; }
-      importStatus.textContent = `Imported ${data.imported_members} members. Created ${data.created_users}, updated ${data.updated_users}.`;
-      importForm.reset();
-      await render(true);
-    });
-
-    qs("[data-tmp-admin-search]",   root)?.addEventListener("input",  () => render());
-    qs("[data-tmp-admin-group-by]", root)?.addEventListener("change", () => render());
-    qs("[data-tmp-admin-status]",   root)?.addEventListener("change", () => render());
-    qs("[data-tmp-admin-level]",    root)?.addEventListener("change", () => render());
-
-    // Sort header click handlers (static thead)
-    qs(".tmp-table thead", root)?.querySelectorAll("[data-sort-col]").forEach((th) => {
-      th.style.cursor = "pointer";
-      th.addEventListener("click", () => {
-        const col = th.dataset.sortCol;
-        if (root._adminSort.col === col) {
-          root._adminSort.dir = root._adminSort.dir === "asc" ? "desc" : "asc";
-        } else {
-          root._adminSort = { col, dir: "asc" };
-        }
-        render();
-      });
-    });
-
-    // Toggle handler
-    toggleBtn?.addEventListener("click", () => {
-      const open = membersWrap?.style.display !== "none";
-      if (membersWrap) membersWrap.style.display = open ? "none" : "";
-      render();
-    });
-
-    table.addEventListener("click", async (ev) => {
-      const del = ev.target.closest("[data-delete-member]");
-      if (del && confirm("Are you sure you want to delete this member?")) {
-        ev.target.closest("tr")?.remove();
-        await api(`/members/${del.dataset.deleteMember}`, { method: "DELETE" });
-        await render(true);
-        return;
-      }
-
-      const resetBtn = ev.target.closest("[data-reset-password]");
-      if (resetBtn) {
-        const id  = resetBtn.dataset.resetPassword;
-        const row = table.querySelector(`[data-pw-row="${id}"]`);
-        if (row) row.style.display = row.style.display === "none" ? "" : "none";
-        return;
-      }
-
-      const cancelBtn = ev.target.closest("[data-cancel-pw]");
-      if (cancelBtn) {
-        const row = table.querySelector(`[data-pw-row="${cancelBtn.dataset.cancelPw}"]`);
-        if (row) row.style.display = "none";
-      }
-    });
-
-    table.addEventListener("submit", async (ev) => {
-      const form = ev.target.closest("[data-pw-form]");
-      if (!form) return;
-      ev.preventDefault();
-      const id     = form.dataset.pwForm;
-      const pw     = form.querySelector("input[type=password]").value;
-      const status = table.querySelector(`[data-pw-status="${id}"]`);
-      const btn    = form.querySelector("button[type=submit]");
-      btn.disabled = true;
-      if (status) { status.textContent = "Saving…"; status.style.color = ""; }
-      try {
-        await api(`/members/${id}/reset-password`, { method: "POST", body: JSON.stringify({ new_password: pw }) });
-        if (status) { status.textContent = "Password set!"; status.style.color = "#2e7d32"; }
-        form.reset();
-        setTimeout(() => {
-          if (status) status.textContent = "";
-          const row = table.querySelector(`[data-pw-row="${id}"]`);
-          if (row) row.style.display = "none";
-        }, 2000);
-      } catch (err) {
-        if (status) { status.textContent = err.message; status.style.color = "#c62828"; }
-      } finally {
-        btn.disabled = false;
-      }
-    });
-
-    await render(true);
-
-    // ── New Member Spotlight ────────────────────────────────────────────────
-    const spotlightForm   = qs("[data-tmp-spotlight-form]", root);
-    const spotlightStatus = qs("[data-tmp-spotlight-status]", root);
-    if (spotlightForm) {
-      const mSelect  = qs("[data-tmp-spotlight-member]", spotlightForm);
-      const blurbEl  = qs("[data-tmp-spotlight-blurb]",  spotlightForm);
-      const photoEl  = qs("[data-tmp-spotlight-photo]",  spotlightForm);
-      const activeEl = qs("[data-tmp-spotlight-active]", spotlightForm);
-
-      (root._members || [])
-        .slice().sort((a, b) => a.full_name.localeCompare(b.full_name))
-        .forEach(m => {
-          const opt = document.createElement("option");
-          opt.value       = m.id;
-          opt.textContent = `${m.full_name} (${m.pathway}, L${m.level})`;
-          mSelect.appendChild(opt);
-        });
-
-      const saved = await api("/settings/new-member-spotlight").catch(() => null);
-      if (saved) {
-        mSelect.value    = String(saved.member_id || "");
-        blurbEl.value    = saved.blurb     || "";
-        photoEl.value    = saved.photo_url || "";
-        activeEl.checked = !!saved.active;
-      }
-
-      spotlightForm.addEventListener("submit", async ev => {
-        ev.preventDefault();
-        spotlightStatus.textContent = "Saving…";
-        try {
-          await api("/settings/new-member-spotlight", {
-            method: "POST",
-            body: JSON.stringify({
-              member_id: Number(mSelect.value),
-              blurb:     blurbEl.value.trim(),
-              photo_url: photoEl.value.trim(),
-              active:    activeEl.checked,
-            }),
-          });
-          spotlightStatus.textContent = "Saved!";
-        } catch (e) {
-          spotlightStatus.textContent = "Save failed: " + e.message;
-        }
-      });
-    }
-  }
-
-  // ===========================================================================
   // VPE DASHBOARD
   // ===========================================================================
 
@@ -1552,6 +1310,39 @@
         td.innerHTML = `<div style="padding:12px;color:var(--tmp-burgundy);">Could not load: ${esc(err.message)}</div>`;
       }
     };
+
+    // ── CSV member import — collapsible, lives at the top of the Members tab ──
+    const importToggle = qs("[data-tmp-import-toggle]", root);
+    const importBody   = qs("[data-tmp-import-body]",   root);
+    const importForm   = qs("[data-tmp-import-form]",   root);
+    const importStatus = qs("[data-tmp-import-status]", root);
+
+    importToggle?.addEventListener("click", () => {
+      const open = importToggle.getAttribute("aria-expanded") === "true";
+      importToggle.setAttribute("aria-expanded", String(!open));
+      if (importBody) importBody.style.display = open ? "none" : "block";
+      const chevron = qs(".tmp-chevron", importToggle);
+      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+    });
+
+    importForm?.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      importStatus.textContent = "Importing...";
+      try {
+        const res = await fetch(`${TMPortal.restUrl}/members/import`, {
+          method: "POST",
+          headers: { "X-WP-Nonce": TMPortal.nonce },
+          body: new FormData(importForm),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { importStatus.textContent = data.message || "Import failed."; return; }
+        importStatus.textContent = `Imported ${data.imported_members} members. Created ${data.created_users}, updated ${data.updated_users}.`;
+        importForm.reset();
+        await renderMembers(true);
+      } catch (err) {
+        importStatus.textContent = "Import failed: " + err.message;
+      }
+    });
 
     async function renderMembers(force = false) {
       if (!unifiedRows) return; // Ex Com-only users don't have the Members tab
@@ -1702,11 +1493,26 @@
       // Shared picker: only meetings still needing action (not yet wrapped up) — completed
       // meetings drop off the list. `/meetings` without include_wrapped already filters this
       // server-side, but re-check here defensively in case a cached/stale row slips through.
-      const optionMeetings = meetings.filter((m) => !isWrapped(m));
-      meetingSelect.innerHTML =
-        '<option value="">— Select or create meeting —</option>' +
-        '<option value="new">+ Schedule New Meeting</option>' +
-        optionMeetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}</option>`).join("");
+      let optionMeetings = meetings.filter((m) => !isWrapped(m));
+
+      // Ex-Com-only users (no meeting-management rights) only ever act on the single nearest
+      // upcoming meeting — no picker, no "schedule new meeting" noise.
+      const isExComOnly = TMPortal.currentUser?.canExCom && !TMPortal.currentUser?.canManageMeetings;
+      if (isExComOnly) {
+        optionMeetings = optionMeetings
+          .slice()
+          .sort((a, b) => a.meeting_date.localeCompare(b.meeting_date))
+          .slice(0, 1);
+        meetingSelect.innerHTML = optionMeetings.length
+          ? optionMeetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}</option>`).join("")
+          : '<option value="">No upcoming meeting scheduled</option>';
+        meetingSelect.disabled = true;
+      } else {
+        meetingSelect.innerHTML =
+          '<option value="">— Select or create meeting —</option>' +
+          '<option value="new">+ Schedule New Meeting</option>' +
+          optionMeetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}</option>`).join("");
+      }
 
       if (selectedId) {
         meetingSelect.value = selectedId;
@@ -5456,53 +5262,105 @@
     const panel = qs("[data-tmp-excom-spotlight-panel]");
     if (!panel) return; // PHP did not render it (user is not Ex Com)
 
-    const spotlightForm   = qs("[data-tmp-spotlight-form]", panel);
-    const spotlightStatus = qs("[data-tmp-spotlight-status]", panel);
+    const spotlightForm  = qs("[data-tmp-spotlight-form]", panel);
+    const spotlightStatus= qs("[data-tmp-spotlight-status]", panel);
     if (!spotlightForm) return;
 
-    const mSelect  = qs("[data-tmp-spotlight-member]", spotlightForm);
-    const blurbEl  = qs("[data-tmp-spotlight-blurb]",  spotlightForm);
-    const photoEl  = qs("[data-tmp-spotlight-photo]",  spotlightForm);
-    const activeEl = qs("[data-tmp-spotlight-active]", spotlightForm);
+    const mSelect     = qs("[data-tmp-spotlight-member]", spotlightForm);
+    const blurbEl     = qs("[data-tmp-spotlight-blurb]",  spotlightForm);
+    const photoInput  = qs("[data-tmp-spotlight-photo-input]", spotlightForm);
+    const uploadBtn   = qs("[data-tmp-spotlight-upload-btn]",  spotlightForm);
+    const photoPreview= qs("[data-tmp-spotlight-photo-preview]", spotlightForm);
+    const photoHint   = qs("[data-tmp-spotlight-photo-hint]", spotlightForm);
+    const liveNote    = qs("[data-tmp-spotlight-live-note]", panel);
+
+    let existingPhotoUrl = "";
+
+    const renderPreview = (url, name) => {
+      if (url) {
+        photoPreview.innerHTML = `<img src="${esc(url)}" alt="" />`;
+      } else {
+        const initials = (name || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+        photoPreview.innerHTML = `<span>${esc(initials || "?")}</span>`;
+      }
+    };
 
     try {
       const members = await api("/members");
+      // Spotlight is for brand-new members only — Level 0 (nothing completed yet).
       (members || [])
-        .slice().sort((a, b) => a.full_name.localeCompare(b.full_name))
-        .forEach(m => {
+        .filter((m) => Number(m.level_completed || 0) === 0)
+        .sort((a, b) => a.full_name.localeCompare(b.full_name))
+        .forEach((m) => {
           const opt = document.createElement("option");
-          opt.value       = m.id;
-          opt.textContent = `${m.full_name} (${m.pathway}, L${m.level})`;
+          opt.value = m.id;
+          opt.textContent = `${m.full_name} (Level 0)`;
+          opt.dataset.name = m.full_name;
           mSelect.appendChild(opt);
         });
     } catch (_) {
       // Member list failed to load — form still usable, just without options pre-filled
     }
 
-    const saved = await api("/settings/new-member-spotlight").catch(() => null);
-    if (saved) {
-      mSelect.value    = String(saved.member_id || "");
-      blurbEl.value    = saved.blurb     || "";
-      photoEl.value    = saved.photo_url || "";
-      activeEl.checked = !!saved.active;
-    }
+    const SPOTLIGHT_DAYS = 30;
+    const updateLiveNote = (publishedAt, active) => {
+      if (!liveNote) return;
+      if (!active || !publishedAt) { liveNote.style.display = "none"; return; }
+      const publishedMs = new Date(publishedAt.replace(" ", "T")).getTime();
+      const daysLeft = SPOTLIGHT_DAYS - Math.floor((Date.now() - publishedMs) / 86400000);
+      if (daysLeft <= 0) { liveNote.style.display = "none"; return; }
+      liveNote.textContent = `Live on homepage — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
+      liveNote.style.display = "";
+    };
 
-    spotlightForm.addEventListener("submit", async ev => {
+    const saved = await api("/settings/new-member-spotlight").catch(() => null);
+    if (saved && saved.member_id) {
+      mSelect.value = String(saved.member_id);
+      blurbEl.value = saved.blurb || "";
+      existingPhotoUrl = saved.photo_url || "";
+      updateLiveNote(saved.published_at, saved.active);
+    }
+    renderPreview(existingPhotoUrl, mSelect.options[mSelect.selectedIndex]?.dataset.name);
+
+    mSelect.addEventListener("change", () => {
+      existingPhotoUrl = "";
+      photoInput.value = "";
+      renderPreview("", mSelect.options[mSelect.selectedIndex]?.dataset.name);
+    });
+
+    uploadBtn?.addEventListener("click", () => photoInput.click());
+    photoInput?.addEventListener("change", () => {
+      const file = photoInput.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => renderPreview(reader.result);
+      reader.readAsDataURL(file);
+      if (photoHint) photoHint.textContent = file.name;
+    });
+
+    spotlightForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      spotlightStatus.textContent = "Saving…";
+      if (!mSelect.value) { spotlightStatus.textContent = "Pick a member first."; return; }
+      spotlightStatus.textContent = "Publishing…";
       try {
-        await api("/settings/new-member-spotlight", {
+        const fd = new FormData();
+        fd.append("member_id", mSelect.value);
+        fd.append("blurb", blurbEl.value.trim());
+        if (photoInput.files?.[0]) fd.append("photo", photoInput.files[0]);
+
+        const res = await fetch(`${TMPortal.restUrl}/settings/new-member-spotlight`, {
           method: "POST",
-          body: JSON.stringify({
-            member_id: Number(mSelect.value),
-            blurb:     blurbEl.value.trim(),
-            photo_url: photoEl.value.trim(),
-            active:    activeEl.checked,
-          }),
+          headers: { "X-WP-Nonce": TMPortal.nonce },
+          body: fd,
         });
-        spotlightStatus.textContent = "Saved!";
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || "Publish failed.");
+
+        spotlightStatus.textContent = "Published!";
+        updateLiveNote(data.published_at, true);
+        if (data.photo_url) { existingPhotoUrl = data.photo_url; renderPreview(existingPhotoUrl); }
       } catch (e) {
-        spotlightStatus.textContent = "Save failed: " + e.message;
+        spotlightStatus.textContent = "Publish failed: " + e.message;
       }
     });
   }
@@ -5523,7 +5381,6 @@
   initMemberVoting();
   initVotingPage();
   initMeetingHubPage();
-  initAdmin();
   initVPEducation().catch((err) => console.error("[TMPortal] initVPEducation() THREW — this stops everything after the failure point in that function:", err));
   initEnrolment();
   initVotingPanel();
