@@ -1311,19 +1311,9 @@
       }
     };
 
-    // ── CSV member import — collapsible, lives at the top of the Members tab ──
-    const importToggle = qs("[data-tmp-import-toggle]", root);
-    const importBody   = qs("[data-tmp-import-body]",   root);
+    // ── CSV member import — single-row form at the top of the Members tab ──
     const importForm   = qs("[data-tmp-import-form]",   root);
     const importStatus = qs("[data-tmp-import-status]", root);
-
-    importToggle?.addEventListener("click", () => {
-      const open = importToggle.getAttribute("aria-expanded") === "true";
-      importToggle.setAttribute("aria-expanded", String(!open));
-      if (importBody) importBody.style.display = open ? "none" : "block";
-      const chevron = qs(".tmp-chevron", importToggle);
-      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
-    });
 
     importForm?.addEventListener("submit", async (ev) => {
       ev.preventDefault();

@@ -401,37 +401,33 @@ class TMP_Shortcodes {
             <!-- ══ MEMBERS TAB ══ -->
             <div data-tab-body="members" style="display:none;">
 
-                <!-- CSV member import — collapsed by default -->
+                <!-- CSV member import — single-row, always visible -->
                 <section class="tmp-panel">
-                    <button class="tmp-collapsible-toggle" data-tmp-import-toggle aria-expanded="false" style="width:100%;text-align:left;">
-                        <span>Import Members from CSV</span>
-                        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
-                    </button>
-                    <div data-tmp-import-body style="display:none;margin-top:16px;">
-                        <form class="tmp-form" data-tmp-import-form>
-                            <div class="tmp-wide">
-                                <p>Customer ID becomes the WordPress username. Credentials like PM1 or DL3 become Pathway and Level. Blank credentials become No pathway registered. An optional "Current Position" column grants extra dashboard tabs — any position containing "VP Education" grants the VP Education tabs; any other non-blank position grants the Ex Com meeting-day tab.</p>
-                            </div>
-                            <label>Membership CSV <input type="file" name="file" accept=".csv,text/csv" required /></label>
-                            <label>Default password <input type="text" name="default_password" value="Welcome@123" minlength="8" required /></label>
-                            <div class="tmp-form-actions tmp-wide">
-                                <button class="tmp-button tmp-primary" type="submit">Import Members</button>
-                                <span class="tmp-inline-status" data-tmp-import-status></span>
-                            </div>
-                        </form>
+                    <div class="tmp-card-head" style="margin-bottom:12px;">
+                        <h3>Import Members from CSV</h3>
+                        <span class="tmp-eyebrow" title='Customer ID becomes the WordPress username. Credentials like PM1 or DL3 become Pathway and Level. Blank credentials become No pathway registered. An optional "Current Position" column grants extra dashboard tabs — any position containing "VP Education" grants the VP Education tabs; any other non-blank position grants the Ex Com meeting-day tab.'>Hover for column format &#9432;</span>
                     </div>
+                    <form class="tmp-form" data-tmp-import-form style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                        <label style="flex:1;min-width:200px;">Membership CSV <input type="file" name="file" accept=".csv,text/csv" required /></label>
+                        <label style="flex:0 0 200px;">Default password <input type="text" name="default_password" value="Welcome@123" minlength="8" required /></label>
+                        <button class="tmp-button tmp-primary" type="submit" style="flex-shrink:0;">Import Members</button>
+                        <span class="tmp-inline-status" data-tmp-import-status></span>
+                    </form>
                 </section>
 
                 <!-- Unified member table: all levels, speech/role progress for L1–L5, mentor column -->
-                <section class="tmp-panel">
-                    <h3 style="margin:0 0 4px;">Members</h3>
+                <section class="tmp-panel" data-tmp-members-panel>
+                    <div class="tmp-card-head" style="margin-bottom:16px;">
+                        <h3>Members</h3>
+                        <span class="tmp-eyebrow">Roster &amp; Pathways Progress</span>
+                    </div>
                     <div class="tmp-stat-strip">
                         <span class="tmp-stat-pill" data-tmp-vpe-ready-count style="display:none;"></span>
                         <span class="tmp-stat-pill tmp-stat-pill--muted" data-tmp-vpe-member-count>0 members</span>
                     </div>
                     <div data-tmp-unmentored-alert></div>
-                    <div class="tmp-admin-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
-                        <input type="text" data-tmp-vpe-search placeholder="Search by name or email..." style="flex:1;min-width:180px;">
+                    <div class="tmp-admin-filters" style="margin:16px 0;">
+                        <input type="text" data-tmp-vpe-search placeholder="Search by name or email...">
                         <select data-tmp-vpe-pathway>
                             <option value="all">All Pathways</option>
                             <option>No pathway registered</option>
