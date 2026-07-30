@@ -4826,7 +4826,31 @@ class TMP_Repository {
             ]);
         }
 
+        self::notify_vpe_of_mentor_rating($mentor_id, $mentee_id, $rating, $feedback, $period_start, $period_end);
+
         return ['success' => true];
+    }
+
+    private static function notify_vpe_of_mentor_rating($mentor_id, $mentee_id, $rating, $feedback, $period_start, $period_end) {
+        $vpes   = get_users(['role' => 'tm_vp_education']);
+        $emails = !empty($vpes) ? wp_list_pluck($vpes, 'user_email') : [get_option('admin_email')];
+
+        $mentor = self::get_member($mentor_id);
+        $mentee = self::get_member($mentee_id);
+        if (!$mentor || !$mentee) return;
+
+        $subject = "[Mentor Feedback] " . $mentee['full_name'] . " rated " . $mentor['full_name'];
+        $message = sprintf(
+            "Hi VP Education,\n\n%s has submitted mentor feedback for %s covering %s to %s:\n\nRating: %d/5\nFeedback: %s\n\nPlease log in to the dashboard (Recognition tab) to review.\n\nRegards,\nClub Portal",
+            $mentee['full_name'],
+            $mentor['full_name'],
+            $period_start,
+            $period_end,
+            $rating,
+            $feedback !== '' ? $feedback : '(no written feedback)'
+        );
+
+        wp_mail($emails, $subject, $message);
     }
 
     public static function get_mentor_rating_for_period($mentee_id, $period_start, $period_end) {
@@ -4836,6 +4860,40 @@ class TMP_Repository {
              WHERE mentee_id = %d AND period_start = %s AND period_end = %s",
             absint($mentee_id), $period_start, $period_end
         ), ARRAY_A);
+    }
+
+    /** VPE-facing list of mentee ratings/feedback, most recent first. */
+    public static function get_mentor_ratings_list($period_start = '', $period_end = '', $mentor_id = 0) {
+        global $wpdb;
+        $ratings_tbl = self::mentor_ratings_table();
+        $members_tbl = self::member_table();
+
+        $where  = [];
+        $params = [];
+        if ($period_start && $period_end) {
+            $where[]  = 'r.period_start >= %s AND r.period_end <= %s';
+            $params[] = $period_start;
+            $params[] = $period_end;
+        }
+        if ($mentor_id) {
+            $where[]  = 'r.mentor_id = %d';
+            $params[] = absint($mentor_id);
+        }
+        $where_sql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+        $sql = "SELECT r.id, r.mentor_id, r.mentee_id, r.rating, r.feedback,
+                       r.period_start, r.period_end, r.created_at,
+                       mentor.full_name AS mentor_name, mentee.full_name AS mentee_name
+                FROM {$ratings_tbl} r
+                LEFT JOIN {$members_tbl} mentor ON r.mentor_id = mentor.id
+                LEFT JOIN {$members_tbl} mentee ON r.mentee_id = mentee.id
+                {$where_sql}
+                ORDER BY r.created_at DESC";
+
+        if ($params) {
+            $sql = $wpdb->prepare($sql, $params);
+        }
+        return $wpdb->get_results($sql, ARRAY_A);
     }
 
     // ── Award CRUD ────────────────────────────────────────────────────────────

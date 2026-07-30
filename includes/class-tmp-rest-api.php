@@ -593,6 +593,13 @@ class TMP_REST_API {
                 'permission_callback' => 'is_user_logged_in',
             ],
         ]);
+
+        // Mentor ratings — full list with feedback text, VPE only
+        register_rest_route('toastmasters/v1', '/mentor-ratings/all', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_all_mentor_ratings'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
     }
 
     // ── Permission helpers ─────────────────────────────────────────────────────
@@ -1113,6 +1120,14 @@ class TMP_REST_API {
             'mentor_id'    => $member['mentor_id']   ?? null,
             'existing_rating' => $rating,
         ]);
+    }
+
+    public static function get_all_mentor_ratings(WP_REST_Request $request) {
+        $period_start = sanitize_text_field($request->get_param('period_start') ?? '');
+        $period_end   = sanitize_text_field($request->get_param('period_end')   ?? '');
+        $mentor_id    = absint($request->get_param('mentor_id') ?? 0);
+        $ratings = TMP_Repository::get_mentor_ratings_list($period_start, $period_end, $mentor_id);
+        return rest_ensure_response($ratings);
     }
 
     // ── Public dashboard handlers ─────────────────────────────────────────────────

@@ -1367,6 +1367,18 @@
         vpeMentorFilt._tmpPopulated = true;
       }
 
+      if (vpePathway && (force || !vpePathway._tmpPopulated)) {
+        const pathways = new Set();
+        (all || []).forEach((m) => { if (m.pathway) pathways.add(m.pathway); });
+        const prevValue = vpePathway.value;
+        vpePathway.querySelectorAll("option[data-tmp-pathway-opt]").forEach((o) => o.remove());
+        const opts = [...pathways].sort((a, b) => a.localeCompare(b))
+          .map((p) => `<option data-tmp-pathway-opt value="${esc(p)}">${esc(p)}</option>`).join("");
+        vpePathway.insertAdjacentHTML("beforeend", opts);
+        if ([...vpePathway.options].some((o) => o.value === prevValue)) vpePathway.value = prevValue;
+        vpePathway._tmpPopulated = true;
+      }
+
       const eligible = (all || []).filter((m) =>
         m.is_eligible &&
         (!search || m.full_name.toLowerCase().includes(search) || (m.email || "").toLowerCase().includes(search)) &&
@@ -2035,7 +2047,16 @@
       const formLabel         = qs("[data-tmp-meeting-form-label]", root);
       const formToggle        = qs("[data-tmp-meeting-form-toggle]", root);
       const formBody          = qs("[data-tmp-meeting-form-body]", root);
+      const presetSelect      = qs("[data-tmp-role-preset]", root);
       const submitBtn         = meetingForm?.querySelector("button[type=submit]");
+
+      const setFormExpanded = (expanded) => {
+        if (!formToggle) return;
+        formToggle.setAttribute("aria-expanded", String(expanded));
+        const ch = qs(".tmp-chevron", formToggle);
+        if (ch) ch.style.transform = expanded ? "rotate(90deg)" : "";
+        if (formBody) formBody.style.display = expanded ? "block" : "none";
+      };
 
       if (val === "new") {
         const formHadId = !!(meetingForm?.elements.id?.value);
@@ -2048,26 +2069,17 @@
         }
         if (rolesSetup) {
           rolesSetup.style.display = "";
-          const lbl       = qs("[data-tmp-roles-setup-label]", root);
-          const hint      = qs("[data-tmp-roles-setup-hint]", root);
-          const customBtn = qs("[data-tmp-customise-roles]", root);
-          const presetBtn = qs("[data-tmp-custom-meeting-preset]", root);
-          const rolesGrid = qs("[data-tmp-roles-grid]", root);
+          const lbl  = qs("[data-tmp-roles-setup-label]", root);
+          const hint = qs("[data-tmp-roles-setup-hint]", root);
           if (lbl) lbl.textContent = "Role Slots";
-          if (hint) hint.textContent = "Using standard agenda with all roles.";
-          if (customBtn) { customBtn.style.display = ""; customBtn.textContent = "Customise roles ▾"; }
-          if (presetBtn) presetBtn.style.display = "";
-          if (rolesGrid) rolesGrid.style.display = "none";
+          if (hint) hint.textContent = "Tap a role to add or remove it. Using the standard agenda with all roles by default.";
+          if (presetSelect) presetSelect.value = "standard";
+          setRoleChipsChecked(rolesSetup, null); // all standard roles checked, none marked "existing"
         }
         if (formLabel) formLabel.textContent = "Schedule New Meeting";
         if (submitBtn) submitBtn.textContent = "Save Meeting";
         if (deleteBtn) deleteBtn.style.display = "none";
-        if (formToggle) {
-          formToggle.setAttribute("aria-expanded", "true");
-          const ch = qs(".tmp-chevron", formToggle);
-          if (ch) ch.style.transform = "rotate(90deg)";
-        }
-        if (formBody) formBody.style.display = "block";
+        setFormExpanded(true);
         if (meetingFormWrap) meetingFormWrap.style.display = "block";
         if (roleAssignmentWrap) roleAssignmentWrap.style.display = "none";
         if (meetingAgendaWrap) meetingAgendaWrap.style.display = "none";
@@ -2077,33 +2089,30 @@
           fillForm(meetingForm, m);
           if (rolesSetup) {
             rolesSetup.style.display = "";
-            rolesSetup.querySelectorAll("input[type=checkbox]").forEach((cb) => { cb.checked = false; });
             const slotInput  = rolesSetup.querySelector("input[name=speech_slots]");
             const adhocInput = rolesSetup.querySelector("input[name=adhoc_slots]");
             const funInput   = rolesSetup.querySelector("input[name=fun_slots]");
             if (slotInput)  slotInput.value  = "0";
             if (adhocInput) adhocInput.value = "0";
             if (funInput)   funInput.value   = "0";
-            const lbl       = qs("[data-tmp-roles-setup-label]", root);
-            const hint      = qs("[data-tmp-roles-setup-hint]", root);
-            const customBtn = qs("[data-tmp-customise-roles]", root);
-            const presetBtn = qs("[data-tmp-custom-meeting-preset]", root);
-            const rolesGrid = qs("[data-tmp-roles-grid]", root);
+            const lbl  = qs("[data-tmp-roles-setup-label]", root);
+            const hint = qs("[data-tmp-roles-setup-hint]", root);
             if (lbl) lbl.textContent = "Add Role Slots";
-            if (hint) hint.textContent = "Check roles to add them if not already in this meeting. Set slot counts > 0 to append extra Speaker+Evaluator pairs, Ad Hoc Speakers, or Fun Sessions.";
-            if (customBtn) customBtn.style.display = "none";
-            if (presetBtn) presetBtn.style.display = "none";
-            if (rolesGrid) rolesGrid.style.display = "grid";
+            if (hint) hint.textContent = "Filled chips are already on this meeting's agenda. Tap an outlined role to add it. Set slot counts > 0 to append extra Speaker+Evaluator pairs, Ad Hoc Speakers, or Fun Sessions.";
+            if (presetSelect) presetSelect.value = "standard";
+            const existingRoles = new Set(
+              (m.assignments || [])
+                .filter((a) => !String(a.role_name || "").toLowerCase().startsWith("break"))
+                .map((a) => String(a.role_name || "").replace(/\s*\(.*?\)\s*/g, "").trim())
+            );
+            setRoleChipsChecked(rolesSetup, existingRoles);
           }
-          if (formLabel) formLabel.textContent = "Edit Meeting";
+          if (formLabel) formLabel.textContent = `Edit Meeting — ${formatMeetingLabel(m)}`;
           if (submitBtn) submitBtn.textContent = "Update Meeting";
           if (deleteBtn) deleteBtn.style.display = "";
-          if (formToggle) {
-            formToggle.setAttribute("aria-expanded", "false");
-            const ch = qs(".tmp-chevron", formToggle);
-            if (ch) ch.style.transform = "";
-          }
-          if (formBody) formBody.style.display = "none";
+          // Collapse only when the meeting already has its basics filled in; auto-expand incomplete ones.
+          const isComplete = !!(m.theme && m.meeting_date);
+          setFormExpanded(!isComplete);
           if (meetingFormWrap) meetingFormWrap.style.display = "block";
         }
         if (roleAssignmentWrap) roleAssignmentWrap.style.display = "block";
@@ -2119,6 +2128,29 @@
       syncSteppers();
     }
 
+    // Formats a meeting's date/time for the "Edit Meeting — …" collapsible label.
+    function formatMeetingLabel(m) {
+      if (!m.meeting_date) return "untitled";
+      const d = new Date(`${m.meeting_date}T${m.start_time || "00:00"}`);
+      const dateStr = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+      const timeStr = m.start_time
+        ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+        : "";
+      return timeStr ? `${dateStr}, ${timeStr}` : dateStr;
+    }
+
+    // Syncs the role chip toggles: all standard roles start checked/"on"; when editingRoleSet is
+    // given, chips whose role already exists on the meeting get the --existing highlight.
+    function setRoleChipsChecked(rolesSetup, editingRoleSet) {
+      rolesSetup.querySelectorAll("[data-tmp-role-chip]").forEach((chip) => {
+        const cb = chip.querySelector("input[type=checkbox]");
+        if (!cb) return;
+        cb.checked = true;
+        chip.classList.add("tmp-role-chip--on");
+        chip.classList.toggle("tmp-role-chip--existing", !!(editingRoleSet && editingRoleSet.has(cb.value)));
+      });
+    }
+
     // Generic collapsible-card toggle — same pattern used across Setup's cards.
     function bindCardToggle(toggleAttr, bodyAttr) {
       qs(`[${toggleAttr}]`, root)?.addEventListener("click", (e) => {
@@ -2131,7 +2163,6 @@
         if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
       });
     }
-    bindCardToggle("data-tmp-details-card-toggle", "data-tmp-details-card-body");
     bindCardToggle("data-tmp-requests-card-toggle", "data-tmp-requests-card-body");
     bindCardToggle("data-tmp-role-card-toggle", "data-tmp-role-card-body");
 
@@ -2318,12 +2349,16 @@
         const isEdit = !!(d.id);
         const newM   = await api("/meetings", { method: "POST", body: JSON.stringify(d) });
         clearForm(meetingForm);
+        if (meetingForm.elements.start_time) meetingForm.elements.start_time.value = "11:00";
         // Restore create-mode labels
         const formLabel = qs("[data-tmp-meeting-form-label]", root);
         if (formLabel) formLabel.textContent = "Schedule New Meeting";
         if (btn) btn.textContent = "Save Meeting";
         const rolesSetup = qs(".tmp-roles-setup", root);
-        if (rolesSetup) rolesSetup.style.display = "";
+        if (rolesSetup) {
+          rolesSetup.style.display = "";
+          setRoleChipsChecked(rolesSetup, null);
+        }
         // Auto-collapse the form after a successful save
         const formToggle = qs("[data-tmp-meeting-form-toggle]", root);
         const formBody   = qs("[data-tmp-meeting-form-body]", root);
@@ -2371,7 +2406,7 @@
       }
     });
 
-    // Collapsible meeting form toggle
+    // Collapsible meeting form toggle (single accordion for the whole form)
     qs("[data-tmp-meeting-form-toggle]", root)?.addEventListener("click", (e) => {
       const btn  = e.currentTarget;
       const open = btn.getAttribute("aria-expanded") === "true";
@@ -2382,38 +2417,52 @@
       if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
     });
 
-    // "Customise roles" toggle — shows/hides the checkbox grid
-    qs("[data-tmp-customise-roles]", root)?.addEventListener("click", (e) => {
-      const btn  = e.currentTarget;
-      const grid = qs("[data-tmp-roles-grid]", root);
-      if (!grid) return;
-      const open = grid.style.display !== "none";
-      grid.style.display = open ? "none" : "grid";
-      btn.textContent = open ? "Customise roles ▾" : "Use standard template ▴";
+    // Role chips — click toggles that role slot on/off for this meeting.
+    qs("[data-tmp-roles-grid]", root)?.addEventListener("click", (e) => {
+      const chip = e.target.closest("[data-tmp-role-chip]");
+      if (!chip) return;
+      e.preventDefault();
+      const cb = chip.querySelector("input[type=checkbox]");
+      if (!cb) return;
+      cb.checked = !cb.checked;
+      chip.classList.toggle("tmp-role-chip--on", cb.checked);
+      if (!cb.checked) chip.classList.remove("tmp-role-chip--existing");
     });
 
     // "Custom Meeting" preset — limited-role meeting (SAA, TMOD, Presiding Officer,
     // Table Topics Master only), zero prepared speeches, reveals Ad Hoc Speaker /
     // Fun Session slot counts for the user to set.
     const CUSTOM_MEETING_ROLES = ["Sergeant at Arms", "Toastmaster of the Day", "Presiding Officer", "Table Topics Master"];
-    qs("[data-tmp-custom-meeting-preset]", root)?.addEventListener("click", () => {
+    qs("[data-tmp-role-preset]", root)?.addEventListener("change", (e) => {
       const grid = qs("[data-tmp-roles-grid]", root);
-      const customBtn = qs("[data-tmp-customise-roles]", root);
-      if (grid) {
-        grid.style.display = "grid";
-        grid.querySelectorAll("input[type=checkbox]").forEach((cb) => {
-          cb.checked = CUSTOM_MEETING_ROLES.includes(cb.value);
-        });
-      }
-      if (customBtn) customBtn.textContent = "Use standard template ▴";
-      const slotInput  = meetingForm.elements.speech_slots;
-      const adhocInput = meetingForm.elements.adhoc_slots;
-      const funInput   = meetingForm.elements.fun_slots;
-      if (slotInput) slotInput.value = "0";
-      if (adhocInput) adhocInput.value = "1";
-      if (funInput) funInput.value = "1";
       const hint = qs("[data-tmp-roles-setup-hint]", root);
-      if (hint) hint.textContent = "Custom Meeting: limited roles only. Adjust checkboxes and slot counts as needed.";
+      if (e.target.value === "custom") {
+        if (grid) {
+          grid.querySelectorAll("[data-tmp-role-chip]").forEach((chip) => {
+            const cb = chip.querySelector("input[type=checkbox]");
+            if (!cb) return;
+            cb.checked = CUSTOM_MEETING_ROLES.includes(cb.value);
+            chip.classList.toggle("tmp-role-chip--on", cb.checked);
+          });
+        }
+        const slotInput  = meetingForm.elements.speech_slots;
+        const adhocInput = meetingForm.elements.adhoc_slots;
+        const funInput   = meetingForm.elements.fun_slots;
+        if (slotInput) slotInput.value = "0";
+        if (adhocInput) adhocInput.value = "1";
+        if (funInput) funInput.value = "1";
+        if (hint) hint.textContent = "Custom Meeting: limited roles only. Adjust chips and slot counts as needed.";
+      } else {
+        if (grid) {
+          grid.querySelectorAll("[data-tmp-role-chip]").forEach((chip) => {
+            const cb = chip.querySelector("input[type=checkbox]");
+            if (!cb) return;
+            cb.checked = true;
+            chip.classList.add("tmp-role-chip--on");
+          });
+        }
+        if (hint) hint.textContent = "Tap a role to add or remove it. Using the standard agenda with all roles.";
+      }
       syncSteppers();
     });
 
@@ -2433,12 +2482,32 @@
 
     qs("[data-tmp-clear-meeting]", root)?.addEventListener("click", () => {
       clearForm(meetingForm);
+      if (meetingForm.elements.start_time) meetingForm.elements.start_time.value = "11:00";
       const formLabel  = qs("[data-tmp-meeting-form-label]", root);
       if (formLabel) formLabel.textContent = "Schedule New Meeting";
       const submitBtn  = meetingForm.querySelector("button[type=submit]");
       if (submitBtn) submitBtn.textContent = "Save Meeting";
+      const deleteBtn = qs("[data-tmp-delete-meeting]", root);
+      if (deleteBtn) deleteBtn.style.display = "none";
+      const presetSelect = qs("[data-tmp-role-preset]", root);
+      if (presetSelect) presetSelect.value = "standard";
       const rolesSetup = qs(".tmp-roles-setup", root);
-      if (rolesSetup) rolesSetup.style.display = "";
+      if (rolesSetup) {
+        rolesSetup.style.display = "";
+        setRoleChipsChecked(rolesSetup, null);
+        const lbl  = qs("[data-tmp-roles-setup-label]", root);
+        const hint = qs("[data-tmp-roles-setup-hint]", root);
+        if (lbl) lbl.textContent = "Role Slots";
+        if (hint) hint.textContent = "Tap a role to add or remove it. Using the standard agenda with all roles by default.";
+      }
+      const formToggle = qs("[data-tmp-meeting-form-toggle]", root);
+      const formBody   = qs("[data-tmp-meeting-form-body]", root);
+      if (formToggle) {
+        formToggle.setAttribute("aria-expanded", "true");
+        const ch = qs(".tmp-chevron", formToggle);
+        if (ch) ch.style.transform = "rotate(90deg)";
+      }
+      if (formBody) formBody.style.display = "block";
       syncSteppers();
     });
     qs("[data-tmp-clear-assignment]", root)?.addEventListener("click", () => {
@@ -2587,11 +2656,21 @@
         if (!m) return;
         fillForm(meetingForm, m);
         const rolesSetup = qs(".tmp-roles-setup", root);
-        if (rolesSetup) rolesSetup.style.display = "none";
+        if (rolesSetup) {
+          rolesSetup.style.display = "";
+          const existingRoles = new Set(
+            (m.assignments || [])
+              .filter((a) => !String(a.role_name || "").toLowerCase().startsWith("break"))
+              .map((a) => String(a.role_name || "").replace(/\s*\(.*?\)\s*/g, "").trim())
+          );
+          setRoleChipsChecked(rolesSetup, existingRoles);
+        }
         const formLabel  = qs("[data-tmp-meeting-form-label]", root);
-        if (formLabel) formLabel.textContent = "Edit Meeting";
+        if (formLabel) formLabel.textContent = `Edit Meeting — ${formatMeetingLabel(m)}`;
         const submitBtn  = meetingForm.querySelector("button[type=submit]");
         if (submitBtn) submitBtn.textContent = "Update Meeting";
+        const deleteBtn = qs("[data-tmp-delete-meeting]", root);
+        if (deleteBtn) deleteBtn.style.display = "";
         const formToggle = qs("[data-tmp-meeting-form-toggle]", root);
         const formBody   = qs("[data-tmp-meeting-form-body]", root);
         if (formToggle) {
@@ -2651,11 +2730,21 @@
           if (!m) return;
           fillForm(meetingForm, m);
           const rolesSetup = qs(".tmp-roles-setup", root);
-          if (rolesSetup) rolesSetup.style.display = "none";
+          if (rolesSetup) {
+            rolesSetup.style.display = "";
+            const existingRoles = new Set(
+              (m.assignments || [])
+                .filter((a) => !String(a.role_name || "").toLowerCase().startsWith("break"))
+                .map((a) => String(a.role_name || "").replace(/\s*\(.*?\)\s*/g, "").trim())
+            );
+            setRoleChipsChecked(rolesSetup, existingRoles);
+          }
           const formLabel  = qs("[data-tmp-meeting-form-label]", root);
-          if (formLabel) formLabel.textContent = "Edit Meeting";
+          if (formLabel) formLabel.textContent = `Edit Meeting — ${formatMeetingLabel(m)}`;
           const submitBtn  = meetingForm.querySelector("button[type=submit]");
           if (submitBtn) submitBtn.textContent = "Update Meeting";
+          const deleteBtn = qs("[data-tmp-delete-meeting]", root);
+          if (deleteBtn) deleteBtn.style.display = "";
           const formToggle = qs("[data-tmp-meeting-form-toggle]", root);
           const formBody   = qs("[data-tmp-meeting-form-body]", root);
           if (formToggle) {
@@ -4958,6 +5047,7 @@
     const computeBtn = qs('[data-tmp-recog-compute]', panel);
     const scoresEl  = qs('[data-tmp-recog-scores]', panel);
     const awardsEl  = qs('[data-tmp-recog-awards-list]', panel);
+    const feedbackEl = qs('[data-tmp-mentor-feedback-list]');
 
     // Default period: current month
     const now = new Date();
@@ -4996,9 +5086,41 @@
       } catch (err) {
         if (scoresEl) scoresEl.innerHTML = '<p style="color:var(--tmp-burgundy)">Error computing scores.</p>';
       }
+      loadMentorFeedback(feedbackEl, pStart, pEnd);
     });
 
     loadPastAwards(awardsEl);
+    loadMentorFeedback(feedbackEl, startEl?.value, endEl?.value);
+  }
+
+  async function loadMentorFeedback(container, periodStart, periodEnd) {
+    if (!container) return;
+    container.innerHTML = '<p style="color:var(--tmp-muted)">Loading…</p>';
+    try {
+      const params = periodStart && periodEnd ? `?period_start=${periodStart}&period_end=${periodEnd}` : '';
+      const ratings = await api(`/mentor-ratings/all${params}`);
+      if (!ratings.length) {
+        container.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No mentor feedback submitted for this period.</p>';
+        return;
+      }
+      container.innerHTML = `
+        <table class="tmp-table" style="width:100%;font-size:0.85rem;">
+          <thead><tr><th>Mentee</th><th>Mentor</th><th>Rating</th><th>Feedback</th><th>Submitted</th></tr></thead>
+          <tbody>
+            ${ratings.map((r) => `
+              <tr>
+                <td>${esc(r.mentee_name || '—')}</td>
+                <td>${esc(r.mentor_name || '—')}</td>
+                <td>${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</td>
+                <td>${esc(r.feedback || '—')}</td>
+                <td>${esc((r.created_at || '').slice(0, 10))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+    } catch (err) {
+      container.innerHTML = '<p style="color:var(--tmp-burgundy)">Error loading mentor feedback.</p>';
+    }
   }
 
   function renderScoreTable(scores, container, periodType, pStart, pEnd) {

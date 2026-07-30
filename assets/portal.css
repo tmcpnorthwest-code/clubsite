@@ -2141,6 +2141,27 @@
 }
 .tmp-chip button:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* ── Role chip toggles (Setup → Role Slots picker) ──────────────────────── */
+.tmp-role-chip {
+  cursor: pointer;
+  user-select: none;
+  background: transparent;
+  color: var(--tmp-muted, #666);
+  border: 1px solid #ccc;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.tmp-role-chip:hover { border-color: var(--tmp-teal); color: var(--tmp-teal); }
+.tmp-role-chip.tmp-role-chip--on {
+  background: color-mix(in srgb, var(--tmp-teal) 14%, transparent);
+  color: var(--tmp-teal);
+  border-color: color-mix(in srgb, var(--tmp-teal) 35%, transparent);
+  font-weight: 700;
+}
+.tmp-role-chip.tmp-role-chip--on::before { content: "✓ "; }
+.tmp-role-chip.tmp-role-chip--existing {
+  background: color-mix(in srgb, var(--tmp-teal) 22%, transparent);
+}
+
 /* ── Wrap-up stat tiles ──────────────────────────────────────────────────── */
 .tmp-wrapup-stat-row { display: flex; gap: 24px; margin-bottom: 14px; flex-wrap: wrap; }
 .tmp-wrapup-stat { font-size: 0.84rem; }

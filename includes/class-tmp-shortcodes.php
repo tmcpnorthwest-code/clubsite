@@ -430,19 +430,6 @@ class TMP_Shortcodes {
                         <input type="text" data-tmp-vpe-search placeholder="Search by name or email...">
                         <select data-tmp-vpe-pathway>
                             <option value="all">All Pathways</option>
-                            <option>No pathway registered</option>
-                            <option>Enrolled</option>
-                            <option>Dynamic Leadership</option>
-                            <option>Effective Coaching</option>
-                            <option>Engaging Humor</option>
-                            <option>Innovative Planning</option>
-                            <option>Motivational Strategies</option>
-                            <option>Persuasive Influence</option>
-                            <option>Presentation Mastery</option>
-                            <option>Strategic Relationships</option>
-                            <option>Team Collaboration</option>
-                            <option>Visionary Communication</option>
-                            <option>Distinguished Toastmaster</option>
                         </select>
                         <select data-tmp-vpe-level>
                             <option value="all">All Levels</option>
@@ -517,19 +504,13 @@ class TMP_Shortcodes {
                 <?php if ($can_manage_meetings): ?>
                 <div data-tmp-stage-body="setup">
                 <section class="tmp-panel">
-                    <button class="tmp-collapsible-toggle" data-tmp-details-card-toggle aria-expanded="true" style="width:100%;text-align:left;">
-                        <span>Meeting Details</span>
-                        <span class="tmp-chevron" aria-hidden="true" style="transform:rotate(90deg);">&#9658;</span>
-                    </button>
-                    <div data-tmp-details-card-body style="display:block;margin-top:14px;">
-
-                    <!-- Meeting form — shown collapsed in edit mode or expanded in create mode -->
-                    <div data-tmp-meeting-form-wrap style="display:none;margin-bottom:14px;">
-                        <button class="tmp-collapsible-toggle" data-tmp-meeting-form-toggle aria-expanded="false" style="width:100%;text-align:left;">
-                            <span data-tmp-meeting-form-label>Edit Meeting</span>
-                            <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+                    <!-- Meeting form — single collapsible; label/expanded-state reflect create vs. edit -->
+                    <div data-tmp-meeting-form-wrap style="display:none;">
+                        <button class="tmp-collapsible-toggle" data-tmp-meeting-form-toggle aria-expanded="true" style="width:100%;text-align:left;">
+                            <span data-tmp-meeting-form-label>Schedule New Meeting</span>
+                            <span class="tmp-chevron" aria-hidden="true" style="transform:rotate(90deg);">&#9658;</span>
                         </button>
-                        <div data-tmp-meeting-form-body style="display:none;margin-top:14px;">
+                        <div data-tmp-meeting-form-body style="display:block;margin-top:14px;">
                         <form class="tmp-form" data-tmp-meeting-form>
                             <input type="hidden" name="id" />
 
@@ -546,7 +527,7 @@ class TMP_Shortcodes {
                                 <p class="tmp-form-section-label">Schedule</p>
                                 <div class="tmp-field-grid">
                                     <label>Meeting date <input type="date" name="meeting_date" required /></label>
-                                    <label>Start time <input type="time" name="start_time" value="18:30" /></label>
+                                    <label>Start time <input type="time" name="start_time" value="11:00" /></label>
                                     <label>Total Duration (mins) <input type="number" name="total_duration" value="120" min="0" /></label>
                                     <label>Requests deadline <input type="datetime-local" name="requests_close_at" /></label>
                                 </div>
@@ -554,17 +535,25 @@ class TMP_Shortcodes {
 
                             <div class="tmp-wide tmp-form-section">
                                 <div class="tmp-roles-setup" style="padding:12px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;">
-                                    <p class="tmp-form-section-label" data-tmp-roles-setup-label>Role Slots</p>
-                                    <p style="font-size:12px;color:#555;margin:0 0 10px;">
-                                        <span data-tmp-roles-setup-hint>Using standard agenda with all roles.</span>
-                                    </p>
-                                    <div class="tmp-role-picker-tabs">
-                                        <button type="button" class="tmp-link-button" data-tmp-customise-roles>Customise roles ▾</button>
-                                        <button type="button" class="tmp-link-button" data-tmp-custom-meeting-preset>Custom Meeting (limited roles) ▾</button>
+                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                                        <p class="tmp-form-section-label" data-tmp-roles-setup-label style="margin:0;">Role Slots</p>
+                                        <label style="font-size:12px;color:#555;display:flex;align-items:center;gap:6px;">
+                                            Template
+                                            <select data-tmp-role-preset style="font-size:12px;padding:2px 4px;">
+                                                <option value="standard">Standard agenda (all roles)</option>
+                                                <option value="custom">Custom Meeting (limited roles)</option>
+                                            </select>
+                                        </label>
                                     </div>
-                                    <div data-tmp-roles-grid style="display:none;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:12px;">
+                                    <p style="font-size:12px;color:#555;margin:0 0 10px;">
+                                        <span data-tmp-roles-setup-hint>Tap a role to add or remove it. Filled chips are already on this meeting's agenda.</span>
+                                    </p>
+                                    <div class="tmp-chip-list" data-tmp-roles-grid>
                                         <?php foreach (TMP_Repository::get_standard_roles() as $fullName => $shortName) : ?>
-                                            <label><input type="checkbox" name="roles[]" value="<?php echo esc_attr($fullName); ?>" checked> <?php echo esc_html($shortName); ?></label>
+                                            <label class="tmp-chip tmp-role-chip" data-tmp-role-chip>
+                                                <input type="checkbox" name="roles[]" value="<?php echo esc_attr($fullName); ?>" checked style="display:none;">
+                                                <?php echo esc_html($shortName); ?>
+                                            </label>
                                         <?php endforeach; ?>
                                     </div>
                                     <div class="tmp-stepper-row">
@@ -614,7 +603,6 @@ class TMP_Shortcodes {
                         </form>
                         </div>
                     </div>
-                    </div><!-- /data-tmp-details-card-body -->
                 </section>
 
                 <!-- Pending Role Requests — scoped to the currently-selected meeting -->
@@ -898,6 +886,14 @@ class TMP_Shortcodes {
                         <h4 style="margin:0 0 10px;">Past Awards</h4>
                         <div data-tmp-recog-awards-list></div>
                     </div>
+                </section>
+
+                <section class="tmp-panel" data-tmp-mentor-feedback-panel style="margin-top:20px;">
+                    <div class="tmp-card-head" style="margin-bottom:16px;">
+                        <h3>Mentor Feedback</h3>
+                        <span class="tmp-eyebrow">Ratings &amp; comments submitted by mentees (VPE only)</span>
+                    </div>
+                    <div data-tmp-mentor-feedback-list></div>
                 </section>
 
             </div><!-- /tab-body recognition -->
