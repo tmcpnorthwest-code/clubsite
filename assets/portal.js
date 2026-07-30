@@ -1220,6 +1220,11 @@
 
     refreshVPE = () => renderMeetings().catch(console.error);
 
+    // Load role gate levels up front so member-eligibility dropdowns (which read
+    // TMPortal.roleGateLevels synchronously) reflect the latest saved settings,
+    // not just whatever was cached from a save earlier in this same session.
+    api("/settings/role-gates").then((gates) => { TMPortal.roleGateLevels = gates; }).catch(console.error);
+
     // -- Unified members table -------------------------------------------------
 
     let expandedLpId = null;

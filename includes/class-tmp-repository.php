@@ -3189,6 +3189,7 @@ class TMP_Repository {
                         return [
                             'requestId' => (int) $req['id'],
                             'assignmentId' => (int) $req['assignment_id'],
+                            'meetingId' => (int) $req['meeting_id'],
                             'memberId' => (int) $req['member_id'],
                             'memberName' => $req['member_name'],
                             'memberLevel' => (int) $req['member_level'],
