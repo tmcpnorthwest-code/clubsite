@@ -3,6 +3,8 @@
     return;
   }
 
+  console.log("[TMPortal] portal.js loaded — plugin v" + (window.TMPortal.pluginVersion || "unknown") + " — build marker meetingform-guard-fix-2026-07-29");
+
   const levels = [
     "Level 1 - Ice Breaker and evaluations",
     "Level 2 - Communication style",
@@ -350,21 +352,27 @@
       };
       const visibleMilestones = milestonesByLevel[levelCompleted] || milestonesByLevel[5];
 
-      qsa("[data-m]", root).forEach((el) => {
+      const milestoneEls = qsa("[data-m]", root);
+      let nextActiveEl = null;
+      milestoneEls.forEach((el) => {
         const key = el.dataset.m;
         const isVisible = visibleMilestones.includes(key);
         el.style.display = isVisible ? "" : "none";
+        el.classList.remove("tmp-done", "tmp-active");
         if (isVisible) {
-          if (member.milestones && member.milestones[key]) {
+          const isDone = !!(member.milestones && member.milestones[key]) ||
+            (key === 'level1_completed' && levelCompleted >= 1);
+          if (isDone) {
             el.classList.add("tmp-done");
-            el.title = `Completed: ${member.milestones[key]}`;
-          } else if (key === 'level1_completed' && levelCompleted >= 1) {
-            // Mark level1_completed as done if level_completed >= 1
-            el.classList.add("tmp-done");
-            el.title = "Level 1 Completed";
+            el.title = member.milestones && member.milestones[key]
+              ? `Completed: ${member.milestones[key]}`
+              : "Level 1 Completed";
+          } else if (!nextActiveEl) {
+            nextActiveEl = el;
           }
         }
       });
+      if (nextActiveEl) nextActiveEl.classList.add("tmp-active");
 
       // Add note about TI website for pathways details
       const milestonesPanel = qs("[data-tmp-milestones]", root);
@@ -384,13 +392,17 @@
       const mentorInfo = qs("[data-tmp-mentor-info]", root);
       if (mentorInfo) {
         if (member.mentor_id && member.mentor_name) {
+          const initials = esc(member.mentor_name).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+          const metaBits = [member.mentor_pathway ? esc(member.mentor_pathway) : null, member.mentor_level ? `Level ${esc(member.mentor_level)}` : null].filter(Boolean).join(" · ");
           mentorInfo.innerHTML = `
-            <dl class="tmp-profile-list">
-              <div><dt>Name</dt><dd><strong>${esc(member.mentor_name)}</strong></dd></div>
-              <div><dt>Pathway</dt><dd>${esc(member.mentor_pathway || "—")}</dd></div>
-              <div><dt>Level</dt><dd>Level ${esc(member.mentor_level || "—")}</dd></div>
-              ${member.mentor_email ? `<div><dt>Contact</dt><dd><a href="mailto:${esc(member.mentor_email)}">${esc(member.mentor_email)}</a></dd></div>` : ""}
-            </dl>`;
+            <div class="tmp-mentor-row">
+              <div class="tmp-mentor-avatar">${initials || "?"}</div>
+              <div>
+                <div class="tmp-mentor-name">${esc(member.mentor_name)}</div>
+                ${metaBits ? `<div class="tmp-mentor-meta">${metaBits}</div>` : ""}
+                ${member.mentor_email ? `<div class="tmp-mentor-meta"><a href="mailto:${esc(member.mentor_email)}">${esc(member.mentor_email)}</a></div>` : ""}
+              </div>
+            </div>`;
         } else {
           mentorInfo.innerHTML = `<p style="color:var(--tmp-muted)">No mentor assigned yet. Speak to your VP Education.</p>`;
         }
@@ -426,100 +438,7 @@
           }).join("")}</ol>`;
       }
 
-      // ── Level journey ─────────────────────────────────────────────────────
-      const renderJourney = async () => {
-        const journeyData = await api("/me/level-gaps").catch(() => null);
-        const journeyEl   = qs("[data-tmp-level-journey]", root);
-        if (!journeyEl || !journeyData) return;
-        const { level: lvl, gaps } = journeyData;
-        if (!gaps || gaps.length === 0) {
-          journeyEl.innerHTML = `<p style="color:var(--tmp-muted)">No specific role requirements found for Level ${lvl}.</p>`;
-          return;
-        }
-        const metCount   = gaps.filter((g) => g.met).length;
-        const totalCount = gaps.length;
-        const allMet     = metCount === totalCount;
-        journeyEl.innerHTML = `
-          <p style="margin-bottom:10px;font-size:13px;">
-            <strong>${metCount} of ${totalCount}</strong> requirements met at Level ${lvl}.
-            ${allMet ? ' <span style="color:#2e7d32;font-weight:bold;">✓ All done — ready to level up!</span>' : ''}
-          </p>
-          <div class="tmp-table-wrap">
-            <table class="tmp-table">
-              <thead><tr><th>Requirement</th><th>Progress</th><th>Status</th><th>Action</th></tr></thead>
-              <tbody>${gaps.map((g) => {
-                const reqKey = g.type === "presentation" ? g.series : (g.roles || []).join("|");
-                let actionHtml;
-                if (g.manual_override) {
-                  actionHtml = `<span style="color:#ef6c00;font-size:11px;">Manually marked</span>
-                    <button class="tmp-small-button" style="margin-left:5px;font-size:10px;" data-undo-override="${esc(g.override_id)}">Undo</button>`;
-                } else if (g.met) {
-                  actionHtml = `<span style="color:var(--tmp-muted);font-size:11px;">Recorded</span>`;
-                } else {
-                  actionHtml = `<button class="tmp-small-button" data-mark-done="${esc(reqKey)}" data-mark-level="${esc(lvl)}">Mark as done</button>`;
-                }
-                return `<tr style="background:${g.met ? "#f1f8e9" : "#fff8e1"}" data-req-key="${esc(reqKey)}">
-                  <td data-label="Requirement">${esc(g.label)}</td>
-                  <td data-label="Progress">${g.done} / ${g.needed}</td>
-                  <td data-label="Status"><span class="tmp-tag" style="background:${g.met ? "#2e7d32" : "#ef6c00"};color:#fff;">${g.met ? "✓ Done" : "Needed"}</span></td>
-                  <td data-label="Action">${actionHtml}</td>
-                </tr>`;
-              }).join("")}
-              </tbody>
-            </table>
-          </div>`;
-
-      };
-      root._renderJourney = renderJourney;
-      await renderJourney();
-
-      // ── Level status (speech + role progress for L1–L5) ───────────────────────
-      const renderProgressSummary = async () => {
-        const summaryPanel = qs("[data-tmp-progress-summary-panel]", root);
-        const nextActionPanel = qs("[data-tmp-next-action-panel]", root);
-        const summaryEl = qs("[data-tmp-progress-summary]", root);
-        const progressLvlEl = qs("[data-tmp-progress-level]", root);
-        if (!summaryEl) return;
-
-        const data = await api("/me/level-status").catch(() => null);
-        if (!data) return;
-
-        const levelCompleted = data.level_completed || 0;
-        const workingLevel = data.level || Math.min(levelCompleted + 1, 5);
-
-        // All levels 1-5 now have tracked speech + role progress: show progress panel, hide next action
-        if (summaryPanel) summaryPanel.style.display = "";
-        if (nextActionPanel) nextActionPanel.style.display = "none";
-
-        if (progressLvlEl) progressLvlEl.textContent = workingLevel;
-
-        const sp = data.speech_progress;
-        const gaps = data.role_gaps || [];
-        const ready = data.ready_to_advance;
-
-        // Speeches line
-        const spLine = sp
-          ? `Speeches at Level ${workingLevel}: ${'▓'.repeat(sp.done)}${'░'.repeat(sp.needed - sp.done)} ${sp.done} / ${sp.needed} done${sp.offset ? ` (+${sp.offset} pre-system)` : ''}<br>${sp.needed - sp.done} more ${sp.needed - sp.done === 1 ? 'speech' : 'speeches'} needed`
-          : '';
-
-        // Roles line
-        const unmetRoles = gaps.filter((g) => !g.met);
-        const rolesLine = unmetRoles.length > 0
-          ? `Club Roles at Level ${workingLevel}: ${gaps.length - unmetRoles.length} / ${gaps.length} done<br>Need: ${unmetRoles.map((g) => g.label).join(', ')}`
-          : `Club Roles at Level ${workingLevel}: ✓ All ${gaps.length} done`;
-
-        const statusColor = ready ? '#2e7d32' : '#ef6c00';
-        const statusIcon = ready ? '🟢' : '🟡';
-        const statusText = ready ? 'Ready to unlock Level Up' : 'Complete all requirements to unlock Level Up';
-
-        summaryEl.innerHTML = `
-          <div style="font-size:0.9rem;line-height:1.6;margin-bottom:12px;">
-            ${spLine}<br><br>
-            ${rolesLine}<br><br>
-            <span style="color:${statusColor};font-weight:600;">${statusIcon} ${statusText}</span>
-          </div>`;
-      };
-
+      // ── Level status (speech + role progress for L1–L5, with override actions) ─
       const renderLevelStatus = async () => {
         const statusEl  = qs("[data-tmp-level-status]", root);
         const nextLvlEl = qs("[data-tmp-next-level]", root);
@@ -562,16 +481,28 @@
             </div>`;
         }
 
-        // Role gaps (reuse same rendering as Level Journey panel)
+        // Role gaps with override actions
         const rolesHtml = gaps.length === 0 ? "" : `
           <div style="margin-bottom:14px;">
             <p style="font-weight:600;font-size:0.88rem;margin:0 0 6px;">Club Roles at Level ${lvl}</p>
-            ${gaps.map((g) => `
-              <div style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:0.88rem;">
-                <span style="font-size:1rem;">${g.met ? "✅" : "☐"}</span>
-                <span style="${g.met ? "color:var(--tmp-muted);" : ""}">${esc(g.label)}</span>
-                ${g.met ? "" : `<span class="tmp-badge" style="background:#fff3e0;color:#e65100;font-size:0.75rem;">needed</span>`}
-              </div>`).join("")}
+            ${gaps.map((g) => {
+              const reqKey = g.type === "presentation" ? g.series : (g.roles || []).join("|");
+              let actionHtml = "";
+              if (g.manual_override) {
+                actionHtml = `<button class="tmp-small-button" style="font-size:0.75rem;padding:3px 8px;" data-undo-override="${esc(g.override_id)}">Undo</button>`;
+              } else if (!g.met) {
+                actionHtml = `<button class="tmp-small-button" style="font-size:0.75rem;padding:3px 8px;" data-mark-done="${esc(reqKey)}" data-mark-level="${esc(lvl)}">Mark done</button>`;
+              }
+              return `
+              <div style="display:flex;align-items:center;gap:8px;margin:6px 0;font-size:0.88rem;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:8px;flex:1;">
+                  <span style="font-size:1rem;">${g.met ? "✅" : "☐"}</span>
+                  <span style="${g.met ? "color:var(--tmp-muted);" : ""}">${esc(g.label)}</span>
+                  ${g.manual_override ? `<span class="tmp-badge" style="background:#fff3e0;color:#e65100;font-size:0.7rem;">manually marked</span>` : g.met ? "" : `<span class="tmp-badge" style="background:#fff3e0;color:#e65100;font-size:0.75rem;">needed</span>`}
+                </div>
+                ${actionHtml}
+              </div>`
+            }).join("")}
           </div>`;
 
         // Summary
@@ -629,7 +560,6 @@
         }
       });
 
-      await renderProgressSummary();
       await renderLevelStatus();
 
       // (mentee panel removed — combined into mentor dashboard table below)
@@ -678,32 +608,33 @@
                   ? `<span style="font-size:11px;color:var(--tmp-burgundy);">Request window closed</span>`
                   : `<span style="font-size:11px;color:#2e7d32;">Open until ${esc(mtg.deadline.slice(0, 10))}</span>`)
               : "";
-            html += `<div style="margin-bottom:16px;">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                <strong>${esc(mtg.meetingDate)} — ${esc(mtg.meetingTheme)}</strong>
+            html += `<div style="margin-bottom:20px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <div>
+                  <div style="font-weight:600;font-size:0.88rem;">${esc(mtg.meetingDate)} — ${esc(mtg.meetingTheme)}</div>
+                </div>
                 ${deadlineNote}
               </div>
-              <div class="tmp-table-wrap"><table class="tmp-table">
-                <thead><tr><th>Role</th><th>Priority</th><th>Status</th><th>Reason</th><th>Action</th></tr></thead>
-                <tbody>${mtg.requests.map((r) => {
-                  const statusColor = r.status === "Approved" ? "#2e7d32" : r.status === "NotSelected" ? "#c62828" : "#757575";
-                  const statusIcon  = r.status === "Approved" ? "✓" : r.status === "NotSelected" ? "✗" : "⏳";
-                  const statusLabel = r.status === "Approved" ? "Approved" : r.status === "NotSelected" ? "Not Selected" : "Pending";
-                  const reasonHtml  = r.reason ? `<span style="color:#555;font-size:12px;">${esc(r.reason)}</span>` : "—";
-                  const canCancel   = r.status === "Pending" && !deadlinePassed;
-                  const actionHtml  = canCancel
-                    ? `<button class="tmp-small-button tmp-danger" data-cancel-request="${esc(r.requestId)}">Cancel</button>`
-                    : "—";
-                  return `<tr>
-                    <td data-label="Role">${esc(r.roleName)}</td>
-                    <td data-label="Priority"><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
-                    <td data-label="Status"><span class="tmp-tag" style="background:${statusColor};color:#fff;font-weight:bold;">${statusIcon} ${statusLabel}</span></td>
-                    <td data-label="Reason">${reasonHtml}</td>
-                    <td data-label="Action">${actionHtml}</td>
-                  </tr>`;
-                }).join("")}
-                </tbody>
-              </table></div>
+              ${mtg.requests.map((r) => {
+                const statusColor = r.status === "Approved" ? "#2e7d32" : r.status === "NotSelected" ? "#c62828" : "#757575";
+                const statusIcon  = r.status === "Approved" ? "✓" : r.status === "NotSelected" ? "✗" : "⏳";
+                const statusLabel = r.status === "Approved" ? "Approved" : r.status === "NotSelected" ? "Not Selected" : "Pending";
+                const canCancel   = r.status === "Pending" && !deadlinePassed;
+                const actionHtml  = canCancel
+                  ? `<button class="tmp-small-button tmp-danger" style="font-size:0.75rem;padding:4px 10px;" data-cancel-request="${esc(r.requestId)}">Cancel</button>`
+                  : "";
+                return `<div class="tmp-req-card">
+                  <div style="flex:1;">
+                    <div style="font-weight:600;font-size:0.88rem;">${esc(r.roleName)}</div>
+                    ${r.reason ? `<div style="font-size:0.8rem;color:var(--tmp-muted);margin-top:4px;">${esc(r.reason)}</div>` : ""}
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <span class="tmp-priority-badge" style="font-size:0.75rem;padding:3px 8px;background:#f5f5f5;border-radius:12px;white-space:nowrap;">P${esc(r.priority)}</span>
+                    <span class="tmp-req-status" style="background:${statusColor};color:#fff;font-weight:bold;">${statusIcon} ${statusLabel}</span>
+                    ${actionHtml}
+                  </div>
+                </div>`;
+              }).join("")}
             </div>`;
           }
           arEl.innerHTML = html;
@@ -718,24 +649,23 @@
           asEl.innerHTML = "<p>No roles assigned to you.</p>";
         } else {
           const now = Date.now();
-          asEl.innerHTML = `<div class="tmp-table-wrap"><table class="tmp-table">
-            <thead><tr><th>Meeting</th><th>Role</th><th>Status</th></tr></thead>
-            <tbody>${approved.map((r) => {
-              const isSpeaker      = r.roleName.toLowerCase().startsWith("speaker");
-              const deadlinePassed = r.deadline && new Date(r.deadline).getTime() < now;
-              const isConfirmed    = r.assignmentStatus === "Confirmed";
-              const showTitleField = isSpeaker && deadlinePassed && isConfirmed;
-              const titleField     = showTitleField
-                ? `<div style="margin-top:6px;"><input type="text" data-member-speech-title="${esc(r.assignmentId)}" value="${esc(r.speechTitle || '')}" placeholder="Add your speech title…" style="width:100%;padding:5px 8px;border:1px solid var(--tmp-line);border-radius:5px;font-size:0.82rem;" /><span data-member-title-status="${esc(r.assignmentId)}" style="font-size:0.75rem;color:var(--tmp-muted);"></span></div>`
-                : "";
-              return `<tr>
-                <td data-label="Meeting">${esc(r.meetingDate)} — ${esc(r.meetingTheme)}</td>
-                <td data-label="Role">${esc(r.roleName)}${titleField}</td>
-                <td data-label="Status"><span class="tmp-tag" style="background:#2e7d32;color:#fff;font-weight:bold;">✓ Confirmed</span></td>
-              </tr>`;
-            }).join("")}
-            </tbody>
-          </table></div>`;
+          asEl.innerHTML = approved.map((r) => {
+            const isSpeaker      = r.roleName.toLowerCase().startsWith("speaker");
+            const deadlinePassed = r.deadline && new Date(r.deadline).getTime() < now;
+            const isConfirmed    = r.assignmentStatus === "Confirmed";
+            const showTitleField = isSpeaker && deadlinePassed && isConfirmed;
+            const titleField     = showTitleField
+              ? `<div style="margin-top:8px;"><input type="text" data-member-speech-title="${esc(r.assignmentId)}" value="${esc(r.speechTitle || '')}" placeholder="Add your speech title…" style="width:100%;padding:6px 10px;border:1px solid var(--tmp-line);border-radius:5px;font-size:0.82rem;" /><span data-member-title-status="${esc(r.assignmentId)}" style="font-size:0.75rem;color:var(--tmp-muted);margin-top:4px;display:block;"></span></div>`
+              : "";
+            return `<div class="tmp-req-card">
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:0.88rem;">${esc(r.roleName)}</div>
+                <div style="font-size:0.8rem;color:var(--tmp-muted);margin-top:3px;">${esc(r.meetingDate)} — ${esc(r.meetingTheme)}</div>
+                ${titleField}
+              </div>
+              <span class="tmp-req-status" style="background:#2e7d32;color:#fff;font-weight:bold;white-space:nowrap;">✓ Confirmed</span>
+            </div>`;
+          }).join("");
 
           // Wire up speech title autosave (debounced on input)
           asEl.querySelectorAll("[data-member-speech-title]").forEach((inp) => {
@@ -759,16 +689,21 @@
       // ── Request history ────────────────────────────────────────────────────
       const history = await api("/me/requests/history").catch(() => []);
       const rhEl = qs("[data-tmp-request-history]", root); if (rhEl) rhEl.innerHTML = history.length
-        ? `<div class="tmp-table-wrap"><table class="tmp-table">
-            <thead><tr><th>Meeting</th><th>Role</th><th>Priority</th><th>Status</th></tr></thead>
-            <tbody>${history.map((r) => {
-              const statusColor = r.request_status === "Approved" ? "#2e7d32" : r.request_status === "NotSelected" ? "#c62828" : "#eee";
-              const textColor   = (r.request_status === "Approved" || r.request_status === "NotSelected") ? "#fff" : "#333";
-              const label       = r.request_status === "Approved" ? "Approved" : r.request_status === "NotSelected" ? "Not Selected" : "Unprocessed";
-              return `<tr><td data-label="Meeting">${esc(r.meeting_date)} - ${esc(r.theme)}</td><td data-label="Role">${esc(r.role_name)}</td>
-                <td data-label="Priority"><span class="tmp-tag" style="background:#f5f5f5">P${esc(r.priority)}</span></td>
-                <td data-label="Status"><span class="tmp-tag" style="background:${statusColor};color:${textColor};">${label}</span></td></tr>`;
-            }).join("")}</tbody></table></div>`
+        ? history.map((r) => {
+            const statusColor = r.request_status === "Approved" ? "#2e7d32" : r.request_status === "NotSelected" ? "#c62828" : "#ccc";
+            const textColor   = (r.request_status === "Approved" || r.request_status === "NotSelected") ? "#fff" : "#333";
+            const label       = r.request_status === "Approved" ? "Approved" : r.request_status === "NotSelected" ? "Not Selected" : "Unprocessed";
+            return `<div class="tmp-history-row">
+              <div>
+                <div style="font-weight:600;">${esc(r.role_name)}</div>
+                <div style="font-size:0.8rem;color:var(--tmp-muted);">${esc(r.meeting_date)} — ${esc(r.theme)}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span style="font-size:0.75rem;padding:3px 8px;background:#f5f5f5;border-radius:12px;">P${esc(r.priority)}</span>
+                <span class="tmp-req-status" style="background:${statusColor};color:${textColor};">${label}</span>
+              </div>
+            </div>`;
+          }).join("")
         : "<p>No request history found.</p>";
 
       // ── Role history ───────────────────────────────────────────────────────
@@ -776,13 +711,17 @@
       let roleHistoryHtml = "";
       if (Object.keys(roleHistory).length > 0) {
         for (const lvl in roleHistory) {
-          roleHistoryHtml += `<h4>Level ${esc(lvl)}</h4>
-            <div class="tmp-table-wrap"><table class="tmp-table">
-              <thead><tr><th>Role</th><th>Count</th><th>Last Completed</th></tr></thead>
-              <tbody>${roleHistory[lvl].map((r) =>
-                `<tr><td data-label="Role">${esc(r.role_name)}${r.presentation_series ? `<br><small style="color:var(--tmp-muted)">${esc(r.presentation_series)}</small>` : ""}</td>
-                <td data-label="Count">${esc(r.count)}</td><td data-label="Last Completed">${esc(r.last_completed_date)}</td></tr>`
-              ).join("")}</tbody></table></div>`;
+          roleHistoryHtml += `<div style="margin-bottom:20px;"><div style="font-weight:600;font-size:0.88rem;margin-bottom:10px;">Level ${esc(lvl)}</div>${roleHistory[lvl].map((r) =>
+            `<div class="tmp-history-row">
+              <div>
+                <div style="font-weight:600;">${esc(r.role_name)}${r.presentation_series ? `<div style="font-size:0.75rem;color:var(--tmp-muted);margin-top:2px;">${esc(r.presentation_series)}</div>` : ""}</div>
+              </div>
+              <div style="display:flex;gap:16px;font-size:0.8rem;">
+                <div style="text-align:right;"><span style="color:var(--tmp-muted);">Times:</span> <strong>${esc(r.count)}</strong></div>
+                <div style="text-align:right;"><span style="color:var(--tmp-muted);">Last:</span> <strong>${esc(r.last_completed_date)}</strong></div>
+              </div>
+            </div>`
+          ).join("")}</div>`;
         }
       } else {
         roleHistoryHtml = "<p>No role history found.</p>";
@@ -892,16 +831,15 @@
 
     await updateMemberDashboard();
 
-    // Level journey — Mark as done / Undo (delegated once on stable parent)
-    qs("[data-tmp-level-journey-panel]", root)?.addEventListener("click", async (e) => {
+    // Level progress — Mark as done / Undo override (delegated from progress panel)
+    qs("[data-tmp-level-status-panel]", root)?.addEventListener("click", async (e) => {
       const markBtn = e.target.closest("[data-mark-done]");
       const undoBtn = e.target.closest("[data-undo-override]");
 
       if (markBtn && !markBtn._pending) {
         const rKey  = markBtn.dataset.markDone;
         const rLvl  = markBtn.dataset.markLevel;
-        const row   = markBtn.closest("tr");
-        const label = row?.querySelector("td")?.textContent || rKey;
+        const label = markBtn.closest("div")?.textContent?.split("\n")[0]?.trim() || rKey;
         const note  = prompt(`Mark "${label}" as completed outside this system?\n\nOptional note (e.g. "Completed at district event"):`) ?? false;
         if (note === false) return;
         markBtn._pending = true;
@@ -909,12 +847,12 @@
         markBtn.textContent = "Saving…";
         try {
           await api("/me/requirement-override", { method: "POST", body: JSON.stringify({ level: Number(rLvl), req_key: rKey, note }) });
-          if (root._renderJourney) await root._renderJourney();
+          await renderLevelStatus();
         } catch (err) {
           alert("Could not save: " + err.message);
           markBtn._pending = false;
           markBtn.disabled = false;
-          markBtn.textContent = "Mark as done";
+          markBtn.textContent = "Mark done";
         }
       }
 
@@ -924,7 +862,7 @@
         undoBtn.disabled = true;
         try {
           await api(`/me/requirement-override/${undoBtn.dataset.undoOverride}`, { method: "DELETE" });
-          if (root._renderJourney) await root._renderJourney();
+          await renderLevelStatus();
         } catch (err) {
           alert("Could not undo: " + err.message);
           undoBtn._pending = false;
@@ -942,6 +880,20 @@
       if (meetingBody) meetingBody.style.display = open ? "none" : "block";
       const chevron = qs(".tmp-chevron", meetingToggle);
       if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+    });
+
+    // Meeting Activity pill-tabs
+    meetingBody?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-tmp-activity-tab]");
+      if (!btn) return;
+      const tabName = btn.dataset.tmpActivityTab;
+      // Update button active state
+      qsa("[data-tmp-activity-tab]", meetingBody).forEach((b) => b.classList.remove("tmp-activity-tab--active"));
+      btn.classList.add("tmp-activity-tab--active");
+      // Toggle body visibility
+      qsa("[data-tmp-activity-tab-body]", meetingBody).forEach((body) => body.style.display = "none");
+      const activeBody = qs(`[data-tmp-activity-tab-body="${tabName}"]`, meetingBody);
+      if (activeBody) activeBody.style.display = "";
     });
 
     // Cancel request
@@ -1495,6 +1447,7 @@
 
   async function initVPEducation() {
     const root = qs("[data-tmp-vpe]");
+    console.log("[TMPortal][initVPEducation] start. root found:", !!root);
     if (!root) return;
 
     const meetingForm    = qs("[data-tmp-meeting-form]", root);
@@ -1524,13 +1477,23 @@
     const presSeries     = qs("[data-tmp-pres-series-wrapper]", assignmentForm);
     const speechWrapper  = qs("[data-tmp-speech-title-wrapper]", assignmentForm);
 
+    console.log("[TMPortal][initVPEducation] element check:", {
+      meetingForm: !!meetingForm,
+      assignmentForm: !!assignmentForm,
+      meetingSelect: !!meetingSelect,
+      meetingList: !!meetingList,
+      compactList: !!compactList,
+      unifiedRows: !!unifiedRows,
+      stageBtnsCount: stageBtns.length,
+      stageBodiesCount: stageBodies.length,
+    });
+
     refreshVPE = () => renderMeetings().catch(console.error);
 
     // -- Unified members table -------------------------------------------------
 
     let expandedLpId = null;
     const trafficLabel = (t) => t === "ready" ? "🟢 Ready" : t === "stuck" ? "🔴 Stuck" : "🟡 In Progress";
-    const trafficStyle = (t) => t === "ready" ? "background:#e8f5e9;color:#2e7d32" : t === "stuck" ? "background:#ffebee;color:#c62828" : "background:#fff3e0;color:#e65100";
 
     const loadUnifiedDetail = async (memberId, inPlace = false) => {
       const detailRow = unifiedRows?.querySelector(`[data-lp-detail="${memberId}"]`);
@@ -1680,7 +1643,10 @@
       if (overviewCount) overviewCount.textContent = `${sortedEligible.length} member${sortedEligible.length !== 1 ? "s" : ""}`;
 
       const readyCount = Object.values(lsMap).filter((ls) => ls.traffic_light === "ready").length;
-      if (readyCountEl) readyCountEl.textContent = readyCount ? `${readyCount} ready to advance` : "";
+      if (readyCountEl) {
+        readyCountEl.textContent = readyCount ? `${readyCount} ready to advance` : "";
+        readyCountEl.style.display = readyCount ? "" : "none";
+      }
 
       const thead = unifiedRows?.closest("table")?.querySelector("thead");
       if (thead) {
@@ -1701,18 +1667,27 @@
         const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
         const spCell   = ls ? `${ls.speech_done}/${ls.speech_needed}` : "—";
         const roleCell = ls ? `${ls.roles_total - ls.roles_unmet}/${ls.roles_total}` : "—";
+        const trafficClass = ls ? { ready: "tmp-status-pill--ready", stuck: "tmp-status-pill--stuck" }[ls.traffic_light] || "tmp-status-pill--progress" : "";
         const statusCell = ls
-          ? `<span class="tmp-badge" style="${trafficStyle(ls.traffic_light)};">${trafficLabel(ls.traffic_light)}</span>`
-          : `<span class="tmp-tag" style="background:#e8eaf6;color:#303f9f;font-size:0.78rem;">L${m.level_completed}</span>`;
+          ? `<span class="tmp-status-pill ${trafficClass}">${trafficLabel(ls.traffic_light)}</span>`
+          : `<span class="tmp-status-pill tmp-status-pill--level">L${m.level_completed}</span>`;
         const mentorCell = (m.level_completed === 0 && !m.mentor_name)
-          ? `<span style="color:var(--tmp-burgundy);font-size:0.82rem;">⚠ No mentor</span>`
+          ? `<span class="tmp-no-mentor">⚠ No mentor</span>`
           : esc(m.mentor_name || "—");
         const mentorBtn = m.level_completed === 0
           ? `<button class="tmp-small-button" type="button" data-assign-mentor="${m.id}" data-member-name="${esc(m.full_name)}" data-current-mentor="${esc(m.mentor_id || "")}">${m.mentor_name ? "Change" : "Assign"} Mentor</button>`
           : "";
-        const actionCell = `<div style="display:flex;gap:6px;align-items:center;">${mentorBtn}<button class="tmp-small-button tmp-secondary" type="button" data-vpe-reset-pw="${m.id}">Reset PW</button><button class="tmp-small-button" data-expand-lp="${m.id}" style="min-width:28px;">&#9658;</button></div>`;
+        const actionCell = `<div class="tmp-row-actions">${mentorBtn}<button class="tmp-icon-btn" type="button" data-vpe-reset-pw="${m.id}" title="Reset password">🔑</button><button class="tmp-icon-btn" data-expand-lp="${m.id}" title="Expand details">▾</button></div>`;
+        const initials = m.full_name.trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+        const nameCell = `<div class="tmp-m-name-cell">
+          <div class="tmp-m-avatar">${esc(initials)}</div>
+          <div class="tmp-m-name-stack">
+            <div class="tmp-m-name">${esc(m.full_name)}${inactive ? ` <span style="color:#ef6c00;font-weight:700;font-size:0.72rem;">Inactive</span>` : ""}</div>
+            <div class="tmp-m-path">${esc(m.pathway)}</div>
+          </div>
+        </div>`;
         return `<tr data-lp-member="${m.id}" data-m-level="${m.level_completed}"${inactive ? ' style="background:#fff8e1"' : ""}>
-          <td><strong>${esc(m.full_name)}</strong>${inactive ? `<br><small style="color:#ef6c00;font-weight:bold">Inactive</small>` : ""}<br><small style="color:var(--tmp-muted)">${esc(m.pathway)}</small></td>
+          <td>${nameCell}</td>
           <td>Level ${m.level_completed}</td>
           <td${spCell === "—" ? ' data-empty' : ""}>${spCell}</td>
           <td${roleCell === "—" ? ' data-empty' : ""}>${roleCell}</td>
@@ -1738,26 +1713,29 @@
 
     // -- Meetings list --------------------------------------------------------
     async function renderMeetings(selectedId = null) {
-      const meetings = await api("/meetings?include_wrapped=1") || [];
+      console.log("[TMPortal][renderMeetings] called, fetching /meetings ...");
+      let meetings;
+      try {
+        meetings = await api("/meetings") || [];
+      } catch (err) {
+        console.error("[TMPortal][renderMeetings] fetch FAILED:", err);
+        throw err;
+      }
+      console.log("[TMPortal][renderMeetings] fetch succeeded, count:", meetings.length, meetings);
       root._meetings = Array.isArray(meetings) ? meetings : [];
       updateMeetingsTabBadge(root, meetings);
 
       if (meetingCount) meetingCount.textContent = `${meetings.length} ${meetings.length === 1 ? "meeting" : "meetings"}`;
       const prevMeetingVal = meetingSelect.value;
-      // Shared picker: show every not-yet-wrapped meeting, but cap wrapped history to the 8 most recent
-      // (meetings arrive ordered by meeting_date DESC, so the first ones seen are the most recent).
-      let wrappedSeen = 0;
-      const optionMeetings = meetings.filter((m) => {
-        if (!isWrapped(m)) return true;
-        wrappedSeen += 1;
-        return wrappedSeen <= 8;
-      });
+      // Shared picker: only meetings still needing action (not yet wrapped up) — completed
+      // meetings drop off the list. `/meetings` without include_wrapped already filters this
+      // server-side, but re-check here defensively in case a cached/stale row slips through.
+      const optionMeetings = meetings.filter((m) => !isWrapped(m));
       meetingSelect.innerHTML =
         '<option value="">— Select or create meeting —</option>' +
         '<option value="new">+ Schedule New Meeting</option>' +
-        optionMeetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}${isWrapped(m) ? " ✓" : ""}</option>`).join("");
+        optionMeetings.map((m) => `<option value="${esc(m.id)}">${esc(m.meeting_date)} - ${esc(m.theme)}</option>`).join("");
 
-      renderPendingRequests(root).catch(() => {});
       if (selectedId) {
         meetingSelect.value = selectedId;
       } else if (prevMeetingVal) {
@@ -1769,6 +1747,7 @@
       }
       updateRoles();
       applyMeetingSelection(meetingSelect.value);
+      renderPendingRequests(root).catch(() => {});
 
       if (compactList) {
         compactList.innerHTML = meetings.length
@@ -1786,6 +1765,7 @@
           : `<p style="color:var(--tmp-muted);font-size:0.88rem;">No meetings yet. Schedule your first meeting below.</p>`;
       }
 
+      if (meetingList) {
       meetingList.innerHTML = `<div class="tmp-agenda">${meetings.map((meeting, idx) => {
         const [h, min] = (meeting.start_time || "18:30:00").split(":").map(Number);
         let t = h * 60 + (min || 0);
@@ -1878,6 +1858,7 @@
           </div>
         </article>`;
       }).join("")}</div>`;
+      }
 
       // Keep the Role Status panel in sync with the currently selected meeting
       if (meetingSelect.value) renderRoleStatus(meetingSelect.value);
@@ -2048,44 +2029,52 @@
             return `<option value="${esc(m.id)}" ${String(m.id) === String(primary.member_id) ? "selected" : ""}>${esc(m.full_name)} (L${m.level_completed})${note}</option>`;
           }).join("") + `</optgroup>`;
 
-        const notes = [];
-        if (primary.status === "Needs replacement") notes.push(`<span class="tmp-tag" style="background:#b71c1c;color:#fff;font-size:10px;">⚠ Needs replacement</span>`);
-        if (primary.cooloff_override == 1) notes.push(`<span class="tmp-tag" style="background:#ff9800;color:#fff;font-size:10px;" title="${esc(primary.override_reason || "")}">Cooloff override</span>`);
-        if (primary.suitability && !primary.suitability.suitable) notes.push(`<span class="tmp-tag" style="background:#ffebee;color:#b71c1c;font-size:10px;">${esc(primary.suitability.reason)}</span>`);
+        const badges = [];
+        if (!primary.member_id && !primary.guest_name) badges.push(`<span class="tmp-role-badge tmp-role-badge--danger">Open</span>`);
+        if (primary.status === "Needs replacement") badges.push(`<span class="tmp-role-badge tmp-role-badge--warn">⚠ Needs replacement</span>`);
+        if (primary.cooloff_override == 1) badges.push(`<span class="tmp-role-badge tmp-role-badge--warn" title="${esc(primary.override_reason || "")}">Cooloff override</span>`);
+        if (primary.suitability && !primary.suitability.suitable) badges.push(`<span class="tmp-role-badge tmp-role-badge--danger">${esc(primary.suitability.reason)}</span>`);
 
         const isSpeakerSlot = baseRole.toLowerCase().startsWith("speaker");
         const isGuestSlot   = /^ad hoc speaker/i.test(baseRole) || /^fun session/i.test(baseRole);
         const timerDurVal   = primary.timer_duration != null
           ? primary.timer_duration
           : (isSpeakerSlot ? Math.max(1, (Number(primary.duration) || 8) - 1) : "");
-        const timerCell = isSpeakerSlot
-          ? `<td data-label="Timer (min)" style="width:80px;"><input type="number" min="1" data-assign-timer-duration="${esc(primary.id)}" value="${esc(timerDurVal)}" placeholder="—" style="width:60px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;" /></td>`
-          : `<td></td>`;
-        const speakerExtras = isSpeakerSlot
-          ? `<div style="margin-top:6px;">
-               <input type="text" data-assign-speech-title="${esc(primary.id)}" value="${esc(primary.speech_title || '')}" placeholder="Speech title (optional)" style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.82rem;" />
-             </div>`
+        const timerMeta = isSpeakerSlot
+          ? `<div class="tmp-role-meta"><span class="tmp-role-meta-label">Timer</span><input type="number" min="1" data-assign-timer-duration="${esc(primary.id)}" value="${esc(timerDurVal)}" placeholder="—" /></div>`
           : "";
-        const memberCell = isGuestSlot
-          ? `<input type="text" data-assign-guest-name="${esc(primary.id)}" value="${esc(primary.guest_name || '')}" placeholder="Guest name (not a club member)" style="width:100%;max-width:220px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;" />`
-          : `<select data-assign-roles="${esc(allIds)}" style="width:100%;max-width:220px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">${opts}</select>`;
-        return `<tr>
-          <td data-label="Role" style="white-space:nowrap;">${esc(baseRole)}${speakerExtras}</td>
-          <td data-label="Member">
-            ${memberCell}
-          </td>
-          <td data-label="Dur (min)" style="width:80px;">
-            <input type="number" min="0" data-assign-duration="${esc(primary.id)}" value="${esc(primary.duration || '')}" placeholder="—" style="width:60px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;" />
-          </td>
-          ${timerCell}
-          <td data-label="Notes" style="font-size:11px;">${notes.join(" ") || "—"}</td>
-          <td data-label="Action"><button class="tmp-small-button tmp-danger" type="button" data-delete-roles="${esc(allIds)}" data-role-name="${esc(baseRole)}">Remove slot</button></td>
-        </tr>`;
+        const speakerExtras = isSpeakerSlot
+          ? `<input type="text" class="tmp-role-speech-title" data-assign-speech-title="${esc(primary.id)}" value="${esc(primary.speech_title || '')}" placeholder="Speech title (optional)" />`
+          : "";
+        const memberField = isGuestSlot
+          ? `<input type="text" data-assign-guest-name="${esc(primary.id)}" value="${esc(primary.guest_name || '')}" placeholder="Guest name (not a club member)" />`
+          : `<select data-assign-roles="${esc(allIds)}">${opts}</select>`;
+        const memberName = primary.member_name || primary.guest_name || "";
+        const initials = memberName
+          ? memberName.trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("")
+          : "—";
+
+        return `<div class="tmp-role-card">
+          <div class="tmp-role-avatar${memberName ? "" : " tmp-role-avatar--empty"}">${esc(initials)}</div>
+          <div class="tmp-role-main">
+            <div class="tmp-role-top">
+              <span class="tmp-role-name">${esc(baseRole)}</span>
+              <div class="tmp-role-badges">${badges.join("")}</div>
+            </div>
+            <div class="tmp-role-picker-row">
+              ${memberField}
+              <div class="tmp-role-meta"><span class="tmp-role-meta-label">Duration</span><input type="number" min="0" data-assign-duration="${esc(primary.id)}" value="${esc(primary.duration || '')}" placeholder="—" /></div>
+              ${timerMeta}
+            </div>
+            ${speakerExtras}
+          </div>
+          <button class="tmp-role-remove" type="button" data-delete-roles="${esc(allIds)}" data-role-name="${esc(baseRole)}" title="Remove slot">✕</button>
+        </div>`;
       }).join("");
 
       const totalGroups      = Object.keys(roleGroups).length;
       const unassignedGroups = Object.values(roleGroups).filter((g) => !g[0].member_id).length;
-      const badgeBg    = totalGroups === 0 ? "#9e9e9e" : unassignedGroups === 0 ? "#2e7d32" : "#ef6c00";
+      const badgeColor = totalGroups === 0 ? "var(--tmp-muted)" : unassignedGroups === 0 ? "#2e7d32" : "#ef6c00";
       const badgeLabel = totalGroups === 0
         ? "No roles yet"
         : unassignedGroups === 0
@@ -2094,15 +2083,10 @@
 
       panel.innerHTML = `
         <p style="font-size:13px;margin:0 0 12px;">
-          <strong style="color:${badgeBg};">${esc(badgeLabel)}.</strong>
-          <span style="color:var(--tmp-muted);"> Select a member in any row to assign. Edit the Dur column to revise slot duration.</span>
+          <strong style="color:${badgeColor};">${esc(badgeLabel)}.</strong>
+          <span style="color:var(--tmp-muted);"> Select a member in any card to assign. Edit Duration to revise the slot length.</span>
         </p>
-        <div class="tmp-table-wrap">
-          <table class="tmp-table" style="font-size:0.88rem;">
-            <thead><tr><th>Role</th><th>Member</th><th>Dur (min)</th><th>Timer (min)</th><th>Notes</th><th>Action</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>`;
+        ${rows}`;
 
       // Register change (assign) and click (remove) once per panel lifetime
       if (!panel._listenersAdded) {
@@ -2213,6 +2197,7 @@
         renderRoleStatus(val);
       }
       applyMeetingSelection(val);
+      renderPendingRequests(root).catch(() => {});
     });
 
     // -- Lifecycle stage (Setup / Day-of / Wrap-up) --------------------------
@@ -2343,7 +2328,7 @@
         }
         if (roleAssignmentWrap) roleAssignmentWrap.style.display = "block";
         if (meetingAgendaWrap) meetingAgendaWrap.style.display = "block";
-        meetingList.querySelectorAll("[data-agenda-meeting]").forEach((card) => {
+        meetingList?.querySelectorAll("[data-agenda-meeting]").forEach((card) => {
           card.style.display = String(card.dataset.agendaMeeting) === val ? "" : "none";
         });
       } else {
@@ -2351,17 +2336,24 @@
         if (roleAssignmentWrap) roleAssignmentWrap.style.display = "none";
         if (meetingAgendaWrap) meetingAgendaWrap.style.display = "none";
       }
+      syncSteppers();
     }
 
-    qs("[data-tmp-role-assignment-toggle]", root)?.addEventListener("click", (e) => {
-      const btn  = e.currentTarget;
-      const open = btn.getAttribute("aria-expanded") === "true";
-      btn.setAttribute("aria-expanded", String(!open));
-      const body = qs("[data-tmp-role-assignment-body]", root);
-      if (body) body.style.display = open ? "none" : "block";
-      const chevron = qs(".tmp-chevron", btn);
-      if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
-    });
+    // Generic collapsible-card toggle — same pattern used across Setup's cards.
+    function bindCardToggle(toggleAttr, bodyAttr) {
+      qs(`[${toggleAttr}]`, root)?.addEventListener("click", (e) => {
+        const btn  = e.currentTarget;
+        const open = btn.getAttribute("aria-expanded") === "true";
+        btn.setAttribute("aria-expanded", String(!open));
+        const body = qs(`[${bodyAttr}]`, root);
+        if (body) body.style.display = open ? "none" : "block";
+        const chevron = qs(".tmp-chevron", btn);
+        if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
+      });
+    }
+    bindCardToggle("data-tmp-details-card-toggle", "data-tmp-details-card-body");
+    bindCardToggle("data-tmp-requests-card-toggle", "data-tmp-requests-card-body");
+    bindCardToggle("data-tmp-role-card-toggle", "data-tmp-role-card-body");
 
     qs("[data-tmp-agenda-toggle]", root)?.addEventListener("click", (e) => {
       const btn  = e.currentTarget;
@@ -2512,8 +2504,31 @@
       }
     });
 
-    // Meeting form submit
-    meetingForm.addEventListener("submit", async (ev) => {
+    // Role-slot steppers — visual +/- controls over the underlying (hidden) number inputs.
+    // Kept in sync with programmatic value changes (fillForm/clearForm/custom-meeting-preset)
+    // by re-reading the input values rather than tracking state separately.
+    function syncSteppers() {
+      qsa("[data-tmp-stepper-val]", meetingForm).forEach((span) => {
+        const input = meetingForm?.elements[span.dataset.tmpStepperVal];
+        if (input) span.textContent = input.value;
+      });
+    }
+    qsa("[data-tmp-stepper-inc], [data-tmp-stepper-dec]", meetingForm).forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const name  = btn.dataset.tmpStepperInc || btn.dataset.tmpStepperDec;
+        const input = meetingForm?.elements[name];
+        if (!input) return;
+        const min  = input.min !== "" ? Number(input.min) : -Infinity;
+        const max  = input.max !== "" ? Number(input.max) : Infinity;
+        const delta = btn.dataset.tmpStepperInc ? 1 : -1;
+        const next  = Math.min(max, Math.max(min, (Number(input.value) || 0) + delta));
+        input.value = next;
+        syncSteppers();
+      });
+    });
+
+    // Meeting form submit — meetingForm only exists for VPE (Setup stage is hidden for Ex Com-only users)
+    meetingForm?.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const btn      = ev.target.querySelector("button[type=submit]");
       const statusEl = qs("[data-tmp-meeting-save-status]", root);
@@ -2619,10 +2634,11 @@
       if (funInput) funInput.value = "1";
       const hint = qs("[data-tmp-roles-setup-hint]", root);
       if (hint) hint.textContent = "Custom Meeting: limited roles only. Adjust checkboxes and slot counts as needed.";
+      syncSteppers();
     });
 
     // Auto-fill deadline = meeting date − 3 days at 18:00 when date changes
-    meetingForm.elements.meeting_date?.addEventListener("change", () => {
+    meetingForm?.elements.meeting_date?.addEventListener("change", () => {
       const dateVal = meetingForm.elements.meeting_date.value;
       if (!dateVal) return;
       const deadlineInput = meetingForm.elements.requests_close_at;
@@ -2643,6 +2659,7 @@
       if (submitBtn) submitBtn.textContent = "Save Meeting";
       const rolesSetup = qs(".tmp-roles-setup", root);
       if (rolesSetup) rolesSetup.style.display = "";
+      syncSteppers();
     });
     qs("[data-tmp-clear-assignment]", root)?.addEventListener("click", () => {
       clearForm(assignmentForm);
@@ -2652,8 +2669,8 @@
       if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "none";
     });
 
-    // Inline edit of agenda line text / break duration (debounced save)
-    meetingList.addEventListener("change", (e) => {
+    // Inline edit of agenda line text / break duration (debounced save) — meetingList only exists for VPE
+    meetingList?.addEventListener("change", (e) => {
       const textInp = e.target.closest("[data-edit-agenda-line]");
       const durInp  = e.target.closest("[data-edit-agenda-duration]");
 
@@ -2689,7 +2706,7 @@
     });
 
     // Meeting list event delegation
-    meetingList.addEventListener("click", async (e) => {
+    meetingList?.addEventListener("click", async (e) => {
       // Collapsible agenda card toggle
       const cardToggle = e.target.closest(".tmp-agenda-card-toggle");
       if (cardToggle) {
@@ -3123,8 +3140,12 @@
       });
     }
 
-    // Inject gate settings and timer defaults panels at the bottom of the meetings tab
-    const meetingsTab = qs("[data-tab-body='meetings']", root) || root;
+    // Inject gate settings and timer defaults panels at the bottom of the Setup stage —
+    // these are VPE-only club/role configuration, not Ex Com meeting-day operations, and
+    // must land inside the Setup stage body specifically or they'd show under every stage
+    // (Day-of/Wrap-up too) since they'd otherwise be appended as a sibling after all three.
+    const setupStageBody = qs("[data-tmp-stage-body='setup']", root);
+    if (TMPortal.currentUser?.canManageMeetings && setupStageBody) {
     const gateSection = document.createElement("section");
     gateSection.className = "tmp-panel";
     gateSection.innerHTML = `
@@ -3134,7 +3155,7 @@
       </button>
       <div data-tmp-gate-settings-body style="display:none;margin-top:14px;"></div>`;
     gateSection.setAttribute("data-tmp-gate-settings-panel", "");
-    meetingsTab.appendChild(gateSection);
+    setupStageBody.appendChild(gateSection);
 
     qs("[data-tmp-gate-settings-toggle]", root)?.addEventListener("click", async (e) => {
       const btn  = e.currentTarget;
@@ -3324,7 +3345,7 @@
         <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
       </button>
       <div data-tmp-timing-settings-body style="display:none;margin-top:14px;"></div>`;
-    meetingsTab.appendChild(timingSection);
+    setupStageBody.appendChild(timingSection);
 
     qs("[data-tmp-timing-settings-toggle]", root)?.addEventListener("click", async (e) => {
       const btn  = e.currentTarget;
@@ -3336,6 +3357,7 @@
       if (chevron) chevron.style.transform = open ? "" : "rotate(90deg)";
       if (!open) await renderTimingSettings();
     });
+    } // /if (canManageMeetings && setupStageBody)
 
     // Approve All Recommended button
     qs("[data-tmp-approve-all-btn]", root)?.addEventListener("click", async (e) => {
@@ -3377,23 +3399,20 @@
   }
 
   async function renderPendingRequests(root) {
-    const count      = qs("[data-tmp-request-count]", root);
-    const list       = qs("[data-tmp-vpe-requests]", root);
-    const body       = qs("[data-tmp-requests-body]", root);
-    const toggleBtn  = qs("[data-tmp-requests-toggle]", root);
-    const approveBtn = qs("[data-tmp-approve-all-btn]", root);
-    if (!list) return; // Ex Com-only users don't have the Members tab
+    const count       = qs("[data-tmp-request-count]", root);
+    const list        = qs("[data-tmp-vpe-requests]", root);
+    const approveBtn  = qs("[data-tmp-approve-all-btn]", root);
+    const meetingSelect = qs("[data-tmp-meeting-select]", root);
+    if (!list) return; // Ex Com-only users don't have this card
 
-    if (!root._requestsToggleBound) {
-      root._requestsToggleBound = true;
-      toggleBtn?.addEventListener("click", () => {
-        if (!body) return;
-        const open = body.style.display !== "none";
-        body.style.display = open ? "none" : "";
-        toggleBtn.setAttribute("aria-expanded", String(!open));
-        const ch = toggleBtn.querySelector(".tmp-chevron");
-        if (ch) ch.style.transform = open ? "" : "rotate(90deg)";
-      });
+    const selectedMeetingId = meetingSelect?.value;
+    if (!selectedMeetingId || selectedMeetingId === "new") {
+      list.innerHTML = "<p style=\"color:var(--tmp-muted);font-size:0.88rem;\">Select a meeting above to see its pending role requests.</p>";
+      if (count) count.style.display = "none";
+      if (approveBtn) approveBtn.style.display = "none";
+      root._pendingRolesCount = 0;
+      updateMeetingsTabBadge(root);
+      return;
     }
 
     let data;
@@ -3405,130 +3424,49 @@
       return;
     }
 
-    const { meetings } = data;
-    const totalRequests = meetings.reduce((sum, m) => sum + m.totalRequests, 0);
+    const meeting = (data.meetings || []).find((m) => String(m.meetingId) === String(selectedMeetingId));
+    const totalRequests = meeting ? meeting.totalRequests : 0;
     root._pendingRolesCount = totalRequests;
-    updateMembersTabBadge(root);
+    updateMeetingsTabBadge(root);
 
     if (count) { count.textContent = totalRequests; count.style.display = totalRequests > 0 ? "inline-flex" : "none"; }
 
-    if (totalRequests === 0) {
-      list.innerHTML = "<p>No pending requests across upcoming meetings.</p>";
+    if (!meeting || totalRequests === 0) {
+      list.innerHTML = "<p style=\"color:var(--tmp-muted);font-size:0.88rem;\">No pending requests for this meeting.</p>";
       if (approveBtn) approveBtn.style.display = "none";
       return;
     }
 
     if (approveBtn) approveBtn.style.display = "block";
-    if (body) { body.style.display = ""; if (toggleBtn) { toggleBtn.setAttribute("aria-expanded", "true"); const ch = toggleBtn.querySelector(".tmp-chevron"); if (ch) ch.style.transform = "rotate(90deg)"; } }
 
-    const buildAccordion = (filteredMeetings) => {
-      const roleMap = new Map();
-      for (const meeting of filteredMeetings) {
-        for (const role of meeting.roles) {
-          if (!roleMap.has(role.roleName)) roleMap.set(role.roleName, []);
-          for (const req of role.requests) {
-            roleMap.get(role.roleName).push({ ...req, meetingDate: meeting.meetingDate, theme: meeting.theme, meetingId: meeting.meetingId });
-          }
-        }
-      }
-      const sortedRoles = [...roleMap.keys()].sort((a, b) => roleSort(a) - roleSort(b));
-      if (sortedRoles.length === 0) return "<p style=\"color:var(--tmp-muted);font-size:0.88rem;\">No pending requests for this meeting.</p>";
-
-      let html = '<div class="tmp-role-accordion">';
-      for (const roleName of sortedRoles) {
-        const reqs   = roleMap.get(roleName);
-        const roleId = 'racc-' + roleName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-        html += `<div class="tmp-role-accordion-item" data-accordion-item>
-          <button class="tmp-role-accordion-header" data-accordion-toggle aria-expanded="false" aria-controls="${esc(roleId)}">
-            <span>${esc(roleName)}</span>
-            <span style="display:flex;align-items:center;gap:6px;">
-              <span style="font-size:12px;color:#666;">${reqs.length} request${reqs.length !== 1 ? "s" : ""}</span>
-              <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
-            </span>
-          </button>
-        <div id="${esc(roleId)}" class="tmp-role-accordion-body" style="display:none;">`;
-
-      for (const req of reqs) {
-        const scoreColor = req.score >= 100 ? '#2e7d32' : req.score >= 75 ? '#ef6c00' : '#999';
-        const recommendedBadge = req.isRecommended
-          ? '<span class="tmp-tag" style="background:#2e7d32;color:#fff;font-weight:bold;margin-left:4px;">✓ RECOMMENDED</span>'
-          : '';
-        const reasonsHtml = req.reasons && req.reasons.length > 0
-          ? req.reasons.map((r) => `<span class="tmp-tag" style="background:#e3f2fd;color:#01579b;font-size:11px;margin:2px;">${esc(r)}</span>`).join('')
-          : '';
-
-        html += `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:8px;border-bottom:1px solid #eee;background:#fafafa;">
-          <div style="flex:1;">
-            <div style="font-size:13px;margin-bottom:4px;">
-              <strong>${esc(req.memberName)}</strong> (L${req.memberLevel}, ${esc(req.pathway)})
-              <span class="tmp-tag" style="background:#f5f5f5;margin:0 4px;">P${req.priority}</span>
-              ${recommendedBadge}
-            </div>
-            <div style="font-size:11px;color:#666;">
-              <span style="font-weight:bold;color:${scoreColor};">Score: ${req.score}</span>
-              <span style="margin-left:6px;">${esc(req.meetingDate)}${req.theme ? ' — ' + esc(req.theme) : ''}</span>
-              ${reasonsHtml}
-            </div>
-          </div>
-          <button class="tmp-small-button" data-approve-request="${req.requestId}" data-member-id="${req.memberId}" data-meeting-id="${req.meetingId}" data-role-name="${esc(roleName)}" style="white-space:nowrap;margin-left:8px;">
-            Approve
-          </button>
-        </div>`;
-      }
-
-        html += `</div></div>`;
-      }
-      html += `</div>`;
-      return html;
-    };
-
-    const renderFiltered = () => {
-      const filter = root._requestMeetingFilter ?? "";
-      const filtered = filter ? meetings.filter((m) => String(m.meetingId) === filter) : meetings;
-      const filterHtml = `<div style="margin-bottom:12px;">
-        <label style="font-size:0.85rem;color:var(--tmp-muted);margin-right:8px;">Filter by meeting:</label>
-        <select data-tmp-requests-meeting-filter style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.85rem;">
-          <option value="">All upcoming meetings</option>
-          ${meetings.map((m) => `<option value="${esc(String(m.meetingId))}"${String(m.meetingId) === filter ? " selected" : ""}>${esc(m.meetingDate)}${m.theme ? " — " + esc(m.theme) : ""}</option>`).join("")}
-        </select>
-      </div>`;
-      list.innerHTML = filterHtml + buildAccordion(filtered);
-      list.querySelector("[data-tmp-requests-meeting-filter]")?.addEventListener("change", (e) => {
-        root._requestMeetingFilter = e.target.value;
-        renderFiltered();
-      });
-    };
-
-    renderFiltered();
-
-    // Accordion: one panel open at a time. Guard prevents stacking listeners across re-renders.
-    if (!root._accordionListenerAdded) {
-      root._accordionListenerAdded = true;
-      list.addEventListener("click", (e) => {
-        const hdr = e.target.closest("[data-accordion-toggle]");
-        if (!hdr) return;
-        const item  = hdr.closest("[data-accordion-item]");
-        const panel = item?.querySelector(".tmp-role-accordion-body");
-        if (!item || !panel) return;
-        const isOpen = hdr.getAttribute("aria-expanded") === "true";
-        // Close all
-        qsa("[data-accordion-item]", list).forEach((i) => {
-          const h = i.querySelector("[data-accordion-toggle]");
-          const p = i.querySelector(".tmp-role-accordion-body");
-          if (h) h.setAttribute("aria-expanded", "false");
-          if (p) p.style.display = "none";
-          const ch = h?.querySelector(".tmp-chevron");
-          if (ch) ch.style.transform = "";
-        });
-        // Open clicked one if it was closed
-        if (!isOpen) {
-          hdr.setAttribute("aria-expanded", "true");
-          panel.style.display = "";
-          const ch = hdr.querySelector(".tmp-chevron");
-          if (ch) ch.style.transform = "rotate(90deg)";
-        }
-      });
+    // Flatten all role-grouped requests and order by member name, not by role.
+    const allRequests = [];
+    for (const role of meeting.roles) {
+      for (const req of role.requests) allRequests.push({ ...req, roleName: role.roleName });
     }
+    allRequests.sort((a, b) => a.memberName.localeCompare(b.memberName));
+
+    list.innerHTML = allRequests.map((req) => {
+        const roleName = req.roleName;
+        const priorityClass = req.priority === 1 ? " tmp-priority-badge--p1" : "";
+        const recommendedBadge = req.isRecommended
+          ? '<span class="tmp-priority-badge tmp-priority-badge--recommended">✓ Recommended</span>'
+          : "";
+        const reasonsHtml = req.reasons && req.reasons.length > 0
+          ? `<div class="tmp-request-reasons">${req.reasons.map((r) => `<span class="tmp-priority-badge">${esc(r)}</span>`).join("")}</div>`
+          : "";
+        return `<div class="tmp-request-card">
+          <div class="tmp-request-main">
+            <strong>${esc(req.memberName)}</strong> (L${req.memberLevel}, ${esc(req.pathway)}) requested <strong>${esc(roleName)}</strong>
+            <span class="tmp-priority-badge${priorityClass}">P${req.priority}</span>
+            ${recommendedBadge}
+            ${reasonsHtml}
+          </div>
+          <div class="tmp-request-actions">
+            <button class="tmp-icon-btn tmp-icon-btn--approve" type="button" data-approve-request="${req.requestId}" data-member-id="${req.memberId}" data-meeting-id="${req.meetingId}" data-role-name="${esc(roleName)}" title="Approve">✓</button>
+          </div>
+        </div>`;
+      }).join("");
 
     // Register the approve-click handler only once per root element.
     // renderPendingRequests is called after every approval, so without this guard
@@ -3546,7 +3484,6 @@
         const roleName = btn.dataset.roleName;
 
         btn.disabled = true;
-        btn.textContent = "Approving...";
         try {
           await api("/requests/approve-and-cascade-reject", {
             method: "POST",
@@ -3563,7 +3500,6 @@
         } catch (err) {
           alert("Error: " + err.message);
           btn.disabled = false;
-          btn.textContent = "Approve";
         }
       });
     }
@@ -3724,13 +3660,12 @@
         ttSpeakerList.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.88rem;">No TT speakers added yet.</p>';
         return;
       }
-      ttSpeakerList.innerHTML = '<ol class="tmp-tt-speaker-list">' +
-        speakers.map(s => `
-          <li class="tmp-tt-speaker-row">
-            <span>${esc(s.display_name)}</span>
-            <button class="tmp-link-button tmp-tt-remove" data-id="${s.id}" style="color:var(--tmp-burgundy);font-size:0.8rem;"
-              ${s.vote_count > 0 ? 'disabled title="Has votes — cannot remove"' : ''}>remove</button>
-          </li>`).join('') + '</ol>';
+      ttSpeakerList.innerHTML = '<div class="tmp-chip-list">' +
+        speakers.map((s, i) => `
+          <span class="tmp-chip">${i + 1}. ${esc(s.display_name)}
+            <button type="button" class="tmp-tt-remove" data-id="${s.id}"
+              ${s.vote_count > 0 ? 'disabled title="Has votes — cannot remove"' : 'title="Remove"'}>✕</button>
+          </span>`).join('') + '</div>';
 
       panel.querySelectorAll('.tmp-tt-remove:not([disabled])').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -4016,6 +3951,15 @@
     const completeBtn          = qs('[data-tmp-complete-meeting-btn]', panel);
     const saveStatus           = qs('[data-tmp-wrapup-save-status]', panel);
     const feedbackEmailStatus  = qs('[data-tmp-speaker-feedback-email-status]', panel);
+    const statRolesEl   = qs('[data-tmp-stat-roles]', panel);
+    const statPresentEl = qs('[data-tmp-stat-present]', panel);
+    const statGuestsEl  = qs('[data-tmp-stat-guests]', panel);
+
+    function updateWrapupStats() {
+      if (statRolesEl)   statRolesEl.textContent   = rolePerformers.length;
+      if (statPresentEl) statPresentEl.textContent = rolePerformers.length + walkinList.querySelectorAll('[data-walkin-id]').length;
+      if (statGuestsEl)  statGuestsEl.textContent  = guestsList.querySelectorAll('[data-guest-name]').length;
+    }
 
     let currentMeetingId  = null;
     let otherMembers      = [];
@@ -4081,6 +4025,8 @@
       // ── Guests ────────────────────────────────────────────────────────────
       guestsList.innerHTML = '';
       (data.guests || []).forEach(g => appendGuestRow(g.guest_name));
+
+      updateWrapupStats();
     }
 
     // ── Walk-in member search ─────────────────────────────────────────────────
@@ -4097,8 +4043,10 @@
       chip.querySelector('button').addEventListener('click', () => {
         chip.remove();
         refreshWalkinSearch();
+        updateWrapupStats();
       });
       walkinList.appendChild(chip);
+      updateWrapupStats();
     }
 
     function refreshWalkinSearch() {
@@ -4141,13 +4089,14 @@
 
     // ── Guests ────────────────────────────────────────────────────────────────
     function appendGuestRow(name) {
-      const row = document.createElement('div');
-      row.className = 'tmp-wrapup-guest-row';
+      const row = document.createElement('span');
+      row.className = 'tmp-chip';
       row.dataset.guestName = name;
-      row.innerHTML = `<span>👤 ${esc(name)}</span>
-        <button class="tmp-link-button tmp-wrapup-remove-guest" style="color:var(--tmp-burgundy);" aria-label="Remove">✕</button>`;
-      row.querySelector('.tmp-wrapup-remove-guest').addEventListener('click', () => row.remove());
+      row.innerHTML = `${esc(name)}
+        <button type="button" class="tmp-wrapup-remove-guest" aria-label="Remove">✕</button>`;
+      row.querySelector('.tmp-wrapup-remove-guest').addEventListener('click', () => { row.remove(); updateWrapupStats(); });
       guestsList.appendChild(row);
+      updateWrapupStats();
     }
 
     addGuestBtn.addEventListener('click', () => {
@@ -5390,22 +5339,20 @@
     }
   }
 
-  function updateMembersTabBadge(root) {
-    const badge = qs('[data-tab-badge="members"]', root);
-    if (!badge) return;
-    const total = root._pendingRolesCount || 0;
-    badge.textContent = total;
-    badge.style.display = total > 0 ? "inline-flex" : "none";
-  }
-
-  // Meetings tab badge — lights up when today has a meeting still needing attention
-  // (voting/wrap-up), for both VPE and Ex Com. Reuses the meeting list renderMeetings()
-  // already fetched, rather than a separate API call.
+  // Meetings tab badge — shows the pending-request count for the selected meeting if any
+  // (set by renderPendingRequests via root._pendingRolesCount), else lights up with "!" when
+  // today has a meeting still needing attention (voting/wrap-up). Shared by VPE and Ex Com.
   function updateMeetingsTabBadge(root, meetings) {
     const badge = qs('[data-tab-badge="meetings"]', root);
     if (!badge) return;
+    const pending = root._pendingRolesCount || 0;
+    if (pending > 0) {
+      badge.textContent = pending;
+      badge.style.display = "inline-flex";
+      return;
+    }
     const today = localDateStr(new Date());
-    const needsAttention = (meetings || []).some((m) => m.meeting_date === today && !isWrapped(m));
+    const needsAttention = (meetings || root._meetings || []).some((m) => m.meeting_date === today && !isWrapped(m));
     badge.textContent = "!";
     badge.style.display = needsAttention ? "inline-flex" : "none";
   }
@@ -5571,7 +5518,7 @@
   initVotingPage();
   initMeetingHubPage();
   initAdmin();
-  initVPEducation();
+  initVPEducation().catch((err) => console.error("[TMPortal] initVPEducation() THREW — this stops everything after the failure point in that function:", err));
   initEnrolment();
   initVotingPanel();
   initWrapUpPanel();

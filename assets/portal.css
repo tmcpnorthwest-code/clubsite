@@ -1680,3 +1680,362 @@
 .tmp-stage-badge--dayof  { background: #eef4fa; color: #1e4a6e; }
 .tmp-stage-badge--done   { background: #e8f5e9; color: #2e7d32; }
 .tmp-stage-badge--urgent { background: #fff8e1; color: #ef6c00; }
+
+/* ── Meeting form: sectioned groups ─────────────────────────────────────── */
+.tmp-form-section { margin-bottom: 20px; }
+.tmp-form-section:last-child { margin-bottom: 0; }
+.tmp-form-section-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tmp-teal);
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tmp-form-section-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--tmp-line);
+}
+.tmp-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.tmp-field-grid > label { margin: 0; }
+.tmp-field-wide { grid-column: 1 / -1; }
+
+/* ── Role slot pill picker ───────────────────────────────────────────────── */
+.tmp-role-picker-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.tmp-role-picker-tabs .tmp-link-button {
+  padding: 6px 13px;
+  border-radius: 20px;
+  border: 1px solid var(--tmp-line);
+  background: var(--tmp-surface);
+  color: var(--tmp-muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+.tmp-role-picker-tabs .tmp-link-button--active {
+  background: #eef4fa;
+  color: #1e4a6e;
+  border-color: #1e4a6e;
+}
+
+/* ── Stepper control (speech/adhoc/fun slot counts) ─────────────────────── */
+.tmp-stepper-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.tmp-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--tmp-line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.tmp-stepper .tmp-stepper-label { font-size: 0.82rem; font-weight: 600; }
+.tmp-stepper-controls { display: flex; align-items: center; gap: 8px; }
+.tmp-stepper-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--tmp-line);
+  background: var(--tmp-canvas);
+  color: var(--tmp-ink);
+  font-weight: 800;
+  cursor: pointer;
+  line-height: 1;
+}
+.tmp-stepper-val {
+  min-width: 20px;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.tmp-stepper input[type="number"] { display: none; }
+
+/* ── Role Assignment: cards instead of a table ──────────────────────────── */
+.tmp-role-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--tmp-line);
+}
+.tmp-role-card:last-child { border-bottom: none; }
+.tmp-role-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #eef4fa;
+  color: #1e4a6e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+.tmp-role-avatar--empty {
+  background: var(--tmp-canvas);
+  color: var(--tmp-line);
+  border: 2px dashed var(--tmp-line);
+}
+.tmp-role-main { flex: 1; min-width: 0; }
+.tmp-role-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.tmp-role-name { font-weight: 700; font-size: 0.92rem; }
+.tmp-role-badges { display: flex; gap: 5px; flex-wrap: wrap; }
+.tmp-role-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.tmp-role-badge--warn   { background: #fff8e1; color: #ef6c00; }
+.tmp-role-badge--danger { background: #ffebee; color: #c62828; }
+.tmp-role-picker-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.tmp-role-picker-row select {
+  flex: 1;
+  min-width: 180px;
+  padding: 7px 9px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 7px;
+  font-size: 0.85rem;
+}
+.tmp-role-meta { display: flex; align-items: center; gap: 6px; }
+.tmp-role-meta .tmp-role-meta-label { font-size: 0.72rem; color: var(--tmp-muted); white-space: nowrap; }
+.tmp-role-meta input {
+  width: 56px;
+  padding: 6px 7px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  text-align: center;
+}
+.tmp-role-remove {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--tmp-line);
+  background: transparent;
+  color: var(--tmp-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.tmp-role-remove:hover { border-color: var(--tmp-burgundy); color: var(--tmp-burgundy); }
+.tmp-role-speech-title {
+  margin-top: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+/* ── Pending Role Requests (Setup) ───────────────────────────────────────── */
+.tmp-request-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--tmp-line);
+  flex-wrap: wrap;
+}
+.tmp-request-card:last-child { border-bottom: none; }
+.tmp-request-main { flex: 1; min-width: 220px; font-size: 0.87rem; }
+.tmp-request-reasons { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+.tmp-priority-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: var(--tmp-canvas);
+  color: var(--tmp-muted);
+  border: 1px solid var(--tmp-line);
+  white-space: nowrap;
+}
+.tmp-priority-badge--p1 { background: #e8f5e9; color: #2e7d32; border-color: transparent; }
+.tmp-priority-badge--recommended { background: #2e7d32; color: #fff; border-color: transparent; }
+.tmp-request-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.tmp-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--tmp-line);
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--tmp-ink);
+}
+.tmp-icon-btn--approve:hover { border-color: #2e7d32; color: #2e7d32; background: #e8f5e9; }
+.tmp-icon-btn--deny:hover    { border-color: var(--tmp-burgundy); color: var(--tmp-burgundy); background: #ffebee; }
+.tmp-icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Members tab ─────────────────────────────────────────────────────────── */
+.tmp-stat-strip { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.tmp-stat-pill {
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+.tmp-stat-pill--muted { background: var(--tmp-canvas); color: var(--tmp-muted); font-weight: 600; }
+.tmp-m-name-cell { display: flex; align-items: center; gap: 10px; }
+.tmp-m-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #eef4fa;
+  color: #1e4a6e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.74rem;
+  flex-shrink: 0;
+}
+.tmp-m-name-stack .tmp-m-name { font-weight: 700; }
+.tmp-m-name-stack .tmp-m-path { font-size: 0.76rem; color: var(--tmp-muted); }
+.tmp-status-pill {
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.tmp-status-pill--ready    { background: #e8f5e9; color: #2e7d32; }
+.tmp-status-pill--progress { background: #fff3e0; color: #e65100; }
+.tmp-status-pill--stuck    { background: #ffebee; color: #c62828; }
+.tmp-status-pill--level    { background: #e8eaf6; color: #303f9f; }
+.tmp-no-mentor { color: var(--tmp-burgundy); font-size: 0.82rem; font-weight: 600; }
+.tmp-row-actions { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+
+/* ── Chip lists (Day-of Table Topics / Wrap-up walk-ins & guests) ───────── */
+.tmp-chip-list { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0 4px; }
+.tmp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  background: color-mix(in srgb, var(--tmp-teal) 12%, transparent);
+  color: var(--tmp-teal);
+  border: 1px solid color-mix(in srgb, var(--tmp-teal) 30%, transparent);
+}
+.tmp-chip button {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0;
+  font-size: 0.85em;
+}
+.tmp-chip button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Wrap-up stat tiles ──────────────────────────────────────────────────── */
+.tmp-wrapup-stat-row { display: flex; gap: 24px; margin-bottom: 14px; flex-wrap: wrap; }
+.tmp-wrapup-stat { font-size: 0.84rem; }
+.tmp-wrapup-stat b { display: block; font-size: 1.4rem; font-variant-numeric: tabular-nums; }
+
+/* ── My Dashboard: milestone step-track ─────────────────────────────────── */
+.tmp-milestone-track { display: flex; align-items: flex-start; }
+.tmp-m-item { flex: 1; text-align: center; position: relative; font-size: 0.68rem; font-weight: 600; color: var(--tmp-muted); }
+.tmp-m-item::before {
+  content: "";
+  position: absolute;
+  top: 11px;
+  left: -50%;
+  width: 100%;
+  height: 2px;
+  background: var(--tmp-line);
+  z-index: -1;
+}
+.tmp-m-item:first-child::before { display: none; }
+.tmp-m-item .tmp-m-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--tmp-canvas);
+  border: 2px solid var(--tmp-line);
+  margin: 0 auto 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: var(--tmp-muted);
+}
+.tmp-m-item.tmp-done { color: var(--tmp-ink); }
+.tmp-m-item.tmp-done .tmp-m-dot { background: #2e7d32; border-color: #2e7d32; color: #fff; }
+.tmp-m-item.tmp-done::before { background: #2e7d32; }
+.tmp-m-item.tmp-active { color: var(--tmp-ink); }
+.tmp-m-item.tmp-active .tmp-m-dot { background: var(--tmp-teal); border-color: var(--tmp-teal); color: #fff; }
+
+/* ── My Dashboard: mentor card ───────────────────────────────────────────── */
+.tmp-mentor-row { display: flex; align-items: center; gap: 12px; }
+.tmp-mentor-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #eef4fa;
+  color: #1e4a6e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.tmp-mentor-name { font-weight: 700; }
+.tmp-mentor-meta { font-size: 0.8rem; color: var(--tmp-muted); }
+.tmp-role-check { display: flex; align-items: center; gap: 8px; margin: 5px 0; font-size: 0.86rem; }
+.tmp-role-check .tmp-rc-mark { width: 1.1em; text-align: center; flex-shrink: 0; }
+.tmp-role-check.tmp-met .tmp-rc-mark { color: #2e7d32; }
+.tmp-role-check:not(.tmp-met) .tmp-rc-mark { color: var(--tmp-line); }
+.tmp-role-check:not(.tmp-met) .tmp-rc-name { color: var(--tmp-muted); }
+.tmp-role-check .tmp-rc-action { margin-left: auto; font-size: 0.76rem; }
+
+/* ── My Dashboard: Meeting Activity pill-tabs ───────────────────────────── */
+.tmp-activity-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+.tmp-activity-tabs button {
+  padding: 7px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--tmp-line);
+  background: var(--tmp-surface);
+  color: var(--tmp-muted);
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+  font-family: inherit;
+}
+.tmp-activity-tabs button.tmp-activity-tab--active { background: #eef4fa; color: #1e4a6e; border-color: #1e4a6e; }
+
+/* ── My Dashboard: request/history rows ─────────────────────────────────── */
+.tmp-req-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--tmp-line); font-size: 0.86rem; flex-wrap: wrap; }
+.tmp-req-card:last-child { border-bottom: none; }
+.tmp-req-status { font-size: 0.72rem; font-weight: 700; padding: 2px 9px; border-radius: 20px; white-space: nowrap; }
+.tmp-req-status--approved { background: #e8f5e9; color: #2e7d32; }
+.tmp-req-status--rejected { background: #ffebee; color: #c62828; }
+.tmp-req-status--pending  { background: #fff3e0; color: #e65100; }
+.tmp-history-row { display: flex; justify-content: space-between; gap: 10px; font-size: 0.84rem; padding: 7px 0; border-bottom: 1px solid var(--tmp-line); color: var(--tmp-muted); flex-wrap: wrap; }
+.tmp-history-row:last-child { border-bottom: none; }
+.tmp-history-row strong { color: var(--tmp-ink); }

@@ -4689,7 +4689,7 @@ class TMP_Repository {
             'general evaluator', 'evaluator',
             'table topics master', 'table topics speaker',
             'introductory mentor', 'intro mentor',
-            'presiding officer', 'educational presentation',
+            'educational presentation',
             'active listener',
         ];
         foreach ($service_patterns as $p) {

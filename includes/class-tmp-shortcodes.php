@@ -47,6 +47,7 @@ class TMP_Shortcodes {
         wp_enqueue_style('tmp-portal');
         wp_enqueue_script('tmp-portal');
         wp_localize_script('tmp-portal', 'TMPortal', [
+            'pluginVersion'  => TMP_VERSION,
             'restUrl'        => esc_url_raw(rest_url('toastmasters/v1')),
             'nonce'          => wp_create_nonce('wp_rest'),
             'standardRoles'  => TMP_Repository::get_standard_roles(),
@@ -109,10 +110,7 @@ class TMP_Shortcodes {
             <nav class="tmp-tab-nav" data-tmp-tab-nav>
                 <button class="tmp-tab-btn" data-tab="dashboard">My Dashboard</button>
                 <?php if ($can_manage_meetings): ?>
-                <button class="tmp-tab-btn" data-tab="members">
-                    Members
-                    <span class="tmp-tab-badge" data-tab-badge="members" style="display:none;"></span>
-                </button>
+                <button class="tmp-tab-btn" data-tab="members">Members</button>
                 <?php endif; ?>
                 <button class="tmp-tab-btn" data-tab="meetings">
                     Meetings
@@ -277,12 +275,12 @@ class TMP_Shortcodes {
                 <article class="tmp-panel">
                     <h3>My Milestones</h3>
                     <div class="tmp-milestone-track" data-tmp-milestones>
-                        <div class="tmp-m-item" data-m="joined">Joined</div>
-                        <div class="tmp-m-item" data-m="orientation">Orientation</div>
-                        <div class="tmp-m-item" data-m="first_role">First Role</div>
-                        <div class="tmp-m-item" data-m="icebreaker_draft">Ice Breaker Draft</div>
-                        <div class="tmp-m-item" data-m="icebreaker_delivered">Ice Breaker Delivered</div>
-                        <div class="tmp-m-item" data-m="level1_completed">Level 1 Completed</div>
+                        <div class="tmp-m-item" data-m="joined"><span class="tmp-m-dot"></span>Joined</div>
+                        <div class="tmp-m-item" data-m="orientation"><span class="tmp-m-dot"></span>Orientation</div>
+                        <div class="tmp-m-item" data-m="first_role"><span class="tmp-m-dot"></span>First Role</div>
+                        <div class="tmp-m-item" data-m="icebreaker_draft"><span class="tmp-m-dot"></span>Ice Breaker Draft</div>
+                        <div class="tmp-m-item" data-m="icebreaker_delivered"><span class="tmp-m-dot"></span>Ice Breaker Delivered</div>
+                        <div class="tmp-m-item" data-m="level1_completed"><span class="tmp-m-dot"></span>Level 1 Completed</div>
                     </div>
                 </article>
 
@@ -293,16 +291,10 @@ class TMP_Shortcodes {
                     <div data-tmp-mentorship-checklist style="margin-top:16px;"></div>
                 </article>
 
-                <!-- Your Progress to Level X — compact summary (all levels L1–L5) -->
-                <article class="tmp-panel" data-tmp-progress-summary-panel style="display:none;">
-                    <h3 style="margin-bottom:16px;">Your Progress to Level <span data-tmp-progress-level></span></h3>
-                    <div data-tmp-progress-summary>Loading...</div>
-                </article>
-
-                <!-- Next Action (fallback, hidden once progress summary loads) -->
-                <article class="tmp-panel" data-tmp-next-action-panel>
-                    <h3>Next Action</h3>
-                    <p data-tmp-next-action></p>
+                <!-- Your Progress to Level X — consolidated speech + role progress -->
+                <article class="tmp-panel" data-tmp-level-status-panel>
+                    <h3 style="margin-bottom:16px;">Your Progress to Level <span data-tmp-next-level></span></h3>
+                    <div data-tmp-level-status>Loading...</div>
                 </article>
 
                 <!-- Meeting Activity — expandable card, collapsed by default -->
@@ -313,33 +305,38 @@ class TMP_Shortcodes {
                         <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
                     </button>
                     <div data-tmp-meeting-body style="display:none;">
+                        <div class="tmp-activity-tabs">
+                            <button class="tmp-activity-tab--btn tmp-activity-tab--active" data-tmp-activity-tab="active-requests">Active Requests</button>
+                            <button class="tmp-activity-tab--btn" data-tmp-activity-tab="assigned-roles">Assigned Roles</button>
+                            <button class="tmp-activity-tab--btn" data-tmp-activity-tab="role-history">Role History</button>
+                            <button class="tmp-activity-tab--btn" data-tmp-activity-tab="request-role">Request a Role</button>
+                        </div>
 
-                        <section class="tmp-meeting-section" data-tmp-active-requests-section>
-                            <h4>Your Active Requests</h4>
+                        <section class="tmp-activity-tab--body" data-tmp-activity-tab-body="active-requests" data-tmp-active-requests-section>
                             <div data-tmp-active-requests>Loading requests...</div>
                         </section>
 
-                        <section class="tmp-meeting-section" data-tmp-assigned-roles-section style="display:none;">
-                            <h4>Your Assigned Roles</h4>
+                        <section class="tmp-activity-tab--body" data-tmp-activity-tab-body="assigned-roles" style="display:none;" data-tmp-assigned-roles-section>
                             <div data-tmp-assigned-roles>Loading assignments...</div>
                         </section>
 
-                        <section class="tmp-meeting-section">
-                            <h4>Role History</h4>
+                        <section class="tmp-activity-tab--body" data-tmp-activity-tab-body="role-history" style="display:none;">
                             <div data-tmp-role-history>Loading history...</div>
                         </section>
 
-                        <!-- Request a Role — top-level section -->
-                        <section class="tmp-meeting-section" data-tmp-request-section>
-                            <h4>Request a Role</h4>
+                        <section class="tmp-activity-tab--body" data-tmp-activity-tab-body="request-role" style="display:none;" data-tmp-request-section>
                             <form class="tmp-form" data-tmp-member-request-form style="background:none;border:none;padding:0;">
                                 <div data-tmp-deadline-info style="margin-bottom:12px;"></div>
                                 <div data-tmp-dupe-request-warning style="margin-bottom:12px;"></div>
-                                <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
-                                    <label>Meeting
+                                <div class="tmp-form-section">
+                                    <label class="tmp-form-section-label">Meeting</label>
+                                    <div class="tmp-field-grid">
                                         <select name="meeting_id" required data-tmp-req-meeting-select></select>
-                                    </label>
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;" data-tmp-role-selection-section>
+                                    </div>
+                                </div>
+                                <div class="tmp-form-section">
+                                    <label class="tmp-form-section-label">Priorities</label>
+                                    <div class="tmp-field-grid" data-tmp-role-selection-section>
                                         <label>Priority 1 <select name="priorities[]" required data-tmp-req-role-select></select></label>
                                         <label>Priority 2 <select name="priorities[]" data-tmp-req-role-select></select></label>
                                         <label>Priority 3 <select name="priorities[]" data-tmp-req-role-select></select></label>
@@ -350,13 +347,6 @@ class TMP_Shortcodes {
                                     <button class="tmp-button tmp-primary" type="submit" style="width:100%;">Submit Request</button>
                                 </div>
                             </form>
-                        </section>
-
-                        <!-- Your Progress (shown in upper panel, old sections removed) -->
-                        <section class="tmp-meeting-section" data-tmp-level-journey-panel style="display:none;">
-                            <h4 style="margin-top:0;">Your Progress to Level <span data-tmp-next-level></span></h4>
-                            <div data-tmp-level-status></div>
-                            <div data-tmp-level-journey></div>
                         </section>
 
                     </div><!-- /data-tmp-meeting-body -->
@@ -473,32 +463,15 @@ class TMP_Shortcodes {
             <!-- ══ MEMBERS TAB ══ -->
             <div data-tab-body="members" style="display:none;">
 
-                <!-- Pending Role Requests — collapsible, auto-expands when there are requests -->
-                <section class="tmp-panel">
-                    <button class="tmp-collapsible-toggle" data-tmp-requests-toggle aria-expanded="false">
-                        Pending Role Requests
-                        <span data-tmp-request-count class="tmp-badge" style="display:none;margin-left:6px;"></span>
-                        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
-                    </button>
-                    <div data-tmp-requests-body style="display:none;padding-top:12px;">
-                        <div style="margin-bottom:12px;">
-                            <button class="tmp-button tmp-primary" data-tmp-approve-all-btn style="display:none;">Approve All Recommended</button>
-                        </div>
-                        <div data-tmp-vpe-requests>Loading requests...</div>
-                    </div>
-                </section>
-
                 <!-- Unified member table: all levels, speech/role progress for L1–L5, mentor column -->
                 <section class="tmp-panel">
-                    <div class="tmp-card-head">
-                        <h3>Members</h3>
-                        <div style="display:flex;gap:12px;align-items:center;">
-                            <span data-tmp-vpe-ready-count style="color:var(--tmp-teal);font-weight:700;font-size:0.9rem;"></span>
-                            <span data-tmp-vpe-member-count style="color:var(--tmp-muted);font-size:0.88rem;">0 members</span>
-                        </div>
+                    <h3 style="margin:0 0 4px;">Members</h3>
+                    <div class="tmp-stat-strip">
+                        <span class="tmp-stat-pill" data-tmp-vpe-ready-count style="display:none;"></span>
+                        <span class="tmp-stat-pill tmp-stat-pill--muted" data-tmp-vpe-member-count>0 members</span>
                     </div>
                     <div data-tmp-unmentored-alert></div>
-                    <div class="tmp-admin-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;background:#f9f9f9;padding:10px;border-radius:4px;border:1px solid #eee;">
+                    <div class="tmp-admin-filters" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
                         <input type="text" data-tmp-vpe-search placeholder="Search by name or email..." style="flex:1;min-width:180px;">
                         <select data-tmp-vpe-pathway>
                             <option value="all">All Pathways</option>
@@ -587,7 +560,11 @@ class TMP_Shortcodes {
                 <?php if ($can_manage_meetings): ?>
                 <div data-tmp-stage-body="setup">
                 <section class="tmp-panel">
-                    <h3 style="margin:0 0 14px;">Meeting Management</h3>
+                    <button class="tmp-collapsible-toggle" data-tmp-details-card-toggle aria-expanded="true" style="width:100%;text-align:left;">
+                        <span>Meeting Details</span>
+                        <span class="tmp-chevron" aria-hidden="true" style="transform:rotate(90deg);">&#9658;</span>
+                    </button>
+                    <div data-tmp-details-card-body style="display:block;margin-top:14px;">
 
                     <!-- Meeting form — shown collapsed in edit mode or expanded in create mode -->
                     <div data-tmp-meeting-form-wrap style="display:none;margin-bottom:14px;">
@@ -598,31 +575,79 @@ class TMP_Shortcodes {
                         <div data-tmp-meeting-form-body style="display:none;margin-top:14px;">
                         <form class="tmp-form" data-tmp-meeting-form>
                             <input type="hidden" name="id" />
-                            <label>Chapter Meeting # <input type="number" name="chapter_number" min="1" placeholder="e.g. 477" style="width:120px;" /></label>
-                            <label>Meeting date <input type="date" name="meeting_date" required /></label>
-                            <label>Start time <input type="time" name="start_time" value="18:30" /></label>
-                            <label>Total Duration (mins) <input type="number" name="total_duration" value="120" min="0" /></label>
-                            <label>Requests deadline <input type="datetime-local" name="requests_close_at" /></label>
-                            <label>Theme <input name="theme" required placeholder="Meeting theme" /></label>
-                            <label>Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
-                            <div class="tmp-wide tmp-roles-setup" style="margin:10px 0;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;">
-                                <p class="tmp-eyebrow" data-tmp-roles-setup-label>Role Slots</p>
-                                <p style="font-size:12px;color:#555;margin:0 0 8px;">
-                                    <span data-tmp-roles-setup-hint>Using standard agenda with all roles.</span>
-                                    <button type="button" class="tmp-link-button" data-tmp-customise-roles style="margin-left:6px;font-size:12px;">Customise roles ▾</button>
-                                    <button type="button" class="tmp-link-button" data-tmp-custom-meeting-preset style="margin-left:6px;font-size:12px;">Custom Meeting (limited roles) ▾</button>
-                                </p>
-                                <div data-tmp-roles-grid style="display:none;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px;">
-                                    <?php foreach (TMP_Repository::get_standard_roles() as $fullName => $shortName) : ?>
-                                        <label><input type="checkbox" name="roles[]" value="<?php echo esc_attr($fullName); ?>" checked> <?php echo esc_html($shortName); ?></label>
-                                    <?php endforeach; ?>
+
+                            <div class="tmp-wide tmp-form-section">
+                                <p class="tmp-form-section-label">Basics</p>
+                                <div class="tmp-field-grid">
+                                    <label>Chapter Meeting # <input type="number" name="chapter_number" min="1" placeholder="e.g. 477" /></label>
+                                    <label class="tmp-field-wide">Theme <input name="theme" required placeholder="Meeting theme" /></label>
+                                    <label class="tmp-field-wide">Venue or link <input name="venue" placeholder="Room, address, or meeting link" /></label>
                                 </div>
-                                <label>Number of Speech Slots <input type="number" name="speech_slots" value="3" min="0" max="10" /></label>
-                                <label>Number of Ad Hoc Speakers (guests — keynote, opening/closing, etc.) <input type="number" name="adhoc_slots" value="0" min="0" max="10" /></label>
-                                <label>Number of Fun Sessions <input type="number" name="fun_slots" value="0" min="0" max="5" /></label>
-                                <p style="font-size:11px;color:#666;margin-top:5px;">* This will automatically create matching Evaluator slots. Table Topics Speakers are added live via the Voting panel during the meeting. Ad Hoc Speakers and Fun Session organizers are assigned by name (they don't need club member accounts) from the Role Assignment panel below.</p>
                             </div>
-                            <label class="tmp-wide">Agenda notes <textarea name="agenda_notes" rows="2"></textarea></label>
+
+                            <div class="tmp-wide tmp-form-section">
+                                <p class="tmp-form-section-label">Schedule</p>
+                                <div class="tmp-field-grid">
+                                    <label>Meeting date <input type="date" name="meeting_date" required /></label>
+                                    <label>Start time <input type="time" name="start_time" value="18:30" /></label>
+                                    <label>Total Duration (mins) <input type="number" name="total_duration" value="120" min="0" /></label>
+                                    <label>Requests deadline <input type="datetime-local" name="requests_close_at" /></label>
+                                </div>
+                            </div>
+
+                            <div class="tmp-wide tmp-form-section">
+                                <div class="tmp-roles-setup" style="padding:12px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;">
+                                    <p class="tmp-form-section-label" data-tmp-roles-setup-label>Role Slots</p>
+                                    <p style="font-size:12px;color:#555;margin:0 0 10px;">
+                                        <span data-tmp-roles-setup-hint>Using standard agenda with all roles.</span>
+                                    </p>
+                                    <div class="tmp-role-picker-tabs">
+                                        <button type="button" class="tmp-link-button" data-tmp-customise-roles>Customise roles ▾</button>
+                                        <button type="button" class="tmp-link-button" data-tmp-custom-meeting-preset>Custom Meeting (limited roles) ▾</button>
+                                    </div>
+                                    <div data-tmp-roles-grid style="display:none;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:12px;">
+                                        <?php foreach (TMP_Repository::get_standard_roles() as $fullName => $shortName) : ?>
+                                            <label><input type="checkbox" name="roles[]" value="<?php echo esc_attr($fullName); ?>" checked> <?php echo esc_html($shortName); ?></label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <div class="tmp-stepper-row">
+                                        <div class="tmp-stepper">
+                                            <span class="tmp-stepper-label">Speech Slots</span>
+                                            <div class="tmp-stepper-controls">
+                                                <button type="button" class="tmp-stepper-btn" data-tmp-stepper-dec="speech_slots">−</button>
+                                                <span class="tmp-stepper-val" data-tmp-stepper-val="speech_slots">3</span>
+                                                <button type="button" class="tmp-stepper-btn" data-tmp-stepper-inc="speech_slots">+</button>
+                                            </div>
+                                            <input type="number" name="speech_slots" value="3" min="0" max="10" />
+                                        </div>
+                                        <div class="tmp-stepper">
+                                            <span class="tmp-stepper-label">Ad Hoc Speakers</span>
+                                            <div class="tmp-stepper-controls">
+                                                <button type="button" class="tmp-stepper-btn" data-tmp-stepper-dec="adhoc_slots">−</button>
+                                                <span class="tmp-stepper-val" data-tmp-stepper-val="adhoc_slots">0</span>
+                                                <button type="button" class="tmp-stepper-btn" data-tmp-stepper-inc="adhoc_slots">+</button>
+                                            </div>
+                                            <input type="number" name="adhoc_slots" value="0" min="0" max="10" />
+                                        </div>
+                                        <div class="tmp-stepper">
+                                            <span class="tmp-stepper-label">Fun Sessions</span>
+                                            <div class="tmp-stepper-controls">
+                                                <button type="button" class="tmp-stepper-btn" data-tmp-stepper-dec="fun_slots">−</button>
+                                                <span class="tmp-stepper-val" data-tmp-stepper-val="fun_slots">0</span>
+                                                <button type="button" class="tmp-stepper-btn" data-tmp-stepper-inc="fun_slots">+</button>
+                                            </div>
+                                            <input type="number" name="fun_slots" value="0" min="0" max="5" />
+                                        </div>
+                                    </div>
+                                    <p style="font-size:11px;color:#666;margin-top:8px;">* This will automatically create matching Evaluator slots. Table Topics Speakers are added live via the Voting panel during the meeting. Ad Hoc Speakers and Fun Session organizers are assigned by name (they don't need club member accounts) from the Role Assignment panel below.</p>
+                                </div>
+                            </div>
+
+                            <div class="tmp-wide tmp-form-section">
+                                <p class="tmp-form-section-label">Agenda notes</p>
+                                <label class="tmp-wide">Notes <textarea name="agenda_notes" rows="2"></textarea></label>
+                            </div>
+
                             <div class="tmp-form-actions tmp-wide">
                                 <button class="tmp-button tmp-primary" type="submit">Save Meeting</button>
                                 <button class="tmp-button tmp-secondary" type="button" data-tmp-clear-meeting>Clear</button>
@@ -632,32 +657,52 @@ class TMP_Shortcodes {
                         </form>
                         </div>
                     </div>
+                    </div><!-- /data-tmp-details-card-body -->
+                </section>
 
-                    <!-- Role Assignment collapsible -->
-                    <div data-tmp-role-assignment-wrap style="display:none;margin-top:4px;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                            <button class="tmp-collapsible-toggle" data-tmp-role-assignment-toggle aria-expanded="true" style="flex:1;text-align:left;">
-                                <span>Role Assignment</span>
-                                <span class="tmp-chevron" aria-hidden="true" style="transform:rotate(90deg);">&#9658;</span>
-                            </button>
-                            <button type="button" class="tmp-small-button" data-tmp-rebuild-agenda title="Rebuild the agenda in the standard prescribed order, preserving all member assignments">Rebuild Agenda</button>
-                        </div>
-                        <div data-tmp-role-assignment-body style="display:block;margin-top:14px;">
-                            <div data-tmp-role-status-panel></div>
-                        </div>
+                <!-- Pending Role Requests — scoped to the currently-selected meeting -->
+                <section class="tmp-panel">
+                    <button class="tmp-collapsible-toggle" data-tmp-requests-card-toggle aria-expanded="true" style="width:100%;text-align:left;">
+                        <span>Pending Role Requests</span>
+                        <span data-tmp-request-count class="tmp-badge" style="display:none;margin-left:6px;"></span>
+                        <span class="tmp-chevron" aria-hidden="true" style="transform:rotate(90deg);">&#9658;</span>
+                    </button>
+                    <div data-tmp-requests-card-body style="display:block;margin-top:14px;">
+                    <div style="margin-bottom:12px;">
+                        <button class="tmp-button tmp-primary" data-tmp-approve-all-btn style="display:none;">Approve All Recommended</button>
                     </div>
+                    <div data-tmp-vpe-requests>Loading requests...</div>
+                    </div><!-- /data-tmp-requests-card-body -->
+                </section>
 
-                    <!-- Agenda collapsible — shows selected meeting's timeline read-only -->
-                    <div data-tmp-meeting-agenda-wrap style="display:none;margin-top:16px;">
-                        <button class="tmp-collapsible-toggle" data-tmp-agenda-toggle aria-expanded="false" style="width:100%;text-align:left;">
-                            <span>Agenda</span>
-                            <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+                <!-- Role Assignment -->
+                <div data-tmp-role-assignment-wrap style="display:none;">
+                <section class="tmp-panel">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                        <button class="tmp-collapsible-toggle" data-tmp-role-card-toggle aria-expanded="true" style="flex:1;text-align:left;">
+                            <span>Role Assignment</span>
+                            <span class="tmp-chevron" aria-hidden="true" style="transform:rotate(90deg);">&#9658;</span>
                         </button>
-                        <div data-tmp-agenda-body style="display:none;margin-top:14px;">
-                            <div data-tmp-meeting-list></div>
-                        </div>
+                        <button type="button" class="tmp-small-button" data-tmp-rebuild-agenda title="Rebuild the agenda in the standard prescribed order, preserving all member assignments">Rebuild Agenda</button>
+                    </div>
+                    <div data-tmp-role-card-body style="display:block;margin-top:14px;">
+                        <div data-tmp-role-status-panel></div>
+                    </div><!-- /data-tmp-role-card-body -->
+                </section>
+                </div>
+
+                <!-- Agenda collapsible — shows selected meeting's timeline read-only -->
+                <div data-tmp-meeting-agenda-wrap style="display:none;">
+                <section class="tmp-panel">
+                    <button class="tmp-collapsible-toggle" data-tmp-agenda-toggle aria-expanded="false" style="width:100%;text-align:left;">
+                        <span>Agenda</span>
+                        <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
+                    </button>
+                    <div data-tmp-agenda-body style="display:none;margin-top:14px;">
+                        <div data-tmp-meeting-list></div>
                     </div>
                 </section>
+                </div>
                 </div><!-- /data-tmp-stage-body="setup" -->
                 <?php endif; ?>
 
@@ -774,14 +819,14 @@ class TMP_Shortcodes {
                         Uses the meeting selected above. Meeting Pulse on the home page updates once you complete this.
                     </p>
                     <div data-tmp-wrapup-content style="display:none;">
-                        <div style="background:#f5f9f5;border:1px solid #c8e6c9;border-radius:6px;padding:12px 14px;margin-bottom:20px;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-                                <div>
-                                    <p class="tmp-eyebrow" style="margin:0 0 2px;">Role Attendance</p>
-                                    <p data-tmp-role-attendance-count style="margin:0;font-size:0.88rem;color:var(--tmp-muted);">Loading…</p>
-                                </div>
-                                <button class="tmp-link-button" data-tmp-refresh-role-attendance style="font-size:0.82rem;color:var(--tmp-teal);">↺ Refresh from Assignments</button>
+                        <div style="margin-bottom:20px;">
+                            <div class="tmp-wrapup-stat-row">
+                                <div class="tmp-wrapup-stat"><b data-tmp-stat-roles>0</b>Roles performed</div>
+                                <div class="tmp-wrapup-stat"><b data-tmp-stat-present>0</b>Members present</div>
+                                <div class="tmp-wrapup-stat"><b data-tmp-stat-guests>0</b>Guests</div>
                             </div>
+                            <p data-tmp-role-attendance-count style="margin:6px 0 0;font-size:0.82rem;color:var(--tmp-muted);">Loading…</p>
+                            <button class="tmp-link-button" data-tmp-refresh-role-attendance style="font-size:0.82rem;color:var(--tmp-teal);margin-top:4px;">↺ Refresh from Assignments</button>
                         </div>
                         <div style="margin-bottom:20px;">
                             <p class="tmp-eyebrow" style="margin-bottom:6px;">Also Attended <span style="font-weight:400;font-size:0.78rem;color:var(--tmp-muted);">(no assigned role)</span></p>
@@ -798,7 +843,7 @@ class TMP_Shortcodes {
                                 <input type="text" data-tmp-guest-name placeholder="Guest name" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
                                 <button class="tmp-button tmp-primary" data-tmp-add-guest-btn style="flex-shrink:0;white-space:nowrap;padding:8px 14px;">+ Add Guest</button>
                             </div>
-                            <div data-tmp-guests-list style="margin-top:8px;"></div>
+                            <div data-tmp-guests-list class="tmp-chip-list" style="margin-top:0;"></div>
                         </div>
                         <div class="tmp-wrapup-actions">
                             <button class="tmp-button tmp-primary" data-tmp-complete-meeting-btn>&#10003; Complete Meeting</button>
