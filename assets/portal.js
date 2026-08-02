@@ -635,6 +635,7 @@
               <div>
                 <div style="font-weight:600;">${esc(r.role_name)}</div>
                 <div style="font-size:0.8rem;color:var(--tmp-muted);">${esc(r.meeting_date)} — ${esc(r.theme)}</div>
+                ${r.reason ? `<div style="font-size:0.78rem;color:var(--tmp-muted);margin-top:2px;">${esc(r.reason)}</div>` : ""}
               </div>
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <span style="font-size:0.75rem;padding:3px 8px;background:#f5f5f5;border-radius:12px;">P${esc(r.priority)}</span>
@@ -1202,6 +1203,158 @@
     const unifiedRows    = qs("[data-tmp-unified-rows]", root);
     const overviewCount  = qs("[data-tmp-vpe-member-count]", root);
     const readyCountEl   = qs("[data-tmp-vpe-ready-count]", root);
+    const selectAllMembersCb = qs("[data-tmp-select-all-members]", root);
+    const bulkEmailBar      = qs("[data-tmp-bulk-email-bar]", root);
+    const bulkEmailCountEl  = qs("[data-tmp-bulk-email-count]", root);
+    const bulkEmailBtn      = qs("[data-tmp-bulk-email-btn]", root);
+    const bulkEmailClearBtn = qs("[data-tmp-bulk-email-clear]", root);
+    const bulkEmailModal    = qs("[data-tmp-bulk-email-modal]", root);
+    const bulkEmailClose    = qs("[data-tmp-bulk-email-close]", root);
+    const bulkEmailForm     = qs("[data-tmp-bulk-email-form]", root);
+    const bulkEmailSubject  = qs("[data-tmp-bulk-email-subject]", root);
+    const bulkEmailStatus   = qs("[data-tmp-bulk-email-status]", root);
+    const bulkEmailRecipientsEl = qs("[data-tmp-bulk-email-recipients]", root);
+    const bulkEmailTemplateSel  = qs("[data-tmp-bulk-email-template]", root);
+    const orientationFields     = qs("[data-tmp-orientation-fields]", root);
+    const orientationDatetime   = qs("[data-tmp-orientation-datetime]", root);
+    const orientationMeetLink   = qs("[data-tmp-orientation-meet-link]", root);
+    const orientationApplyBtn   = qs("[data-tmp-orientation-apply]", root);
+    const selectedMemberIds = new Set(); // string member IDs, survives re-render across filter/sort changes
+
+    function getBulkEditor() {
+      return window.tinymce?.get("tmp_bulk_email_body") || null;
+    }
+    function setBulkEditorContent(html) {
+      const editor = getBulkEditor();
+      if (editor) editor.setContent(html);
+      const ta = qs("#tmp_bulk_email_body", root.ownerDocument);
+      if (ta) ta.value = html;
+    }
+
+    const EMAIL_TEMPLATES = {
+      announcement: {
+        subject: "Update from Toastmasters Club of Pune North West",
+        body: () =>
+          `<p>Hi {{name}},</p><p>&nbsp;</p><p>[Write your announcement here.]</p><p>&nbsp;</p><p>Regards,<br>VP Education</p>`,
+      },
+      orientation: {
+        subject: "You're invited: New Member Orientation",
+        body: (o) =>
+          `<p>Hi {{name}},</p><p>&nbsp;</p>`
+          + `<p>You're invited to our new member orientation session${o.datetime ? ` on <strong>${esc(o.datetime)}</strong>` : ""}.</p>`
+          + (o.meetLink ? `<p>Join via Google Meet: <a href="${esc(o.meetLink)}">${esc(o.meetLink)}</a></p>` : `<p>[Add the Google Meet link above and click "Insert into message".]</p>`)
+          + `<p>We'll walk you through how the club runs, how Pathways works, and how to request your first role.</p>`
+          + `<p>Looking forward to meeting you there!</p><p>&nbsp;</p><p>Regards,<br>VP Education</p>`,
+      },
+    };
+
+    bulkEmailTemplateSel?.addEventListener("change", () => {
+      const key = bulkEmailTemplateSel.value;
+      if (orientationFields) orientationFields.style.display = key === "orientation" ? "block" : "none";
+      if (!key) { bulkEmailSubject.value = ""; setBulkEditorContent(""); return; }
+      const tpl = EMAIL_TEMPLATES[key];
+      if (!tpl) return;
+      bulkEmailSubject.value = tpl.subject;
+      setBulkEditorContent(tpl.body({ datetime: orientationDatetime?.value || "", meetLink: orientationMeetLink?.value || "" }));
+    });
+
+    orientationApplyBtn?.addEventListener("click", () => {
+      const tpl = EMAIL_TEMPLATES.orientation;
+      setBulkEditorContent(tpl.body({ datetime: orientationDatetime?.value || "", meetLink: orientationMeetLink?.value || "" }));
+    });
+
+    function wireMemberCheckboxes() {
+      qsa("[data-tmp-member-select]", unifiedRows).forEach((cb) => {
+        cb.addEventListener("change", () => {
+          const id = cb.dataset.tmpMemberSelect;
+          if (cb.checked) selectedMemberIds.add(id); else selectedMemberIds.delete(id);
+          updateBulkEmailBar();
+        });
+      });
+    }
+
+    function updateBulkEmailBar() {
+      const n = selectedMemberIds.size;
+      if (bulkEmailBar) bulkEmailBar.style.display = n > 0 ? "flex" : "none";
+      if (bulkEmailCountEl) bulkEmailCountEl.textContent = `${n} member${n !== 1 ? "s" : ""} selected`;
+      if (selectAllMembersCb) {
+        const visibleCbs = qsa("[data-tmp-member-select]", unifiedRows);
+        selectAllMembersCb.checked = visibleCbs.length > 0 && visibleCbs.every((cb) => cb.checked);
+      }
+    }
+
+    selectAllMembersCb?.addEventListener("change", () => {
+      qsa("[data-tmp-member-select]", unifiedRows).forEach((cb) => {
+        cb.checked = selectAllMembersCb.checked;
+        const id = cb.dataset.tmpMemberSelect;
+        if (cb.checked) selectedMemberIds.add(id); else selectedMemberIds.delete(id);
+      });
+      updateBulkEmailBar();
+    });
+
+    bulkEmailClearBtn?.addEventListener("click", () => {
+      selectedMemberIds.clear();
+      qsa("[data-tmp-member-select]", unifiedRows).forEach((cb) => { cb.checked = false; });
+      updateBulkEmailBar();
+    });
+
+    function selectedRecipients() {
+      const recipients = [];
+      qsa("[data-tmp-member-select]", unifiedRows).forEach((cb) => {
+        if (selectedMemberIds.has(cb.dataset.tmpMemberSelect) && cb.dataset.email) {
+          recipients.push({ id: cb.dataset.tmpMemberSelect, email: cb.dataset.email, name: cb.dataset.name });
+        }
+      });
+      return recipients;
+    }
+
+    bulkEmailBtn?.addEventListener("click", () => {
+      const recipients = selectedRecipients();
+      if (!recipients.length) return;
+      if (bulkEmailRecipientsEl) {
+        const preview = recipients.slice(0, 5).map((r) => r.name).join(", ");
+        bulkEmailRecipientsEl.textContent = `To: ${preview}${recipients.length > 5 ? ` and ${recipients.length - 5} more` : ""} (${recipients.length} total)`;
+      }
+      if (bulkEmailModal) bulkEmailModal.style.display = "flex";
+    });
+
+    function closeBulkEmailModal() {
+      if (bulkEmailModal) bulkEmailModal.style.display = "none";
+      if (bulkEmailStatus) bulkEmailStatus.textContent = "";
+      if (bulkEmailTemplateSel) bulkEmailTemplateSel.value = "";
+      if (orientationFields) orientationFields.style.display = "none";
+      if (orientationDatetime) orientationDatetime.value = "";
+      if (orientationMeetLink) orientationMeetLink.value = "";
+      bulkEmailSubject.value = "";
+      setBulkEditorContent("");
+    }
+    bulkEmailClose?.addEventListener("click", closeBulkEmailModal);
+    bulkEmailModal?.addEventListener("click", (e) => { if (e.target === bulkEmailModal) closeBulkEmailModal(); });
+
+    bulkEmailForm?.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const recipients = selectedRecipients();
+      if (!recipients.length) return;
+      const editor = getBulkEditor();
+      const bodyHtml = editor ? editor.getContent() : (qs("#tmp_bulk_email_body", bulkEmailModal)?.value || "");
+      if (!bodyHtml.trim()) { bulkEmailStatus.textContent = "Message can't be empty."; return; }
+
+      bulkEmailStatus.textContent = "Sending...";
+      try {
+        const res = await api("/members/bulk-email", {
+          method: "POST",
+          body: JSON.stringify({
+            member_ids: recipients.map((r) => parseInt(r.id, 10)),
+            subject: bulkEmailSubject.value.trim(),
+            body_html: bodyHtml,
+          }),
+        });
+        bulkEmailStatus.textContent = `Sent to ${res.sent} of ${res.total}.`;
+        setTimeout(closeBulkEmailModal, 1800);
+      } catch (err) {
+        bulkEmailStatus.textContent = "Send failed: " + err.message;
+      }
+    });
     const cooloffWarning = qs("[data-tmp-cooloff-warning]", assignmentForm);
     const cooloffOverrideWrap = qs("[data-tmp-cooloff-override-wrapper]", assignmentForm);
     const presSeries     = qs("[data-tmp-pres-series-wrapper]", assignmentForm);
@@ -1330,11 +1483,58 @@
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { importStatus.textContent = data.message || "Import failed."; return; }
-        importStatus.textContent = `Imported ${data.imported_members} members. Created ${data.created_users}, updated ${data.updated_users}.`;
+        importStatus.textContent = `Imported ${data.imported_members} members. Created ${data.created_users}, updated ${data.updated_users}.`
+          + (data.created_users > 0 ? ` Welcome emails sent: ${data.welcome_emails_sent}.` : "");
         importForm.reset();
         await renderMembers(true);
       } catch (err) {
         importStatus.textContent = "Import failed: " + err.message;
+      }
+    });
+
+    // ── Welcome email settings (WhatsApp group link) ────────────────────────
+    const welcomeSettingsForm   = qs("[data-tmp-welcome-settings-form]",   root);
+    const welcomeSettingsStatus = qs("[data-tmp-welcome-settings-status]", root);
+    const whatsappUrlInput      = qs("[data-tmp-whatsapp-url]", root);
+
+    if (welcomeSettingsForm && whatsappUrlInput) {
+      api("/settings/club").then((settings) => {
+        whatsappUrlInput.value = settings.whatsapp_group_url || "";
+      }).catch(() => {});
+
+      welcomeSettingsForm.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        welcomeSettingsStatus.textContent = "Saving...";
+        try {
+          await api("/settings/club", {
+            method: "POST",
+            body: JSON.stringify({ whatsapp_group_url: whatsappUrlInput.value.trim() }),
+          });
+          welcomeSettingsStatus.textContent = "Saved.";
+          setTimeout(() => { welcomeSettingsStatus.textContent = ""; }, 2500);
+        } catch (err) {
+          welcomeSettingsStatus.textContent = "Save failed: " + err.message;
+        }
+      });
+    }
+
+    // ── Send a test copy of the welcome email — no member/user is created ───
+    const testWelcomeForm   = qs("[data-tmp-test-welcome-form]",  root);
+    const testWelcomeStatus = qs("[data-tmp-test-welcome-status]", root);
+    const testWelcomeEmail  = qs("[data-tmp-test-welcome-email]", root);
+
+    testWelcomeForm?.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      testWelcomeStatus.textContent = "Sending...";
+      try {
+        await api("/members/send-test-welcome-email", {
+          method: "POST",
+          body: JSON.stringify({ email: testWelcomeEmail.value.trim() }),
+        });
+        testWelcomeStatus.textContent = "Sent!";
+        setTimeout(() => { testWelcomeStatus.textContent = ""; }, 2500);
+      } catch (err) {
+        testWelcomeStatus.textContent = "Send failed: " + err.message;
       }
     });
 
@@ -1384,6 +1584,8 @@
         vpePathway._tmpPopulated = true;
       }
 
+      const mentorIds = new Set((all || []).filter((m) => m.mentor_id).map((m) => String(m.mentor_id)));
+
       const eligible = (all || []).filter((m) =>
         m.is_eligible &&
         (!search || m.full_name.toLowerCase().includes(search) || (m.email || "").toLowerCase().includes(search)) &&
@@ -1391,7 +1593,8 @@
         (levelFilt === "all" || String(m.level_completed) === levelFilt) &&
         (mentorFilt === "all" ||
          (mentorFilt === "none" && !m.mentor_id && !m.mentor_name) ||
-         (mentorFilt !== "none" && String(m.mentor_id) === mentorFilt)) &&
+         (mentorFilt === "is_mentor" && mentorIds.has(String(m.id))) ||
+         (mentorFilt !== "none" && mentorFilt !== "is_mentor" && String(m.mentor_id) === mentorFilt)) &&
         (stFilt === "all" || lsMap[String(m.id)]?.traffic_light === stFilt)
       );
 
@@ -1442,7 +1645,8 @@
 
       if (!unifiedRows) return;
       if (!sortedEligible.length) {
-        unifiedRows.innerHTML = `<tr><td colspan="4" style="color:var(--tmp-muted);text-align:center;padding:16px;">No members match the selected filters.</td></tr>`;
+        unifiedRows.innerHTML = `<tr><td colspan="5" style="color:var(--tmp-muted);text-align:center;padding:16px;">No members match the selected filters.</td></tr>`;
+        updateBulkEmailBar();
         return;
       }
 
@@ -1471,13 +1675,15 @@
             <div class="tmp-m-path">${esc(m.pathway)}</div>
           </div>
         </div>`;
+        const isChecked = selectedMemberIds.has(String(m.id)) ? " checked" : "";
         return `<tr data-lp-member="${m.id}" data-m-level="${m.level_completed}"${inactive ? ' style="background:#fff8e1"' : ""}>
+          <td><input type="checkbox" data-tmp-member-select="${m.id}" data-email="${esc(m.email || "")}" data-name="${esc(m.full_name)}"${isChecked} /></td>
           <td>${nameCell}</td>
           <td class="tmp-m-progress-cell"${progressCell === "—" ? ' data-empty' : ""}>${progressCell}</td>
           <td${mentorCell === "—" ? ' data-empty' : ""}>${mentorCell}</td>
           <td>${actionCell}</td>
         </tr>
-        <tr data-vpe-pw-row="${m.id}" style="display:none;"><td colspan="4" style="padding:0;background:#f9f9f9;">
+        <tr data-vpe-pw-row="${m.id}" style="display:none;"><td colspan="5" style="padding:0;background:#f9f9f9;">
           <form data-vpe-pw-form="${m.id}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px;">
             <span style="font-size:0.88rem;font-weight:600;">${esc(m.full_name)}:</span>
             <input type="password" placeholder="New password (min 8 chars)" minlength="8" required
@@ -1487,8 +1693,11 @@
             <span data-vpe-pw-status="${m.id}" style="font-size:12px;"></span>
           </form>
         </td></tr>
-        <tr data-lp-detail="${m.id}" style="display:none;"><td colspan="4" style="padding:0;"></td></tr>`;
+        <tr data-lp-detail="${m.id}" style="display:none;"><td colspan="5" style="padding:0;"></td></tr>`;
       }).join("");
+
+      wireMemberCheckboxes();
+      updateBulkEmailBar();
     }
 
     // -- Due for roles (data loaded at init, used by renderMembers + renderRoleStatus) --------
@@ -3339,6 +3548,7 @@
             </div>
             <div class="tmp-request-actions">
               <button class="tmp-icon-btn tmp-icon-btn--approve" type="button" data-approve-request="${req.requestId}" data-member-id="${req.memberId}" data-meeting-id="${req.meetingId}" data-role-name="${esc(roleName)}" title="Approve">✓</button>
+              <button class="tmp-icon-btn tmp-icon-btn--deny" type="button" data-reject-request="${req.requestId}" title="Dismiss — role already filled another way">✕</button>
             </div>
           </div>`;
         }).join("");
@@ -3369,6 +3579,25 @@
           toggleBtn.setAttribute("aria-expanded", String(!expanded));
           if (body) body.style.display = expanded ? "none" : "";
           if (chevron) chevron.style.transform = expanded ? "" : "rotate(90deg)";
+          return;
+        }
+
+        const rejectBtn = e.target.closest("[data-reject-request]");
+        if (rejectBtn && !rejectBtn.disabled) {
+          if (!confirm("Dismiss this request? Use this when the role was already filled another way (e.g. direct assignment) rather than through this Approve flow.")) return;
+          const requestId = rejectBtn.dataset.rejectRequest;
+          rejectBtn.disabled = true;
+          try {
+            await api(`/requests/${requestId}/reject`, {
+              method: "POST",
+              body: JSON.stringify({ reason: "Role already filled — dismissed by VPE" })
+            });
+            await renderPendingRequests(root);
+            refreshVPE();
+          } catch (err) {
+            alert("Error: " + err.message);
+            rejectBtn.disabled = false;
+          }
           return;
         }
 

@@ -102,6 +102,12 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
+        register_rest_route('toastmasters/v1', '/requests/(?P<id>\d+)/reject', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'reject_request'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
         // ── Available meetings (for member meeting picker) ─────────────────────
         register_rest_route('toastmasters/v1', '/meetings/available', [
             'methods'             => WP_REST_Server::READABLE,
@@ -158,6 +164,12 @@ class TMP_REST_API {
         register_rest_route('toastmasters/v1', '/members/import', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [__CLASS__, 'import_members'],
+            'permission_callback' => [__CLASS__, 'can_manage_members'],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/members/bulk-email', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'send_bulk_email'],
             'permission_callback' => [__CLASS__, 'can_manage_members'],
         ]);
 
@@ -304,6 +316,12 @@ class TMP_REST_API {
                 'callback'            => [__CLASS__, 'save_club_settings'],
                 'permission_callback' => [__CLASS__, 'can_manage_meetings'],
             ],
+        ]);
+
+        register_rest_route('toastmasters/v1', '/members/send-test-welcome-email', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'send_test_welcome_email'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
         // ── Role gate settings ─────────────────────────────────────────────────
@@ -749,6 +767,16 @@ class TMP_REST_API {
         return rest_ensure_response($result);
     }
 
+    public static function reject_request(WP_REST_Request $request) {
+        $request_id = (int) $request->get_param('id');
+        $params     = $request->get_json_params() ?: [];
+        $reason     = sanitize_text_field($params['reason'] ?? 'Marked not selected by VPE');
+
+        $result = TMP_Repository::reject_request($request_id, $reason);
+        if (is_wp_error($result)) return $result;
+        return rest_ensure_response($result);
+    }
+
     // ── Members ────────────────────────────────────────────────────────────────
 
     public static function members() {
@@ -821,6 +849,7 @@ class TMP_REST_API {
         $updated_users = 0;
         $imported      = 0;
         $skipped       = [];
+        $new_members   = []; // ['user_id' => int, 'name' => string, 'email' => string] — for welcome emails
 
         while (($row = fgetcsv($handle)) !== false) {
             if (!array_filter($row)) continue;
@@ -851,6 +880,7 @@ class TMP_REST_API {
                     continue;
                 }
                 $created_users++;
+                $new_members[] = ['user_id' => $user_id, 'name' => $name, 'email' => $email];
             } else {
                 $user_id = $user->ID;
                 wp_update_user(['ID' => $user_id, 'user_email' => $email, 'display_name' => $name]);
@@ -894,12 +924,44 @@ class TMP_REST_API {
 
         fclose($handle);
 
+        $welcome_emails_sent = 0;
+        foreach ($new_members as $nm) {
+            if (TMP_Repository::send_welcome_email($nm['email'], $nm['name'])) {
+                $welcome_emails_sent++;
+            }
+        }
+
         return rest_ensure_response([
-            'imported_members' => $imported,
-            'created_users'    => $created_users,
-            'updated_users'    => $updated_users,
-            'skipped'          => $skipped,
+            'imported_members'    => $imported,
+            'created_users'       => $created_users,
+            'updated_users'       => $updated_users,
+            'skipped'             => $skipped,
+            'welcome_emails_sent' => $welcome_emails_sent,
         ]);
+    }
+
+    public static function send_test_welcome_email(WP_REST_Request $request) {
+        $body  = $request->get_json_params();
+        $email = sanitize_email($body['email'] ?? '');
+        if (!$email) {
+            return new WP_Error('tmp_invalid_email', 'A valid email address is required.', ['status' => 400]);
+        }
+        $sent = TMP_Repository::send_welcome_email($email, 'there');
+        return rest_ensure_response(['sent' => $sent]);
+    }
+
+    public static function send_bulk_email(WP_REST_Request $request) {
+        $body       = $request->get_json_params();
+        $member_ids = array_map('absint', (array) ($body['member_ids'] ?? []));
+        $subject    = sanitize_text_field($body['subject'] ?? '');
+        $body_html  = wp_kses_post($body['body_html'] ?? '');
+
+        if (empty($member_ids) || !$subject || !trim(wp_strip_all_tags($body_html))) {
+            return new WP_Error('tmp_invalid', 'Recipients, subject, and message are all required.', ['status' => 400]);
+        }
+
+        $result = TMP_Repository::send_bulk_email($member_ids, $subject, $body_html);
+        return rest_ensure_response($result);
     }
 
     // ── Meetings ────────────────────────────────────────────────────────────────
@@ -1545,11 +1607,12 @@ class TMP_REST_API {
     public static function get_club_settings() {
         $durs = TMP_Repository::get_agenda_durations();
         return rest_ensure_response([
-            'default_venue'    => get_option('tmp_default_venue', ''),
-            'default_maps_url' => get_option('tmp_default_maps_url', ''),
-            'club_mission'     => get_option('tmp_club_mission', ''),
-            'speaker_duration' => $durs['speaker'],
-            'ttm_duration'     => $durs['ttm'],
+            'default_venue'      => get_option('tmp_default_venue', ''),
+            'default_maps_url'   => get_option('tmp_default_maps_url', ''),
+            'club_mission'       => get_option('tmp_club_mission', ''),
+            'speaker_duration'   => $durs['speaker'],
+            'ttm_duration'       => $durs['ttm'],
+            'whatsapp_group_url' => get_option('tmp_whatsapp_group_url', ''),
         ]);
     }
 
@@ -1569,6 +1632,9 @@ class TMP_REST_API {
             if (isset($body['speaker_duration'])) $current['speaker'] = max(1, absint($body['speaker_duration']));
             if (isset($body['ttm_duration']))     $current['ttm']     = max(1, absint($body['ttm_duration']));
             update_option('tmp_agenda_durations', wp_json_encode($current));
+        }
+        if (isset($body['whatsapp_group_url'])) {
+            update_option('tmp_whatsapp_group_url', esc_url_raw($body['whatsapp_group_url']));
         }
         return rest_ensure_response(['success' => true]);
     }

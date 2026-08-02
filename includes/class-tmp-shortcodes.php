@@ -45,6 +45,7 @@ class TMP_Shortcodes {
     private static function enqueue() {
         wp_enqueue_style('tmp-portal');
         wp_enqueue_script('tmp-portal');
+        wp_enqueue_editor(); // TinyMCE for the bulk-email composer (rich text: bold/links/bullets)
         wp_localize_script('tmp-portal', 'TMPortal', [
             'pluginVersion'  => TMP_VERSION,
             'restUrl'        => esc_url_raw(rest_url('toastmasters/v1')),
@@ -413,6 +414,31 @@ class TMP_Shortcodes {
                         <button class="tmp-button tmp-primary" type="submit" style="flex-shrink:0;">Import Members</button>
                         <span class="tmp-inline-status" data-tmp-import-status></span>
                     </form>
+                    <p style="font-size:0.82rem;color:var(--tmp-muted);margin:10px 0 0;">
+                        Every newly created member automatically gets a welcome email with the WhatsApp group link below, a link to their dashboard, and instructions for requesting a role.
+                    </p>
+                </section>
+
+                <!-- Welcome email settings -->
+                <section class="tmp-panel" data-tmp-welcome-settings-panel>
+                    <div class="tmp-card-head" style="margin-bottom:12px;">
+                        <h3>New Member Welcome Email</h3>
+                        <span class="tmp-eyebrow">Sent automatically on import</span>
+                    </div>
+                    <form class="tmp-form" data-tmp-welcome-settings-form style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                        <label style="flex:1;min-width:280px;">Orientation WhatsApp group invite link
+                            <input type="url" data-tmp-whatsapp-url placeholder="https://chat.whatsapp.com/..." style="width:100%;" />
+                        </label>
+                        <button class="tmp-button tmp-primary" type="submit" style="flex-shrink:0;">Save</button>
+                        <span class="tmp-inline-status" data-tmp-welcome-settings-status></span>
+                    </form>
+                    <form class="tmp-form" data-tmp-test-welcome-form style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;padding-top:12px;border-top:1px solid var(--tmp-line);">
+                        <label style="flex:1;min-width:220px;">Send a test copy to
+                            <input type="email" data-tmp-test-welcome-email placeholder="you@example.com" required style="width:100%;" />
+                        </label>
+                        <button class="tmp-button tmp-secondary" type="submit" style="flex-shrink:0;">Send Test Email</button>
+                        <span class="tmp-inline-status" data-tmp-test-welcome-status></span>
+                    </form>
                 </section>
 
                 <!-- Unified member table: all levels, speech/role progress for L1–L5, mentor column -->
@@ -443,6 +469,7 @@ class TMP_Shortcodes {
                         <select data-tmp-vpe-mentor-filter>
                             <option value="all">All Mentors</option>
                             <option value="none">No Mentor Assigned</option>
+                            <option value="is_mentor">Is a Mentor (to anyone)</option>
                         </select>
                         <select data-tmp-vpe-lp-status>
                             <option value="all">All statuses</option>
@@ -451,9 +478,15 @@ class TMP_Shortcodes {
                             <option value="stuck">🔴 Stuck</option>
                         </select>
                     </div>
+                    <div class="tmp-bulk-email-bar" data-tmp-bulk-email-bar style="display:none;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:#f0f8ff;border:1px solid #cce5ff;border-radius:6px;">
+                        <span data-tmp-bulk-email-count style="font-weight:600;font-size:0.88rem;"></span>
+                        <button class="tmp-button tmp-primary" type="button" data-tmp-bulk-email-btn>✉ Send Email</button>
+                        <button class="tmp-link-button" type="button" data-tmp-bulk-email-clear style="font-size:0.82rem;">Clear selection</button>
+                    </div>
                     <div class="tmp-table-wrap">
                         <table class="tmp-table" style="width:100%;">
                             <colgroup>
+                                <col class="tmp-col-select" style="width:34px;">
                                 <col class="tmp-col-name">
                                 <col class="tmp-col-progress">
                                 <col class="tmp-col-mentor">
@@ -461,6 +494,7 @@ class TMP_Shortcodes {
                             </colgroup>
                             <thead>
                                 <tr>
+                                    <th><input type="checkbox" data-tmp-select-all-members title="Select all (filtered)" /></th>
                                     <th data-sort-col="name" class="tmp-sortable">Name <span class="tmp-sort-ind">▲</span></th>
                                     <th>Speeches / Roles</th>
                                     <th>Mentor</th>
@@ -471,6 +505,55 @@ class TMP_Shortcodes {
                         </table>
                     </div>
                 </section>
+
+                <!-- Bulk email composer modal -->
+                <div class="tmp-modal-overlay" data-tmp-bulk-email-modal style="display:none;">
+                    <div class="tmp-modal-card" role="dialog" aria-modal="true" aria-labelledby="tmp-bulk-email-title" style="max-width:640px;">
+                        <button type="button" class="tmp-modal-close" data-tmp-bulk-email-close aria-label="Close">&times;</button>
+                        <h3 id="tmp-bulk-email-title">Send Email</h3>
+                        <p class="tmp-modal-hint" data-tmp-bulk-email-recipients></p>
+                        <label style="display:block;margin-bottom:14px;">Template
+                            <select data-tmp-bulk-email-template style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:5px;">
+                                <option value="">— Blank —</option>
+                                <option value="orientation">Orientation Invite</option>
+                                <option value="announcement">General Announcement</option>
+                            </select>
+                        </label>
+                        <div data-tmp-orientation-fields style="display:none;margin-bottom:14px;padding:12px;background:#f0f8ff;border:1px solid #cce5ff;border-radius:6px;">
+                            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+                                <label style="flex:1;min-width:180px;">Date &amp; time
+                                    <input type="text" data-tmp-orientation-datetime placeholder="e.g. Saturday, Aug 9 at 6:00 PM IST" style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:5px;" />
+                                </label>
+                                <label style="flex:1;min-width:220px;">Google Meet link
+                                    <input type="url" data-tmp-orientation-meet-link placeholder="https://meet.google.com/..." style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:5px;" />
+                                </label>
+                            </div>
+                            <button class="tmp-small-button" type="button" data-tmp-orientation-apply>Insert into message</button>
+                            <span style="font-size:0.78rem;color:var(--tmp-muted);margin-left:8px;">Create the meeting in Google Calendar/Meet first, then paste its link here.</span>
+                        </div>
+                        <form data-tmp-bulk-email-form class="tmp-form" style="background:none;border:none;padding:0;">
+                            <label style="display:block;margin-bottom:10px;">Subject
+                                <input type="text" data-tmp-bulk-email-subject required style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:5px;" />
+                            </label>
+                            <label style="display:block;margin-bottom:4px;">Message <span style="font-weight:400;color:var(--tmp-muted);font-size:0.8rem;">— use <code>{{name}}</code> anywhere to insert each recipient's name</span></label>
+                            <div data-tmp-bulk-email-editor-wrap style="margin-bottom:14px;">
+                                <?php
+                                wp_editor('', 'tmp_bulk_email_body', [
+                                    'textarea_name' => 'tmp_bulk_email_body',
+                                    'textarea_rows' => 10,
+                                    'media_buttons' => false,
+                                    'teeny'         => true,
+                                    'quicktags'     => false,
+                                ]);
+                                ?>
+                            </div>
+                            <div style="display:flex;gap:10px;align-items:center;">
+                                <button class="tmp-button tmp-primary" type="submit">Send</button>
+                                <span class="tmp-inline-status" data-tmp-bulk-email-status></span>
+                            </div>
+                        </form>
+                    </div>
+                </div>
 
             </div><!-- /tab-body members -->
             <?php endif; ?>

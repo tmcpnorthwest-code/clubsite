@@ -585,6 +585,71 @@ class TMP_Repository {
         return self::save_member($data);
     }
 
+    /**
+     * Sent once to each brand-new member created via CSV import (not on updates
+     * to existing members). WhatsApp group link is a VPE-editable setting since
+     * it can change; everything else links to the member's own dashboard, where
+     * Pathways progress and role requests already live.
+     */
+    public static function send_welcome_email($email, $name) {
+        if (empty($email)) return false;
+
+        $dashboard   = home_url('/member-dashboard/');
+        $whatsapp    = get_option('tmp_whatsapp_group_url', '');
+        $faq_url     = 'https://www.toastmasters.org/education/education-programs-faq';
+        $club_name   = 'Toastmasters Club of Pune North West';
+
+        $subject = "Welcome to {$club_name}!";
+
+        $message = "Hi {$name},\n\n"
+            . "Welcome to {$club_name}! We're delighted to have you join us.\n\n"
+            . ($whatsapp
+                ? "Join our new-member orientation WhatsApp group here:\n{$whatsapp}\n\n"
+                : '')
+            . "Your member dashboard is where you'll do most things — track your Pathways progress, "
+            . "see your current level, and request roles for upcoming meetings:\n"
+            . "{$dashboard}\n\n"
+            . "How to request a role for a meeting:\n"
+            . "  1. Log in to your dashboard at the link above.\n"
+            . "  2. Go to the \"Request Role\" tab.\n"
+            . "  3. Pick an upcoming meeting and choose the role(s) you'd like — you can rank them by priority.\n"
+            . "  4. The VP Education will review requests and confirm your role before the meeting.\n\n"
+            . "New to Toastmasters or Pathways? This official FAQ is a great place to start:\n"
+            . "{$faq_url}\n\n"
+            . "We're looking forward to seeing you at a meeting soon!\n\n"
+            . "Regards,\nVP Education\n{$club_name}";
+
+        return (bool) wp_mail($email, $subject, $message);
+    }
+
+    /**
+     * VPE/Admin bulk-communication tool on the Members tab — general announcements
+     * or orientation invites, sent to an explicit, hand-picked list of member IDs.
+     * Body is rich HTML from the TinyMCE composer, already wp_kses_post-sanitized
+     * by the REST layer before it reaches here.
+     */
+    public static function send_bulk_email($member_ids, $subject, $body_html) {
+        global $wpdb;
+        $table = self::member_table();
+        $ids_csv = implode(',', array_map('absint', $member_ids));
+
+        $recipients = $wpdb->get_results(
+            "SELECT id, full_name, email FROM {$table} WHERE id IN ({$ids_csv}) AND email != ''",
+            ARRAY_A
+        );
+
+        $headers = ['Content-Type: text/html; charset=UTF-8'];
+        $sent    = 0;
+        foreach ($recipients as $r) {
+            $personalized = str_replace('{{name}}', esc_html($r['full_name']), $body_html);
+            if (wp_mail($r['email'], $subject, $personalized, $headers)) {
+                $sent++;
+            }
+        }
+
+        return ['sent' => $sent, 'total' => count($member_ids)];
+    }
+
     public static function delete_member($id) {
         global $wpdb;
         return (bool) $wpdb->delete(self::member_table(), array('id' => absint($id)));
@@ -1873,17 +1938,41 @@ class TMP_Repository {
             ['%s', '%d', '%s'], ['%d']
         );
 
-        // STEP 1: Cancel member's other pending requests at this meeting
+        // Cancel this member's other pending requests, then cascade-reject other
+        // members' requests for this role once every slot is filled.
+        self::reconcile_requests_for_filled_slot($meeting_id, $member_id, $base_role, $request_id);
+
+        return [
+            'success'       => true,
+            'message'       => 'Request approved',
+            'approved_role' => $base_role,
+        ];
+    }
+
+    /**
+     * Called only from an explicit Approve action: once a member is approved for
+     * a role slot, cancel that member's other pending requests at the meeting, and
+     * — only once every slot for this role is filled — cascade-reject every other
+     * member's still-pending request for it. Requests for roles with open slots
+     * remaining are left alone so those members stay in consideration.
+     * Deliberately NOT called from direct/manual assignment edits — those can be
+     * changed minutes later, and there's no way to undo a cascade-rejected request.
+     */
+    private static function reconcile_requests_for_filled_slot($meeting_id, $member_id, $base_role, $exclude_request_id = 0) {
+        global $wpdb;
+        $requests    = self::request_table();
+        $assignments = self::assignment_table();
+        $now         = current_time('mysql');
+
         $wpdb->query($wpdb->prepare(
             "UPDATE {$requests}
              SET status = 'NotSelected', reason = %s, updated_at = %s
              WHERE member_id = %d AND meeting_id = %d AND id != %d AND status = 'Pending'",
             "You were assigned {$base_role} at this meeting",
-            $now, $member_id, $meeting_id, $request_id
+            $now, $member_id, $meeting_id, $exclude_request_id
         ));
 
-        // STEP 2: Cascade-reject other members' requests for this role ONLY when all slots are filled.
-        // Requests for remaining open slots stay alive so those members are still considered.
+        $slot_pattern = '^' . preg_quote($base_role, '/') . '( [0-9]+)?( \\(.*\\))?$';
         $remaining_open = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM {$assignments}
              WHERE meeting_id = %d
@@ -1902,12 +1991,33 @@ class TMP_Repository {
                 $now, $meeting_id, $member_id, $base_role
             ));
         }
+    }
 
-        return [
-            'success'       => true,
-            'message'       => 'Request approved',
-            'approved_role' => $base_role,
-        ];
+    /**
+     * VPE manually dismisses a single stuck/stale Pending request (e.g. its role
+     * slot was filled by direct assignment rather than the Approve button, so it
+     * was never cascade-rejected). Explicit, one-at-a-time — no automatic cascade.
+     */
+    public static function reject_request($request_id, $reason) {
+        global $wpdb;
+        $requests = self::request_table();
+
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM {$requests} WHERE id = %d AND status = 'Pending'",
+            $request_id
+        ), ARRAY_A);
+        if (!$existing) {
+            return new WP_Error('tmp_not_found', 'Request not found or already processed', ['status' => 404]);
+        }
+
+        $wpdb->update(
+            $requests,
+            ['status' => 'NotSelected', 'reason' => sanitize_text_field($reason), 'updated_at' => current_time('mysql')],
+            ['id' => $request_id],
+            ['%s', '%s', '%s'], ['%d']
+        );
+
+        return ['success' => true, 'message' => 'Request marked not selected'];
     }
 
     /**
