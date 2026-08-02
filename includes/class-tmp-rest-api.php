@@ -377,6 +377,12 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
+        register_rest_route('toastmasters/v1', '/me/suggested-path', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_my_suggested_path'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
         register_rest_route('toastmasters/v1', '/members/(?P<id>\d+)/pathway-offset', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [__CLASS__, 'save_pathway_offset'],
@@ -786,13 +792,13 @@ class TMP_REST_API {
     public static function save_member(WP_REST_Request $request) {
         $data = $request->get_json_params();
 
-        // Capture old level before save so we can warn on level bump for L1-L3
+        // Capture old level before save so we can warn on level bump for L1-L5
         $readiness_warnings = null;
         if (!empty($data['id']) && !empty($data['level'])) {
             $existing = TMP_Repository::get_member((int) $data['id']);
             $old_lvl  = (int)($existing['level'] ?? 0);
             $new_lvl  = (int) $data['level'];
-            if ($new_lvl > $old_lvl && $old_lvl >= 1 && $old_lvl <= 3) {
+            if ($new_lvl > $old_lvl && $old_lvl >= 1 && $old_lvl <= 5) {
                 $status = TMP_Repository::get_member_full_level_status((int) $data['id']);
                 if ($status['system_verdict'] === 'incomplete') {
                     $readiness_warnings = $status['verdict_detail'];
@@ -1665,6 +1671,14 @@ class TMP_REST_API {
 
     // ── Pathways level progress callbacks ──────────────────────────────────────
 
+    public static function get_my_suggested_path() {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_not_found', 'Member not found.', ['status' => 404]);
+        }
+        return rest_ensure_response(TMP_Repository::get_suggested_path_for_member($member['id']));
+    }
+
     public static function get_my_level_status() {
         $member = TMP_Repository::current_member();
         if (!$member) {
@@ -1685,9 +1699,9 @@ class TMP_REST_API {
         global $wpdb;
         $members_table = $wpdb->prefix . 'tmp_members';
         $members = $wpdb->get_results(
-            "SELECT id, full_name, pathway, level
+            "SELECT id, full_name, pathway, level, created_at
                FROM {$members_table}
-              WHERE level BETWEEN 1 AND 3
+              WHERE level BETWEEN 1 AND 5
               ORDER BY level ASC, full_name ASC",
             ARRAY_A
         );
@@ -1698,8 +1712,9 @@ class TMP_REST_API {
             $status = TMP_Repository::get_member_full_level_status($m_id);
             $sp     = $status['speech_progress'];
             $roles_unmet = count(array_filter($status['role_gaps'], fn($g) => !$g['met']));
+            $is_new_member = !empty($m['created_at']) && strtotime($m['created_at']) > strtotime('-14 days');
 
-            if ($sp !== null && $sp['done'] === 0 && $roles_unmet === count($status['role_gaps'])) {
+            if (!$is_new_member && $sp !== null && $sp['done'] === 0 && $roles_unmet === count($status['role_gaps'])) {
                 $traffic = 'stuck';
             } elseif ($status['ready_to_advance']) {
                 $traffic = 'ready';

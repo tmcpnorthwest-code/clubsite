@@ -342,7 +342,7 @@ class TMP_Repository {
         $meetings_table = self::meeting_table();
 
         $last_3_meeting_ids = $wpdb->get_col(
-            "SELECT id FROM {$meetings_table} WHERE meeting_date <= CURRENT_DATE ORDER BY meeting_date DESC LIMIT 3"
+            "SELECT id FROM {$meetings_table} WHERE meeting_date <= CURRENT_DATE AND wrapped_up = 1 ORDER BY meeting_date DESC LIMIT 3"
         );
 
         $participation_map = [];
@@ -380,6 +380,7 @@ class TMP_Repository {
             $row['formatted_name']                = sprintf("%s (%s Level %d)", $row['full_name'], $row['pathway'], $row['level_completed']);
             $row['recent_participation_count']    = $participation_map[$row['id']] ?? 0;
             $row['total_recent_meetings_checked'] = count($last_3_meeting_ids);
+            $row['is_new_member']                 = !empty($row['created_at']) && strtotime($row['created_at']) > strtotime('-14 days', $now);
         }
 
         return $rows;
@@ -1101,7 +1102,7 @@ class TMP_Repository {
         $meetings = self::meeting_table();
 
         $last_3_ids = $wpdb->get_col(
-            "SELECT id FROM {$meetings} WHERE meeting_date <= CURRENT_DATE ORDER BY meeting_date DESC LIMIT 3"
+            "SELECT id FROM {$meetings} WHERE meeting_date <= CURRENT_DATE AND wrapped_up = 1 ORDER BY meeting_date DESC LIMIT 3"
         );
         $participation_map = [];
         if (!empty($last_3_ids)) {
@@ -1123,7 +1124,8 @@ class TMP_Repository {
         foreach ($mentees as &$m) {
             $m['recent_participation_count']    = $participation_map[$m['id']] ?? 0;
             $m['total_recent_meetings_checked'] = count($last_3_ids);
-            $m['is_at_risk']                    = $m['recent_participation_count'] == 0 && count($last_3_ids) > 0;
+            $m['is_new_member']                 = !empty($m['created_at']) && strtotime($m['created_at']) > strtotime('-14 days');
+            $m['is_at_risk']                    = $m['recent_participation_count'] == 0 && count($last_3_ids) > 0 && !$m['is_new_member'];
             $m['milestones']                    = self::calculate_milestones($m);
             $m['level_gaps']                    = self::get_member_level_gaps($m['id'], (int) $m['level']);
             $m['mentorship_stage']              = self::compute_mentorship_stage((int) $m['id'], $m);
@@ -1566,6 +1568,10 @@ class TMP_Repository {
             }
         }
 
+        // Speech roles require a service role completed since the member's last speech
+        $needs_service_role  = ($member_id && self::needs_service_role_before_speech($member_id));
+        $last_speech_date    = $member_id ? self::get_last_speech_date($member_id) : null;
+
         // Attach per-slot flags
         foreach ($open_slots as &$slot) {
             $base_role = self::get_base_role_name($slot['role_name']);
@@ -1585,6 +1591,15 @@ class TMP_Repository {
             // Cooloff only for Speaker / TMOD / GE — not for Timer, Grammarian, etc.
             $slot['cooloff'] = self::is_cooloff_role($base_role) ? ($cooloff_info[$base_role] ?? null) : null;
 
+            // Speech roles (Speaker/Ice Breaker): must have a service role since last speech
+            $is_speech_role = (bool) preg_match('/^speaker(\s+\d+)?$/i', $base_role) || strtolower($base_role) === 'ice breaker';
+            if ($is_speech_role && $needs_service_role) {
+                $slot['qualified']   = false;
+                $slot['requirement'] = "Complete a service role (e.g. Evaluator, Timer, Grammarian) since your last speech on {$last_speech_date} first";
+                $slot['needs_service_role'] = true;
+                $slot['last_speech_date']   = $last_speech_date;
+            }
+
             // is_goal: in member's current-level unmet requirements
             $needed_roles = [];
             foreach (self::get_level_requirements()[$member_level] ?? [] as $req) {
@@ -1600,6 +1615,318 @@ class TMP_Repository {
             'member_level'     => $member_level,
             'member_participation' => $participation,
         ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Suggested Path (long-range, non-binding roadmap to level completion)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Average number of days between the club's last few completed meetings.
+     * Falls back to 7 (weekly) when there isn't enough history to infer a cadence.
+     */
+    private static function get_meeting_cadence_days() {
+        global $wpdb;
+        $meetings = self::meeting_table();
+        $dates = $wpdb->get_col(
+            "SELECT meeting_date FROM {$meetings} WHERE wrapped_up = 1 ORDER BY meeting_date DESC LIMIT 6"
+        );
+        if (count($dates) < 2) {
+            return 7;
+        }
+        $dates = array_reverse($dates);
+        $gaps = [];
+        for ($i = 1; $i < count($dates); $i++) {
+            $gaps[] = (strtotime($dates[$i]) - strtotime($dates[$i - 1])) / 86400;
+        }
+        $avg = array_sum($gaps) / count($gaps);
+        return $avg >= 1 ? (int) round($avg) : 7;
+    }
+
+    /**
+     * Builds a shared virtual meeting timeline: real scheduled meetings first
+     * (from get_available_meetings), then projected meetings spaced by the
+     * inferred cadence, out to $count total. Each entry has 'date' and
+     * 'is_projected'; real ones also carry 'meeting_id'.
+     */
+    private static function build_virtual_meeting_timeline($count = 30) {
+        $real = self::get_available_meetings();
+        $timeline = array_map(fn($m) => [
+            'meeting_id'   => (int) $m['id'],
+            'date'         => $m['meeting_date'],
+            'is_projected' => false,
+        ], $real);
+
+        $cadence = self::get_meeting_cadence_days();
+        $last_date = !empty($timeline)
+            ? end($timeline)['date']
+            : current_time('Y-m-d');
+
+        while (count($timeline) < $count) {
+            $last_date = date('Y-m-d', strtotime($last_date) + ($cadence * 86400));
+            $timeline[] = [
+                'meeting_id'   => null,
+                'date'         => $last_date,
+                'is_projected' => true,
+            ];
+        }
+
+        return $timeline;
+    }
+
+    /**
+     * Computes a non-binding suggested role sequence for every active member,
+     * spread across a shared projected meeting timeline, respecting per-meeting
+     * capacity (3 Speaker + 3 Evaluator slots, 1 of every other standard role),
+     * cooloff, level gates, and the service-role-before-speech rule. Purely
+     * advisory — does not touch assignments/requests.
+     *
+     * @return array [member_id => [ ['date'=>, 'is_projected'=>, 'role'=>, 'reason'=>], ... ] ]
+     */
+    public static function get_suggested_paths_for_all_members() {
+        $members = array_filter(self::members(), fn($m) => !empty($m['is_eligible']) && (int) $m['level'] >= 1);
+        if (empty($members)) {
+            return [];
+        }
+
+        $timeline = self::build_virtual_meeting_timeline(40);
+        $all_counts = self::get_member_participation_counts();
+
+        // Per-member simulated state: remaining gaps, simulated last-speech date,
+        // simulated cooloff-relevant last-role dates. Seeded from real history,
+        // then mutated as we walk the projected timeline so later meetings see
+        // the effect of earlier suggestions in this same run.
+        $state = [];
+        foreach ($members as $m) {
+            $m_id  = (int) $m['id'];
+            $level = (int) $m['level'];
+            // "L0" (dashboard badge) is level_completed === 0, NOT level === 0
+            // — the `level` column defaults to 1 and always reflects the level
+            // being worked toward; level_completed tracks how many are done.
+            // A member with level_completed 0 gets the shorter 3-week cooloff.
+            $is_l0 = (int) ($m['level_completed'] ?? 0) === 0;
+            $level_counts = $all_counts[$m_id][$level] ?? [];
+            $gaps = self::get_member_level_gaps($m_id, $level, $level_counts, []);
+
+            $speech_progress = self::get_member_level_speech_progress($m_id, $level);
+            $speeches_needed = $speech_progress ? max(0, $speech_progress['needed'] - $speech_progress['done']) : 0;
+
+            $state[$m_id] = [
+                'member'          => $m,
+                'level'           => $level,
+                'is_l0'           => $is_l0,
+                'role_gaps'       => array_values(array_filter($gaps, fn($g) => !$g['met'] && $g['type'] !== 'presentation')),
+                'speeches_needed' => $speeches_needed,
+                'last_speech'     => self::get_last_speech_date($m_id),
+                'last_role_date'  => [], // [base_role => date] simulated within this run
+                'path'            => [],
+                'filler_cursor'   => 0, // rotates through FILLER_SERVICE_ROLES
+            ];
+        }
+
+        global $wpdb;
+        $history = self::participation_history_table();
+        $cooloff_weeks_default = (int) get_option('tmp_role_cooloff_weeks', 4);
+        $cooloff_weeks_l0      = 3;
+        foreach ($state as $m_id => &$s) {
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT role_name, MAX(meeting_date) as last_date FROM {$history} WHERE member_id = %d GROUP BY role_name",
+                $m_id
+            ), ARRAY_A);
+            foreach ($rows as $r) {
+                $s['last_role_date'][$r['role_name']] = $r['last_date'];
+            }
+        }
+        unset($s);
+
+        // Stable per-member processing order: by full_name, so results are
+        // deterministic across runs. Fixed once — the order itself doesn't
+        // need to change meeting to meeting, only who still needs something.
+        $ordered_ids = array_keys($state);
+        usort($ordered_ids, fn($a, $b) => strcmp($state[$a]['member']['full_name'], $state[$b]['member']['full_name']));
+
+        // Roles not represented as bookable agenda slots (live Table Topics,
+        // or TI concepts with no assignment row) can't be scheduled here.
+        $non_agenda_roles = ['Table Topics Speaker', 'Introductory Mentor', 'Specialized Role'];
+
+        foreach ($timeline as $slot) {
+            // Everyone still needing something for this meeting, has service-role
+            // gaps first (fills level requirements), speeches last — mirrors the
+            // non-speaker-first ordering used by the single-meeting suggestion engine.
+            $speaker_used   = 0;
+            $evaluator_used = 0;
+            $singular_used  = []; // base_role => true (only one member per meeting)
+
+            $any_pending = false;
+            foreach ($state as $s) {
+                if (!empty($s['role_gaps']) || $s['speeches_needed'] > 0) { $any_pending = true; break; }
+            }
+            if (!$any_pending) {
+                break; // every member's roadmap is fully planned
+            }
+
+            foreach ($ordered_ids as $m_id) {
+                $s = &$state[$m_id];
+                if (empty($s['role_gaps']) && $s['speeches_needed'] <= 0) {
+                    continue;
+                }
+                $cooloff_weeks = $s['is_l0'] ? $cooloff_weeks_l0 : $cooloff_weeks_default;
+
+                // 1) Try to fill a non-speech role gap first — try every alternative
+                //    listed for role_or requirements, not just the first.
+                $filled = false;
+                foreach ($s['role_gaps'] as $idx => $gap) {
+                    $picked_role = null;
+
+                    foreach (($gap['roles'] ?? []) as $candidate_role) {
+                        if (in_array($candidate_role, $non_agenda_roles, true)) continue;
+
+                        $is_singular = self::is_singular_role($candidate_role);
+                        if ($is_singular && !empty($singular_used[$candidate_role])) {
+                            continue; // only one member per meeting for this role
+                        }
+                        if ($candidate_role === 'Evaluator' && $evaluator_used >= 3) {
+                            continue;
+                        }
+
+                        // Cooloff check against simulated last-role date
+                        if (self::is_cooloff_role($candidate_role)) {
+                            $last = $s['last_role_date'][$candidate_role] ?? null;
+                            if ($last && (strtotime($slot['date']) - strtotime($last)) < ($cooloff_weeks * 7 * 86400)) {
+                                continue;
+                            }
+                        }
+
+                        $picked_role = $candidate_role;
+                        break;
+                    }
+
+                    if ($picked_role === null) continue;
+
+                    $s['path'][] = [
+                        'date'         => $slot['date'],
+                        'is_projected' => $slot['is_projected'],
+                        'role'         => $picked_role,
+                        'reason'       => "Fills your {$gap['label']} requirement (L{$s['level']})",
+                    ];
+                    $s['last_role_date'][$picked_role] = $slot['date'];
+                    if ($picked_role === 'Evaluator') $evaluator_used++;
+                    if (self::is_singular_role($picked_role)) $singular_used[$picked_role] = true;
+                    unset($s['role_gaps'][$idx]);
+                    $s['role_gaps'] = array_values($s['role_gaps']);
+                    $filled = true;
+                    break;
+                }
+                if ($filled) continue;
+
+                // 2) Otherwise, if they still need speeches, offer one — subject to
+                //    cooloff and the service-role-before-speech ordering rule.
+                if ($s['speeches_needed'] > 0 && $speaker_used < 3) {
+                    $last_speech = $s['last_speech'];
+                    $cooling_off = $last_speech && (strtotime($slot['date']) - strtotime($last_speech)) < ($cooloff_weeks * 7 * 86400);
+                    $has_service_since = true;
+                    if ($last_speech) {
+                        $has_service_since = false;
+                        foreach ($s['last_role_date'] as $role => $date) {
+                            $is_speech = stripos($role, 'speaker') === 0 || $role === 'Ice Breaker';
+                            if (!$is_speech && strtotime($date) > strtotime($last_speech)) {
+                                $has_service_since = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!$cooling_off && $has_service_since) {
+                        $s['path'][] = [
+                            'date'         => $slot['date'],
+                            'is_projected' => $slot['is_projected'],
+                            'role'         => 'Speaker',
+                            'reason'       => "Speech toward Level {$s['level']} (needs {$s['speeches_needed']} more)",
+                        ];
+                        $s['last_speech'] = $slot['date'];
+                        $s['last_role_date']['Speaker'] = $slot['date'];
+                        $s['speeches_needed']--;
+                        $speaker_used++;
+                    } else {
+                        // Either still cooling off from the last speech, or no
+                        // level-requirement gap left to satisfy the ordering
+                        // rule — either way, offer a repeat/filler service role
+                        // to stay active and build up eligibility for the next
+                        // speech. Rotates through the standard roles
+                        // (round-robin via last-used index) rather than always
+                        // picking the same one.
+                        $filler = self::pick_filler_service_role($s, $slot['date'], $cooloff_weeks, $singular_used, $evaluator_used);
+                        if ($filler) {
+                            $s['path'][] = [
+                                'date'         => $slot['date'],
+                                'is_projected' => $slot['is_projected'],
+                                'role'         => $filler,
+                                'reason'       => $cooling_off
+                                    ? "Fills a service role while you're in cooloff for your next speech"
+                                    : "Fills a service role so you're eligible for your next speech",
+                            ];
+                            $s['last_role_date'][$filler] = $slot['date'];
+                            if ($filler === 'Evaluator') $evaluator_used++;
+                            if (self::is_singular_role($filler)) $singular_used[$filler] = true;
+                        }
+                    }
+                }
+            }
+            unset($s);
+        }
+
+        $result = [];
+        foreach ($state as $m_id => $s) {
+            $result[$m_id] = $s['path'];
+        }
+        return $result;
+    }
+
+    public static function get_suggested_path_for_member($member_id) {
+        $all = self::get_suggested_paths_for_all_members();
+        return $all[(int) $member_id] ?? [];
+    }
+
+    /**
+     * Standard roles offered as a filler service role once a member has no
+     * remaining level-requirement gap left, but still needs one to satisfy
+     * the service-role-before-speech ordering rule. Excludes Evaluator (kept
+     * as a separate, always-available fallback with its own 3/meeting cap)
+     * and TMOD/GE (gated by cooloff, checked explicitly below).
+     */
+    private const FILLER_SERVICE_ROLES = [
+        'Grammarian', 'Table Topics Master', 'Timer', 'Ah-Counter', 'Sergeant at Arms', 'Evaluator',
+    ];
+
+    /**
+     * Picks the next available filler service role for a member, round-robin
+     * via $state['filler_cursor'], skipping roles already claimed by another
+     * member this meeting (singular_used) or currently in cooloff for this
+     * member. Falls back to Evaluator (3/meeting cap) if nothing else fits.
+     */
+    private static function pick_filler_service_role(&$s, $date, $cooloff_weeks, &$singular_used, $evaluator_used) {
+        $n = count(self::FILLER_SERVICE_ROLES);
+        for ($i = 0; $i < $n; $i++) {
+            $idx  = ($s['filler_cursor'] + $i) % $n;
+            $role = self::FILLER_SERVICE_ROLES[$idx];
+
+            if ($role === 'Evaluator') {
+                if ($evaluator_used >= 3) continue;
+            } elseif (self::is_singular_role($role) && !empty($singular_used[$role])) {
+                continue;
+            }
+
+            if (self::is_cooloff_role($role)) {
+                $last = $s['last_role_date'][$role] ?? null;
+                if ($last && (strtotime($date) - strtotime($last)) < ($cooloff_weeks * 7 * 86400)) {
+                    continue;
+                }
+            }
+
+            $s['filler_cursor'] = ($idx + 1) % $n;
+            return $role;
+        }
+        return null;
     }
 
     // -------------------------------------------------------------------------
@@ -1717,6 +2044,47 @@ class TMP_Repository {
 
         $eligible_ts = strtotime($last_date) + ($cooloff_weeks * 7 * 86400);
         return current_time('timestamp') < $eligible_ts;
+    }
+
+    /**
+     * Date of the member's most recent completed speech (Speaker/Ice Breaker),
+     * or null if they've never given one.
+     */
+    private static function get_last_speech_date($member_id) {
+        global $wpdb;
+        $history = self::participation_history_table();
+        return $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(meeting_date) FROM {$history}
+             WHERE member_id = %d AND (role_name LIKE 'Speaker%%' OR role_name = 'Ice Breaker')",
+            $member_id
+        ));
+    }
+
+    /**
+     * A member must complete at least one non-speech (service) role between
+     * speeches. Returns true (blocked) only if they have a prior speech AND
+     * no service role recorded since that speech's meeting date.
+     */
+    private static function needs_service_role_before_speech($member_id) {
+        global $wpdb;
+        $history = self::participation_history_table();
+
+        $last_speech_date = self::get_last_speech_date($member_id);
+
+        if (!$last_speech_date) {
+            return false; // no prior speech — nothing to gate
+        }
+
+        $service_count = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$history}
+             WHERE member_id = %d
+               AND meeting_date > %s
+               AND role_name NOT LIKE 'Speaker%%'
+               AND role_name != 'Ice Breaker'",
+            $member_id, $last_speech_date
+        ));
+
+        return $service_count === 0;
     }
 
     /**
@@ -2054,6 +2422,16 @@ class TMP_Repository {
             return [
                 'eligible' => false,
                 'reason' => "Member in cooloff until {$eligible_date}"
+            ];
+        }
+
+        // Service role required between speeches (all levels)
+        $is_speech_role = (bool) preg_match('/^speaker(\s+\d+)?$/i', $base_role) || strtolower($base_role) === 'ice breaker';
+        if ($is_speech_role && self::needs_service_role_before_speech($member_id)) {
+            $last_speech_date = self::get_last_speech_date($member_id);
+            return [
+                'eligible' => false,
+                'reason' => "Member must complete a service role (e.g. Evaluator, Timer, Grammarian) since their last speech on {$last_speech_date} before taking another speech."
             ];
         }
 
@@ -2986,6 +3364,16 @@ class TMP_Repository {
                 return new WP_Error(
                     'tmp_level_requirement',
                     "You are Level {$member_level}, but {$role_name} requires Level {$min_level}+.",
+                    ['status' => 403]
+                );
+            }
+
+            $is_speech_role = (bool) preg_match('/^speaker(\s+\d+)?$/i', $role_name) || strtolower($role_name) === 'ice breaker';
+            if ($is_speech_role && self::needs_service_role_before_speech($member_id)) {
+                $last_speech_date = self::get_last_speech_date($member_id);
+                return new WP_Error(
+                    'tmp_service_role_required',
+                    "You must complete a service role (e.g. Evaluator, Timer, Grammarian) since your last speech on {$last_speech_date} before requesting another speech.",
                     ['status' => 403]
                 );
             }

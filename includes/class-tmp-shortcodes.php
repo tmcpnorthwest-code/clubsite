@@ -296,6 +296,13 @@ class TMP_Shortcodes {
                     <div data-tmp-level-status>Loading...</div>
                 </article>
 
+                <!-- Suggested Path — non-binding roadmap of roles/speeches to level completion -->
+                <article class="tmp-panel" data-tmp-suggested-path-panel>
+                    <h3 style="margin-bottom:4px;">Your path to Level <span data-tmp-path-next-level></span> looks like this</h3>
+                    <p style="font-size:0.8rem;color:var(--tmp-muted);margin:0 0 16px;">Pick these slots as they open up and you'll be there before you know it!</p>
+                    <div data-tmp-suggested-path>Loading...</div>
+                </article>
+
                 <!-- Mentor dashboard (visible only if current user is a mentor) — a normal
                      single-column card so it fills the grid slot next to Your Progress instead
                      of forcing its own full-width row. -->
@@ -764,6 +771,7 @@ class TMP_Shortcodes {
                     <input type="text" name="override_reason" style="display:none;" />
                     <div data-tmp-cooloff-warning style="display:none;"></div>
                     <div data-tmp-cooloff-override-wrapper style="display:none;"></div>
+                    <div data-tmp-service-role-warning style="display:none;"></div>
                     <div data-tmp-timing-wrap style="display:none;"></div>
                     <div data-tmp-role-suggestions style="display:none;"></div>
                 </form>

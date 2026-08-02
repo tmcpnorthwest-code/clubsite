@@ -500,6 +500,34 @@
 
       await renderLevelStatus();
 
+      // ── Suggested Path (non-binding roadmap to level completion) ──────────────
+      const renderSuggestedPath = async () => {
+        const pathEl = qs("[data-tmp-suggested-path]", root);
+        if (!pathEl) return;
+
+        const nextLvlEl = qs("[data-tmp-path-next-level]", root);
+        if (nextLvlEl && root._levelStatus) nextLvlEl.textContent = root._levelStatus.level;
+
+        const path = await api("/me/suggested-path").catch(() => null);
+        if (!path) { pathEl.innerHTML = '<p style="color:var(--tmp-muted)">Could not load suggested path.</p>'; return; }
+
+        if (!path.length) {
+          pathEl.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.88rem;">🎉 You\'re all caught up — nothing standing between you and your next level!</p>';
+          return;
+        }
+
+        pathEl.innerHTML = `<ol style="list-style:none;padding:0;margin:0;">
+          ${path.map((p) => `
+            <li style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--tmp-border,#eee);font-size:0.88rem;">
+              <span style="min-width:110px;color:var(--tmp-muted);">${esc(p.date)}${p.is_projected ? ' <span class="tmp-badge" style="background:#f5f5f5;color:#888;font-size:0.68rem;">estimated</span>' : ""}</span>
+              <span style="font-weight:600;flex:1;">${esc(p.role)}</span>
+              <span style="color:var(--tmp-muted);font-size:0.8rem;">${esc(p.reason)}</span>
+            </li>`).join("")}
+        </ol>`;
+      };
+
+      await renderSuggestedPath();
+
       // (mentee panel removed — combined into mentor dashboard table below)
 
       // ── Active Requests (unified: all upcoming requests with live status) ─────
@@ -813,7 +841,7 @@
         markBtn.textContent = "Saving…";
         try {
           await api("/me/requirement-override", { method: "POST", body: JSON.stringify({ level: Number(rLvl), req_key: rKey, note }) });
-          await renderLevelStatus();
+          await updateMemberDashboard();
         } catch (err) {
           alert("Could not save: " + err.message);
           markBtn._pending = false;
@@ -828,7 +856,7 @@
         undoBtn.disabled = true;
         try {
           await api(`/me/requirement-override/${undoBtn.dataset.undoOverride}`, { method: "DELETE" });
-          await renderLevelStatus();
+          await updateMemberDashboard();
         } catch (err) {
           alert("Could not undo: " + err.message);
           undoBtn._pending = false;
@@ -1357,6 +1385,7 @@
     });
     const cooloffWarning = qs("[data-tmp-cooloff-warning]", assignmentForm);
     const cooloffOverrideWrap = qs("[data-tmp-cooloff-override-wrapper]", assignmentForm);
+    const serviceRoleWarning = qs("[data-tmp-service-role-warning]", assignmentForm);
     const presSeries     = qs("[data-tmp-pres-series-wrapper]", assignmentForm);
     const speechWrapper  = qs("[data-tmp-speech-title-wrapper]", assignmentForm);
 
@@ -1652,7 +1681,7 @@
 
       unifiedRows.innerHTML = sortedEligible.map((m) => {
         const ls       = lsMap[String(m.id)];
-        const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0;
+        const inactive = m.recent_participation_count === 0 && m.total_recent_meetings_checked > 0 && !m.is_new_member;
         const progressCell = ls
           ? `${ls.speech_done}/${ls.speech_needed} <span class="tmp-m-progress-lbl">speeches</span><span class="tmp-m-progress-sep">·</span>${ls.roles_total - ls.roles_unmet}/${ls.roles_total} <span class="tmp-m-progress-lbl">roles</span>`
           : "—";
@@ -1955,6 +1984,24 @@
       return /^speaker$/i.test(base)
         || base.includes("toastmaster")
         || base.includes("general evaluator");
+    }
+
+    function isSpeechRole(roleName) {
+      const base = (roleName || "").replace(/\s*\(.*?\)\s*/g, "").replace(/\s+\d+$/, "").trim().toLowerCase();
+      return /^speaker$/i.test(base) || base === "ice breaker";
+    }
+
+    function checkServiceRoleForMember(roleName) {
+      if (!serviceRoleWarning) return;
+      if (!isSpeechRole(roleName)) {
+        serviceRoleWarning.style.display = "none";
+        serviceRoleWarning.innerHTML = "";
+        return;
+      }
+      serviceRoleWarning.style.display = "block";
+      serviceRoleWarning.innerHTML = `<div style="padding:8px;background:#fff3e0;border:1px solid #ffb74d;border-radius:4px;font-size:12px;">
+        <strong>Service role check:</strong> Members must complete a service role (Evaluator, Timer, Grammarian, etc.) since their last speech before taking another speech. This is enforced when the member requests the role; verify before overriding manually.
+      </div>`;
     }
 
     async function checkCooloffForMember(memberId, roleName) {
@@ -2479,6 +2526,7 @@
         hideSuggestions();
         if (cooloffWarning) { cooloffWarning.style.display = "none"; }
         if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "none";
+        if (serviceRoleWarning) { serviceRoleWarning.style.display = "none"; serviceRoleWarning.innerHTML = ""; }
         return;
       }
 
@@ -2514,6 +2562,7 @@
       updateMemberDropdown(roleName);
       const selMemberId = assignmentForm.elements.member_id?.value;
       if (selMemberId) checkCooloffForMember(selMemberId, roleName);
+      checkServiceRoleForMember(roleName);
       // Show inline suggestion button for this slot
       if (roleName && mid) showSuggestButton(mid, roleName);
       else hideSuggestions();
@@ -2522,6 +2571,7 @@
     memberSelect?.addEventListener("change", () => {
       const roleName = assignmentForm.elements.role_name?.value || "";
       checkCooloffForMember(memberSelect.value, roleName);
+      checkServiceRoleForMember(roleName);
       // Auto-set status based on whether a member is selected
       const statusSel = assignmentForm.elements.status;
       if (statusSel && !assignmentForm.elements.id?.value) {
@@ -2610,6 +2660,7 @@
         hideSuggestions();
         if (cooloffWarning) cooloffWarning.style.display = "none";
         if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "none";
+        if (serviceRoleWarning) { serviceRoleWarning.style.display = "none"; serviceRoleWarning.innerHTML = ""; }
         await renderMeetings(retainMeetingId);
         updateRoles();
         renderRoleStatus(retainMeetingId);
@@ -2730,6 +2781,7 @@
       hideSuggestions();
       if (cooloffWarning) cooloffWarning.style.display = "none";
       if (cooloffOverrideWrap) cooloffOverrideWrap.style.display = "none";
+      if (serviceRoleWarning) { serviceRoleWarning.style.display = "none"; serviceRoleWarning.innerHTML = ""; }
     });
 
     // Inline edit of agenda line text / break duration (debounced save) — meetingList only exists for VPE
