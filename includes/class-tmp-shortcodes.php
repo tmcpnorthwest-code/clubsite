@@ -119,7 +119,7 @@ class TMP_Shortcodes {
                     <span class="tmp-tab-badge" data-tab-badge="meetings" style="display:none;"></span>
                 </button>
                 <?php endif; ?>
-                <?php if ($can_ex_com): ?>
+                <?php if ($can_meetings_tab): ?>
                 <button class="tmp-tab-btn" data-tab="spotlight">Spotlight</button>
                 <?php endif; ?>
                 <?php if ($can_manage_meetings): ?>
@@ -882,7 +882,7 @@ class TMP_Shortcodes {
             </div><!-- /tab-body meetings -->
             <?php endif; ?>
 
-            <?php if ($can_ex_com): ?>
+            <?php if ($can_meetings_tab): ?>
             <!-- ══ SPOTLIGHT TAB ══ -->
             <div data-tab-body="spotlight" style="display:none;">
                 <section class="tmp-panel" data-tmp-excom-spotlight-panel>
