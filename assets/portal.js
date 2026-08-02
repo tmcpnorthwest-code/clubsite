@@ -3457,19 +3457,12 @@
     const openPollBtn     = qs('[data-tmp-open-poll-btn]', panel);
     const pollStatus      = qs('[data-tmp-poll-status]', panel);
     const declareWinnersBtn  = qs('[data-tmp-declare-winners-btn]', panel);
-    const linkUrlEl          = qs('[data-tmp-vote-link-url]', panel);
-    const copyLinkBtn        = qs('[data-tmp-copy-vote-link]', panel);
-    const linkExpiryEl       = qs('[data-tmp-vote-link-expiry]', panel);
     const postMeetingActions = qs('[data-tmp-postmeeting-actions]', panel);
 
     let currentMeetingId = null;
     let pollTimer        = null;
     let pollIsOpen       = false;
     let votingMeetings   = [];
-
-    const rateSpeakerSection  = qs('[data-tmp-rate-speaker-section]', panel);
-    const speakerFeedbackList = qs('[data-tmp-speaker-feedback-list]', panel);
-    const feedbackEmailStatus = qs('[data-tmp-speaker-feedback-email-status]', panel);
 
     // Populate meeting dropdown from existing meetings data (VPE page: no local select — driven by the shared picker instead)
     api('/meetings').then(meetings => {
@@ -3518,7 +3511,6 @@
       if (!currentMeetingId) {
         ttEntry.style.display = 'none';
         nomineesBlock.style.display = 'none';
-        if (rateSpeakerSection)  rateSpeakerSection.style.display = 'none';
         if (postMeetingActions)  postMeetingActions.style.display = 'none';
         return;
       }
@@ -3527,19 +3519,6 @@
       if (postMeetingActions) postMeetingActions.style.display = 'block';
       loadNominees();
       pollTimer = setInterval(loadNominees, 30000);
-      renderRateSpeakers(currentMeetingId);
-      autoGenerateVotingLink();
-    }
-
-    function autoGenerateVotingLink() {
-      if (!currentMeetingId) return;
-      if (linkUrlEl) linkUrlEl.textContent = 'Generating…';
-      if (linkExpiryEl) linkExpiryEl.textContent = '';
-      api('/voting/token', { method: 'POST', body: JSON.stringify({ meeting_id: currentMeetingId }) }).then(data => {
-        if (linkUrlEl) linkUrlEl.textContent = data.url;
-      }).catch(() => {
-        if (linkUrlEl) linkUrlEl.textContent = 'Could not generate link — try refreshing.';
-      });
     }
 
     function loadNominees() {
@@ -3559,6 +3538,10 @@
       }
       if (pollStatus) {
         pollStatus.textContent = isOpen ? '🟢 Poll is OPEN — members can vote' : '⚪ Poll is closed';
+      }
+      if (refreshBtn) {
+        refreshBtn.disabled = isOpen;
+        refreshBtn.title = isOpen ? 'Close the poll before refreshing nominees' : '';
       }
     }
 
@@ -3628,9 +3611,9 @@
         .finally(() => { ttAddBtn.disabled = false; });
     });
 
-    // Refresh nominees from assignments
+    // Refresh nominees from assignments — blocked while the poll is open to avoid disturbing live votes
     refreshBtn.addEventListener('click', () => {
-      if (!currentMeetingId) return;
+      if (!currentMeetingId || pollIsOpen) return;
       refreshBtn.disabled = true;
       refreshBtn.textContent = 'Refreshing…';
       api('/voting/refresh-nominees/' + currentMeetingId, { method: 'POST' })
@@ -3639,7 +3622,7 @@
           renderNomineesSummary(data.nominees);
         })
         .catch(err => alert('Refresh failed: ' + err.message))
-        .finally(() => { refreshBtn.disabled = false; refreshBtn.textContent = '↻ Refresh from Assignments'; });
+        .finally(() => { refreshBtn.disabled = pollIsOpen; refreshBtn.textContent = '↻ Refresh from Assignments'; });
     });
 
     // Open / close poll
@@ -3672,16 +3655,6 @@
             resultsBtn.textContent = 'Hide Results';
           }).catch(err => alert('Declare winners failed: ' + err.message))
           .finally(() => { declareWinnersBtn.disabled = false; declareWinnersBtn.textContent = '🏆 Declare Winners'; });
-      });
-    }
-
-    if (copyLinkBtn && linkUrlEl) {
-      copyLinkBtn.addEventListener('click', () => {
-        const url = linkUrlEl.textContent.trim();
-        if (!url || url.startsWith('Select') || url.startsWith('Could not') || url.startsWith('Generating')) return;
-        navigator.clipboard.writeText(url)
-          .then(() => { copyLinkBtn.textContent = 'Copied!'; setTimeout(() => { copyLinkBtn.textContent = 'Copy Link'; }, 2000); })
-          .catch(() => {});
       });
     }
 
@@ -3858,6 +3831,8 @@
     const completeBtn          = qs('[data-tmp-complete-meeting-btn]', panel);
     const saveStatus           = qs('[data-tmp-wrapup-save-status]', panel);
     const feedbackEmailStatus  = qs('[data-tmp-speaker-feedback-email-status]', panel);
+    const rateSpeakerSection   = qs('[data-tmp-rate-speaker-section]', panel);
+    const speakerFeedbackList  = qs('[data-tmp-speaker-feedback-list]', panel);
     const statRolesEl   = qs('[data-tmp-stat-roles]', panel);
     const statPresentEl = qs('[data-tmp-stat-present]', panel);
     const statGuestsEl  = qs('[data-tmp-stat-guests]', panel);
@@ -3934,6 +3909,92 @@
       (data.guests || []).forEach(g => appendGuestRow(g.guest_name));
 
       updateWrapupStats();
+      renderRateSpeakers(currentMeetingId, rolePerformers);
+    }
+
+    // ── Rate the Speaker (VPE-only review of feedback links/responses) ───────
+    async function renderRateSpeakers(mid, performers) {
+      if (!rateSpeakerSection || !speakerFeedbackList) return;
+      const speakers = (performers || []).filter(a =>
+        a.role_name && a.role_name.toLowerCase().startsWith('speaker')
+      );
+      if (!speakers.length) { rateSpeakerSection.style.display = 'none'; return; }
+
+      rateSpeakerSection.style.display = 'block';
+
+      const counts = await api(`/speech-feedback/counts/${mid}`).catch(() => ({}));
+
+      speakerFeedbackList.innerHTML = speakers.map(s => {
+        const aid   = s.assignment_id;
+        const cnt   = counts[aid] || 0;
+        const countLabel = cnt > 0 ? `${cnt} response${cnt !== 1 ? 's' : ''}` : 'No feedback yet';
+        return `<div class="tmp-speaker-feedback-card" data-sfcard="${aid}"
+          style="border:1px solid var(--tmp-line);border-radius:6px;padding:12px;margin-bottom:10px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <strong>${esc(s.full_name)}</strong>
+              <span style="color:var(--tmp-muted);font-size:0.85rem;"> · ${esc(s.role_name)}</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-shrink:0;">
+              <button class="tmp-small-button" data-gen-fb-link="${aid}">&#128279; Copy Link</button>
+              <span class="tmp-tag" data-sfcount="${aid}"
+                style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:0.78rem;">${esc(countLabel)}</span>
+              <button class="tmp-small-button" data-show-fb="${aid}">Show Feedback &#9660;</button>
+            </div>
+          </div>
+          <div data-fb-view="${aid}" style="display:none;margin-top:10px;"></div>
+        </div>`;
+      }).join('');
+
+      speakerFeedbackList.querySelectorAll('[data-gen-fb-link]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const aid = btn.dataset.genFbLink;
+          btn.disabled = true; btn.textContent = 'Copying…';
+          try {
+            const res = await api(`/speech-feedback/link/${aid}`);
+            await navigator.clipboard.writeText(res.url);
+            btn.textContent = '✓ Copied!';
+            setTimeout(() => { btn.textContent = '🔗 Copy Link'; btn.disabled = false; }, 2500);
+          } catch (err) {
+            alert('Failed: ' + (err.message || 'error'));
+            btn.textContent = '🔗 Copy Link'; btn.disabled = false;
+          }
+        });
+      });
+
+      speakerFeedbackList.querySelectorAll('[data-show-fb]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const aid  = btn.dataset.showFb;
+          const view = speakerFeedbackList.querySelector(`[data-fb-view="${aid}"]`);
+          if (!view) return;
+          if (view.style.display !== 'none') {
+            view.style.display = 'none'; btn.textContent = 'Show Feedback ▾'; return;
+          }
+          btn.textContent = 'Loading…';
+          try {
+            const items = await api(`/speech-feedback/list/${aid}`);
+            if (!items.length) {
+              view.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">No feedback submitted yet.</p>';
+            } else {
+              view.innerHTML = items.map((f, i) => `
+                <div style="padding:8px 10px;background:#f9f9f9;border-radius:4px;${i > 0 ? 'margin-top:6px;' : ''}">
+                  <strong style="font-size:0.82rem;">${esc(f.respondent_name || 'Anonymous')}</strong>
+                  <span style="font-size:0.75rem;color:var(--tmp-muted);margin-left:6px;">${esc(f.submitted_at)}</span>
+                  <p style="margin:4px 0 0;font-size:0.88rem;white-space:pre-wrap;">${esc(f.feedback_text)}</p>
+                </div>`).join('');
+
+              const countEl = speakerFeedbackList.querySelector(`[data-sfcount="${aid}"]`);
+              if (countEl) { countEl.textContent = `${items.length} response${items.length !== 1 ? 's' : ''}`; }
+            }
+            view.style.display = 'block';
+            btn.textContent = 'Hide Feedback ▲';
+          } catch (err) {
+            view.innerHTML = `<p style="color:#c62828;font-size:0.85rem;">Failed to load: ${esc(err.message)}</p>`;
+            view.style.display = 'block';
+            btn.textContent = 'Show Feedback ▾';
+          }
+        });
+      });
     }
 
     // ── Walk-in member search ─────────────────────────────────────────────────
@@ -4300,6 +4361,10 @@
       openPollBtn.textContent  = isOpen ? 'Close Moment of Glory' : 'Moment of Glory';
       openPollBtn.className    = 'tmp-button ' + (isOpen ? 'tmp-secondary' : 'tmp-primary');
       pollStatusEl.textContent = isOpen ? '🟢 Poll is OPEN — members can vote' : '⚪ Poll is closed';
+      if (refreshBtn) {
+        refreshBtn.disabled = isOpen;
+        refreshBtn.title = isOpen ? 'Close the poll before refreshing nominees' : '';
+      }
     }
 
     function renderTTSpeakers(speakers) {
@@ -4412,8 +4477,9 @@
         .finally(() => { ttAddBtn.disabled = false; });
     });
 
+    // Blocked while the poll is open to avoid disturbing live votes
     refreshBtn.addEventListener('click', () => {
-      if (!meetingId) return;
+      if (!meetingId || pollIsOpen) return;
       refreshBtn.disabled = true;
       refreshBtn.textContent = 'Refreshing…';
       api('/voting/refresh-nominees/' + meetingId, { method: 'POST' })
@@ -4422,7 +4488,7 @@
           renderNomineesSummary(data.nominees);
         })
         .catch(err => alert('Refresh failed: ' + err.message))
-        .finally(() => { refreshBtn.disabled = false; refreshBtn.textContent = '↻ Refresh from Assignments'; });
+        .finally(() => { refreshBtn.disabled = pollIsOpen; refreshBtn.textContent = '↻ Refresh from Assignments'; });
     });
 
     openPollBtn.addEventListener('click', () => {
@@ -5510,10 +5576,10 @@
   initMemberVoting();
   initVotingPage();
   initMeetingHubPage();
-  initVPEducation().catch((err) => console.error("[TMPortal] initVPEducation() THREW — this stops everything after the failure point in that function:", err));
-  initEnrolment();
   initVotingPanel();
   initWrapUpPanel();
+  initVPEducation().catch((err) => console.error("[TMPortal] initVPEducation() THREW — this stops everything after the failure point in that function:", err));
+  initEnrolment();
   initExComSpotlightPanel();
   initRecognitionPanel();
   initMentorRating();

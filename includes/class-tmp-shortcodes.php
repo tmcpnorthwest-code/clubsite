@@ -724,23 +724,6 @@ class TMP_Shortcodes {
                             <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Moment of Glory</button>
                             <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                         </div>
-
-                        <!-- Voting link — permanent HMAC link, tied to this meeting -->
-                        <div style="margin-top:16px;padding:12px;background:#f0f8ff;border-radius:6px;border:1px solid #cce5ff;">
-                            <p class="tmp-eyebrow" style="margin:0 0 4px;color:var(--tmp-teal);">Moment of Glory Voting Link</p>
-                            <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 8px;">Share with attendees — they can vote without logging in. Link is permanent for this meeting.</p>
-                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                                <code data-tmp-vote-link-url style="flex:1;background:#fff;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;word-break:break-all;color:var(--tmp-muted);">Select a meeting above…</code>
-                                <button type="button" class="tmp-small-button" data-tmp-copy-vote-link>Copy Link</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Rate the Speaker -->
-                    <div data-tmp-rate-speaker-section style="display:none;margin-top:24px;padding-top:20px;border-top:1px solid var(--tmp-line);">
-                        <p class="tmp-eyebrow" style="margin:0 0 4px;">Rate the Speaker</p>
-                        <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 12px;">Share feedback links with attendees during or after each speech. Review responses and email the rollup to each speaker, VPE, and mentor.</p>
-                        <div data-tmp-speaker-feedback-list></div>
                     </div>
 
                     <!-- Post-meeting actions — Declare Winners, Results, Send Emails all in one row -->
@@ -795,6 +778,13 @@ class TMP_Shortcodes {
                             </div>
                             <div data-tmp-guests-list class="tmp-chip-list" style="margin-top:0;"></div>
                         </div>
+                        <?php if ($can_manage_meetings): ?>
+                        <div data-tmp-rate-speaker-section style="display:none;margin-bottom:20px;">
+                            <p class="tmp-eyebrow" style="margin:0 0 4px;">Rate the Speaker</p>
+                            <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 12px;">Share feedback links with attendees during or after each speech. Review responses and email the rollup to each speaker, VPE, and mentor.</p>
+                            <div data-tmp-speaker-feedback-list></div>
+                        </div>
+                        <?php endif; ?>
                         <div class="tmp-wrapup-actions">
                             <button class="tmp-button tmp-primary" data-tmp-complete-meeting-btn>&#10003; Complete Meeting</button>
                         <div class="tmp-wrapup-status">

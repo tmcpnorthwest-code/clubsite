@@ -3696,19 +3696,17 @@ class TMP_Repository {
 
     /**
      * Auto-populate nominees from a meeting's confirmed role assignments.
-     * Safe to call repeatedly — clears and re-inserts non-TT nominees.
+     * Safe to call repeatedly — upserts by (meeting_id, category, member_id) so
+     * existing nominee IDs (and any votes already cast against them) are preserved.
+     * Auto-populated nominees that are no longer assigned are dropped only if they
+     * have zero votes; once voted-for, a nominee is never deleted by a refresh.
      */
     public static function populate_vote_nominees($meeting_id) {
         global $wpdb;
         $nominees_table    = self::vote_nominees_table();
+        $votes_table       = self::votes_table();
         $assignments_table = self::assignment_table();
         $members_table     = self::member_table();
-
-        // Remove auto-populated rows; keep VPE-added TT speakers (member_id IS NULL with category = table_topics)
-        $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$nominees_table} WHERE meeting_id = %d AND category IN ('main_role', 'aux_role', 'speaker', 'evaluator')",
-            $meeting_id
-        ));
 
         $assignments = $wpdb->get_results($wpdb->prepare(
             "SELECT a.id, a.role_name, a.member_id, m.full_name
@@ -3717,6 +3715,16 @@ class TMP_Repository {
               WHERE a.meeting_id = %d AND a.member_id IS NOT NULL",
             $meeting_id
         ), ARRAY_A);
+
+        $existing = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, category, member_id FROM {$nominees_table}
+              WHERE meeting_id = %d AND category IN ('main_role', 'aux_role', 'speaker', 'evaluator')",
+            $meeting_id
+        ), ARRAY_A);
+        $existing_by_key = [];
+        foreach ($existing as $row) {
+            $existing_by_key[$row['category'] . '_' . $row['member_id']] = (int) $row['id'];
+        }
 
         $sort = 0;
         $now  = current_time('mysql');
@@ -3731,6 +3739,16 @@ class TMP_Repository {
             if (isset($seen[$key])) continue;
             $seen[$key] = true;
 
+            if (isset($existing_by_key[$key])) {
+                $wpdb->update($nominees_table, [
+                    'display_name' => $a['full_name'] ?? '',
+                    'role_name'    => $base_role,
+                    'sort_order'   => $sort++,
+                ], ['id' => $existing_by_key[$key]]);
+                unset($existing_by_key[$key]);
+                continue;
+            }
+
             $wpdb->insert($nominees_table, [
                 'meeting_id'   => (int) $meeting_id,
                 'category'     => $cat,
@@ -3740,6 +3758,18 @@ class TMP_Repository {
                 'sort_order'   => $sort++,
                 'created_at'   => $now,
             ]);
+        }
+
+        // Anything left in $existing_by_key is no longer assigned to this meeting.
+        // Only remove it if nobody has voted for it yet — never orphan cast votes.
+        foreach ($existing_by_key as $stale_id) {
+            $vote_count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$votes_table} WHERE nominee_id = %d",
+                $stale_id
+            ));
+            if ($vote_count === 0) {
+                $wpdb->delete($nominees_table, ['id' => $stale_id]);
+            }
         }
     }
 
