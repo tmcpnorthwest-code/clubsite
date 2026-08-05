@@ -1,6 +1,21 @@
 /.claude
 Meeting Agenda – 2026-06-21.pdf
 
+# This repo tracks only plugins/toastmasters-portal (the one plugin we author).
+# Everything else in wp-content — themes, third-party plugins, uploads, mu-plugins,
+# caches — is server-managed, not deployed via git. Ignore it all so it can sit
+# alongside this repo locally without being accidentally re-added.
+/themes/
+/plugins/*
+!/plugins/toastmasters-portal/
+/mu-plugins/
+/litespeed/
+/uploads/
+/upgrade/
+/upgrade-temp-backup/
+/index.php
+.litespeed_conf.dat
+
 # Local-only log/state files — never needed on the server, safe if absent
 debug.log
 **/debug.log
