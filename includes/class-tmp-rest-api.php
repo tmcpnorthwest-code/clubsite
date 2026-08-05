@@ -352,6 +352,12 @@ class TMP_REST_API {
             ],
         ]);
 
+        register_rest_route('toastmasters/v1', '/settings/new-member-spotlight/(?P<member_id>\d+)', [
+            'methods'             => WP_REST_Server::DELETABLE,
+            'callback'            => [__CLASS__, 'delete_spotlight_setting'],
+            'permission_callback' => [__CLASS__, 'can_ex_com_meeting'],
+        ]);
+
         // ── Pathways level progress ────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/me/level-status', [
             'methods'             => WP_REST_Server::READABLE,
@@ -1768,17 +1774,34 @@ class TMP_REST_API {
         return rest_ensure_response(['ok' => true]);
     }
 
+    /**
+     * Returns the list of currently live (active, not expired) spotlight entries,
+     * each including its member_id so the admin UI can tell them apart.
+     */
     public static function get_spotlight_setting() {
-        $raw = get_option('tmp_new_member_spotlight', null);
-        return rest_ensure_response($raw ? json_decode($raw, true) : null);
+        $entries = TMP_Repository::get_spotlight_entries_raw();
+        $live = [];
+        foreach ($entries as $data) {
+            if (empty($data['active']) || empty($data['member_id'])) continue;
+            if (!empty($data['published_at'])) {
+                $published_ts = strtotime($data['published_at']);
+                if ($published_ts && (current_time('timestamp') - $published_ts) > (30 * DAY_IN_SECONDS)) {
+                    continue;
+                }
+            }
+            $live[] = $data;
+        }
+        return rest_ensure_response($live);
     }
 
     /**
-     * Publishes the New Member Spotlight. Always goes live immediately (there is no separate
-     * "save as draft" state) — accepts multipart form data so an optional photo upload can ride
-     * along in the same request. When a photo is included, it's added to the WP Media Library
-     * and set as that member's WordPress avatar (see filter_avatar_url()), not just stored as a
-     * URL for the spotlight card.
+     * Publishes a New Member Spotlight entry for one member. Multiple members can be
+     * spotlighted at once — this adds/updates that member's entry in the list rather than
+     * replacing the whole thing. Always goes live immediately (no separate "save as draft"
+     * state) — accepts multipart form data so an optional photo upload can ride along in the
+     * same request. When a photo is included, it's added to the WP Media Library and set as
+     * that member's WordPress avatar (see filter_avatar_url()), not just stored as a URL for
+     * the spotlight card.
      */
     public static function save_spotlight_setting(WP_REST_Request $request) {
         $member_id = (int) $request->get_param('member_id');
@@ -1791,6 +1814,8 @@ class TMP_REST_API {
         if (!$member) {
             return new WP_Error('invalid_member', 'Member not found', ['status' => 400]);
         }
+
+        $entries = TMP_Repository::get_spotlight_entries_raw();
 
         $photo_url = '';
         $files = $request->get_file_params();
@@ -1811,16 +1836,45 @@ class TMP_REST_API {
             }
         }
 
-        $existing = get_option('tmp_new_member_spotlight', null);
-        $existing = $existing ? json_decode($existing, true) : [];
-        if (!$photo_url && !empty($existing['photo_url']) && (int) ($existing['member_id'] ?? 0) === $member_id) {
-            $photo_url = $existing['photo_url'];
+        // Preserve this member's existing photo if no new one was uploaded this time.
+        if (!$photo_url) {
+            foreach ($entries as $e) {
+                if ((int) ($e['member_id'] ?? 0) === $member_id && !empty($e['photo_url'])) {
+                    $photo_url = $e['photo_url'];
+                    break;
+                }
+            }
         }
 
         $active       = true;
         $published_at = current_time('mysql');
-        update_option('tmp_new_member_spotlight', wp_json_encode(compact('member_id', 'blurb', 'photo_url', 'active', 'published_at')));
+        $new_entry    = compact('member_id', 'blurb', 'photo_url', 'active', 'published_at');
+
+        $found = false;
+        foreach ($entries as $i => $e) {
+            if ((int) ($e['member_id'] ?? 0) === $member_id) {
+                $entries[$i] = $new_entry;
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            $entries[] = $new_entry;
+        }
+
+        update_option('tmp_new_member_spotlight', wp_json_encode($entries));
         return rest_ensure_response(['ok' => true, 'photo_url' => $photo_url, 'published_at' => $published_at]);
+    }
+
+    /**
+     * Retracts one member's spotlight early instead of waiting for the 30-day auto-expiry.
+     */
+    public static function delete_spotlight_setting(WP_REST_Request $request) {
+        $member_id = (int) $request->get_param('member_id');
+        $entries = TMP_Repository::get_spotlight_entries_raw();
+        $entries = array_values(array_filter($entries, fn($e) => (int) ($e['member_id'] ?? 0) !== $member_id));
+        update_option('tmp_new_member_spotlight', wp_json_encode($entries));
+        return rest_ensure_response(['ok' => true]);
     }
 
     // ── Password management ────────────────────────────────────────────────────

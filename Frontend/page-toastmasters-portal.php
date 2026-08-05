@@ -27,8 +27,8 @@ define('TMC_YT_CHANNEL_ID_OVERRIDE', 'UCC-9rVEwrTuDV4oQpjTyybw');
 
 $template_dir = get_stylesheet_directory_uri();
 
-wp_enqueue_style('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.css', [], '2.1.2');
-wp_enqueue_script('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.js', [], '2.1.2', true);
+wp_enqueue_style('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.css', [], '2.1.3');
+wp_enqueue_script('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.js', [], '2.1.3', true);
 wp_localize_script('toastmasters-portal', 'TMCPublic', [
     'restUrl' => esc_url_raw(rest_url('toastmasters/v1')),
 ]);
@@ -66,9 +66,9 @@ if (class_exists('TMP_Repository')) {
         $level_ups = TMP_Repository::get_recent_level_ups(15);
     }
 
-    $spotlight = method_exists('TMP_Repository', 'get_new_member_spotlight')
-        ? TMP_Repository::get_new_member_spotlight()
-        : null;
+    $spotlights = method_exists('TMP_Repository', 'get_new_member_spotlights')
+        ? TMP_Repository::get_new_member_spotlights()
+        : [];
     if (method_exists('TMP_Repository', 'get_meeting_summary')) {
         $meeting_summary = TMP_Repository::get_meeting_summary();
     }
@@ -309,38 +309,43 @@ if ($next_meeting) {
   </div>
 
 <!-- ══════════════════════════════════════════ NEW MEMBER SPOTLIGHT -->
-  <?php if ($spotlight) :
-    $sp        = $spotlight['member'];
-    $sp_joined = !empty($sp['created_at'])
-        ? (new DateTime($sp['created_at']))->format('F Y') : null;
+  <?php if (!empty($spotlights)) :
     $level_labels = ['Level 0 (Enrolled)', 'Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5'];
-    $sp_level  = $level_labels[(int) ($sp['level_completed'] ?? 0)] ?? 'Level 0 (Enrolled)';
   ?>
   <section class="section spotlight-section" id="tmc-spotlight">
     <p class="eyebrow">Welcome to the Club</p>
-    <h2>Meet Our Newest Member</h2>
-    <div class="spotlight-card">
-      <?php if (!empty($spotlight['photo_url'])) : ?>
-      <div class="spotlight-photo-wrap">
-        <img class="spotlight-photo"
-             src="<?php echo esc_url($spotlight['photo_url']); ?>"
-             alt="<?php echo esc_attr($sp['full_name']); ?>"
-             loading="lazy">
-      </div>
-      <?php endif; ?>
-      <div class="spotlight-content">
-        <h3 class="spotlight-name"><?php echo esc_html($sp['full_name']); ?></h3>
-        <div class="spotlight-meta">
-          <span class="spotlight-badge"><?php echo esc_html($sp_level); ?></span>
-          <span class="spotlight-pathway"><?php echo esc_html($sp['pathway']); ?></span>
-          <?php if ($sp_joined) : ?>
-          <span class="spotlight-joined">Joined <?php echo esc_html($sp_joined); ?></span>
+    <h2><?php echo count($spotlights) > 1 ? 'Meet Our Newest Members' : 'Meet Our Newest Member'; ?></h2>
+    <div class="spotlight-grid">
+      <?php foreach ($spotlights as $spotlight) :
+        $sp        = $spotlight['member'];
+        $sp_joined = !empty($sp['created_at'])
+            ? (new DateTime($sp['created_at']))->format('F Y') : null;
+        $sp_level  = $level_labels[(int) ($sp['level_completed'] ?? 0)] ?? 'Level 0 (Enrolled)';
+      ?>
+      <div class="spotlight-card">
+        <?php if (!empty($spotlight['photo_url'])) : ?>
+        <div class="spotlight-photo-wrap">
+          <img class="spotlight-photo"
+               src="<?php echo esc_url($spotlight['photo_url']); ?>"
+               alt="<?php echo esc_attr($sp['full_name']); ?>"
+               loading="lazy">
+        </div>
+        <?php endif; ?>
+        <div class="spotlight-content">
+          <h3 class="spotlight-name"><?php echo esc_html($sp['full_name']); ?></h3>
+          <div class="spotlight-meta">
+            <span class="spotlight-badge"><?php echo esc_html($sp_level); ?></span>
+            <span class="spotlight-pathway"><?php echo esc_html($sp['pathway']); ?></span>
+            <?php if ($sp_joined) : ?>
+            <span class="spotlight-joined">Joined <?php echo esc_html($sp_joined); ?></span>
+            <?php endif; ?>
+          </div>
+          <?php if (!empty($spotlight['blurb'])) : ?>
+          <p class="spotlight-blurb">&ldquo;<?php echo esc_html($spotlight['blurb']); ?>&rdquo;</p>
           <?php endif; ?>
         </div>
-        <?php if (!empty($spotlight['blurb'])) : ?>
-        <p class="spotlight-blurb">&ldquo;<?php echo esc_html($spotlight['blurb']); ?>&rdquo;</p>
-        <?php endif; ?>
       </div>
+      <?php endforeach; ?>
     </div>
   </section>
   <?php endif; ?>

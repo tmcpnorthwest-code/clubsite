@@ -896,7 +896,8 @@ class TMP_Shortcodes {
                 <section class="tmp-panel" data-tmp-excom-spotlight-panel>
                     <p class="tmp-eyebrow">Homepage spotlight</p>
                     <h3>New Member Spotlight</h3>
-                    <p>Feature a brand-new member on the homepage with a welcome message.</p>
+                    <p>Feature brand-new members on the homepage with a welcome message. Multiple members can be live at once.</p>
+                    <ul class="tmp-spotlight-live-list" data-tmp-spotlight-live-list></ul>
                     <form class="tmp-form" data-tmp-spotlight-form>
                         <label class="tmp-wide">
                             Member <span style="font-weight:400;color:var(--tmp-muted);">(Level 0 only)</span>
@@ -923,7 +924,6 @@ class TMP_Shortcodes {
                             <textarea data-tmp-spotlight-blurb rows="3" placeholder="e.g. Please join us in welcoming Priya — a software engineer with a passion for public speaking!"></textarea>
                         </label>
                         <div class="tmp-spotlight-publish-row tmp-wide">
-                            <span class="tmp-spotlight-live-note" data-tmp-spotlight-live-note style="display:none;">Currently live on homepage</span>
                             <button class="tmp-button tmp-primary" type="submit">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
                                 Publish to Home Page

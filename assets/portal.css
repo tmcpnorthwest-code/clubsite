@@ -2376,11 +2376,30 @@
   border-top: 1px solid var(--tmp-line);
 }
 
-.tmp-spotlight-live-note {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--tmp-teal);
-  margin-right: auto;
+.tmp-spotlight-live-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tmp-spotlight-live-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--tmp-surface);
+  border: 1px solid var(--tmp-line);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.tmp-spotlight-remove-btn {
+  font-size: 0.76rem;
+  padding: 4px 10px;
 }
 
 /* ── My Dashboard: request/history rows ─────────────────────────────────── */

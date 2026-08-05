@@ -1702,17 +1702,26 @@ textarea {
   border-top: 3px solid var(--teal);
 }
 
+.spotlight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.spotlight-grid:has(.spotlight-card:only-child) {
+  grid-template-columns: minmax(320px, 700px);
+}
+
 .spotlight-card {
   display: flex;
   align-items: flex-start;
   gap: 32px;
-  max-width: 700px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 28px 32px;
   box-shadow: var(--shadow);
-  margin-top: 24px;
 }
 
 .spotlight-photo-wrap {

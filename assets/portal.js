@@ -5748,9 +5748,10 @@
     const uploadBtn   = qs("[data-tmp-spotlight-upload-btn]",  spotlightForm);
     const photoPreview= qs("[data-tmp-spotlight-photo-preview]", spotlightForm);
     const photoHint   = qs("[data-tmp-spotlight-photo-hint]", spotlightForm);
-    const liveNote    = qs("[data-tmp-spotlight-live-note]", panel);
+    const liveList    = qs("[data-tmp-spotlight-live-list]", panel);
 
     let existingPhotoUrl = "";
+    let members = [];
 
     const renderPreview = (url, name) => {
       if (url) {
@@ -5762,9 +5763,9 @@
     };
 
     try {
-      const members = await api("/members");
+      members = await api("/members") || [];
       // Spotlight is for brand-new members only — Level 0 (nothing completed yet).
-      (members || [])
+      members
         .filter((m) => Number(m.level_completed || 0) === 0)
         .sort((a, b) => a.full_name.localeCompare(b.full_name))
         .forEach((m) => {
@@ -5779,24 +5780,56 @@
     }
 
     const SPOTLIGHT_DAYS = 30;
-    const updateLiveNote = (publishedAt, active) => {
-      if (!liveNote) return;
-      if (!active || !publishedAt) { liveNote.style.display = "none"; return; }
-      const publishedMs = new Date(publishedAt.replace(" ", "T")).getTime();
-      const daysLeft = SPOTLIGHT_DAYS - Math.floor((Date.now() - publishedMs) / 86400000);
-      if (daysLeft <= 0) { liveNote.style.display = "none"; return; }
-      liveNote.textContent = `Live on homepage — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
-      liveNote.style.display = "";
+    const memberName = (memberId) => members.find((m) => Number(m.id) === Number(memberId))?.full_name || `Member #${memberId}`;
+
+    const renderLiveList = (entries) => {
+      if (!liveList) return;
+      liveList.innerHTML = "";
+      if (!entries || !entries.length) {
+        liveList.style.display = "none";
+        return;
+      }
+      liveList.style.display = "";
+      entries.forEach((e) => {
+        const publishedMs = e.published_at ? new Date(e.published_at.replace(" ", "T")).getTime() : NaN;
+        const daysLeft = Number.isNaN(publishedMs) ? null : SPOTLIGHT_DAYS - Math.floor((Date.now() - publishedMs) / 86400000);
+        const li = document.createElement("li");
+        li.className = "tmp-spotlight-live-item";
+        const label = document.createElement("span");
+        label.textContent = daysLeft != null
+          ? `${memberName(e.member_id)} — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
+          : memberName(e.member_id);
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "tmp-button tmp-secondary tmp-spotlight-remove-btn";
+        removeBtn.textContent = "Remove";
+        removeBtn.addEventListener("click", async () => {
+          removeBtn.disabled = true;
+          try {
+            const res = await fetch(`${TMPortal.restUrl}/settings/new-member-spotlight/${e.member_id}`, {
+              method: "DELETE",
+              headers: { "X-WP-Nonce": TMPortal.nonce },
+            });
+            if (!res.ok) throw new Error("Remove failed.");
+            await refreshLiveList();
+          } catch (err) {
+            spotlightStatus.textContent = "Remove failed: " + err.message;
+            removeBtn.disabled = false;
+          }
+        });
+        li.appendChild(label);
+        li.appendChild(removeBtn);
+        liveList.appendChild(li);
+      });
     };
 
-    const saved = await api("/settings/new-member-spotlight").catch(() => null);
-    if (saved && saved.member_id) {
-      mSelect.value = String(saved.member_id);
-      blurbEl.value = saved.blurb || "";
-      existingPhotoUrl = saved.photo_url || "";
-      updateLiveNote(saved.published_at, saved.active);
-    }
-    renderPreview(existingPhotoUrl, mSelect.options[mSelect.selectedIndex]?.dataset.name);
+    const refreshLiveList = async () => {
+      const entries = await api("/settings/new-member-spotlight").catch(() => []);
+      renderLiveList(entries);
+    };
+
+    await refreshLiveList();
+    renderPreview("", mSelect.options[mSelect.selectedIndex]?.dataset.name);
 
     mSelect.addEventListener("change", () => {
       existingPhotoUrl = "";
@@ -5833,8 +5866,10 @@
         if (!res.ok) throw new Error(data.message || "Publish failed.");
 
         spotlightStatus.textContent = "Published!";
-        updateLiveNote(data.published_at, true);
-        if (data.photo_url) { existingPhotoUrl = data.photo_url; renderPreview(existingPhotoUrl); }
+        await refreshLiveList();
+        spotlightForm.reset();
+        existingPhotoUrl = "";
+        renderPreview("", "");
       } catch (e) {
         spotlightStatus.textContent = "Publish failed: " + e.message;
       }

@@ -5092,29 +5092,50 @@ class TMP_Repository {
     // -------------------------------------------------------------------------
 
     /**
-     * A spotlight is shown on the homepage for 30 days from when it was published, then
-     * automatically stops appearing (no manual "unpublish" step needed).
+     * Raw list of spotlight entries as stored in the option, normalized to an array
+     * of entries. Older installs stored a single JSON object instead of an array —
+     * that shape is transparently upgraded to a one-element array here.
      */
-    public static function get_new_member_spotlight() {
+    public static function get_spotlight_entries_raw() {
         $raw = get_option('tmp_new_member_spotlight', null);
-        if (!$raw) return null;
+        if (!$raw) return [];
         $data = json_decode($raw, true);
-        if (empty($data['active']) || empty($data['member_id'])) return null;
-
-        if (!empty($data['published_at'])) {
-            $published_ts = strtotime($data['published_at']);
-            if ($published_ts && (current_time('timestamp') - $published_ts) > (30 * DAY_IN_SECONDS)) {
-                return null;
-            }
+        if (!is_array($data)) return [];
+        // Legacy single-object shape (has 'member_id' at the top level) vs. list of entries.
+        if (isset($data['member_id'])) {
+            return [$data];
         }
+        return array_values($data);
+    }
 
-        $member = self::get_member((int) $data['member_id']);
-        if (!$member) return null;
-        return [
-            'member'    => $member,
-            'blurb'     => $data['blurb']     ?? '',
-            'photo_url' => $data['photo_url'] ?? '',
-        ];
+    /**
+     * Each spotlight entry is shown on the homepage for 30 days from when it was
+     * published, then automatically stops appearing (no manual "unpublish" step needed,
+     * though Ex Com can also remove one early).
+     */
+    public static function get_new_member_spotlights() {
+        $entries = self::get_spotlight_entries_raw();
+        $out = [];
+        foreach ($entries as $data) {
+            if (empty($data['active']) || empty($data['member_id'])) continue;
+
+            if (!empty($data['published_at'])) {
+                $published_ts = strtotime($data['published_at']);
+                if ($published_ts && (current_time('timestamp') - $published_ts) > (30 * DAY_IN_SECONDS)) {
+                    continue;
+                }
+            }
+
+            $member = self::get_member((int) $data['member_id']);
+            if (!$member) continue;
+            $out[] = [
+                'member'       => $member,
+                'blurb'        => $data['blurb']     ?? '',
+                'photo_url'    => $data['photo_url'] ?? '',
+                'published_at' => $data['published_at'] ?? '',
+            ];
+        }
+        return $out;
     }
 
     // =========================================================================
