@@ -3,7 +3,7 @@
  * Plugin Name: Toastmasters Portal
  * Description: Member dashboard, admin member management, VP Education scheduling, and meeting agenda tools for a Toastmasters club.
  * Version: 0.1.0
- * Author: SpeakWell Club
+ * Author: Hemant Jain
  * Text Domain: toastmasters-portal
  */
 
