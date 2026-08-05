@@ -1,13 +1,7 @@
 /.claude
 Meeting Agenda – 2026-06-21.pdf
 
-# WordPress runtime noise — regenerable caches, logs, temp upgrade state.
-# Safe to ignore even under a full-mirror deploy: Hostinger recreates these
-# automatically at runtime, they are never expected to persist as source.
-/litespeed/
-/upgrade/
-/upgrade-temp-backup/
-.litespeed_conf.dat
+# Local-only log/state files — never needed on the server, safe if absent
 debug.log
 **/debug.log
 
