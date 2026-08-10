@@ -121,7 +121,8 @@
     };
     const sec = {};
     for (let i = 0; i < assignments.length; i++) {
-      const rn     = assignments[i].role_name;
+      const a      = assignments[i];
+      const rn     = a.role_name;
       // Strip the trailing "(note)" so combined TMOD intro lines like
       // "Toastmaster of the Day (Introduces Evaluator 1 and Speaker 1)"
       // can't be mistaken for the actual Speaker/Evaluator slot row.
@@ -129,7 +130,19 @@
       const rLow   = rn.toLowerCase();
       if (sec.speeches    === undefined && /^speaker\s+\d+$/i.test(rBase))          sec.speeches    = i;
       if (sec.tabletopics === undefined && rLow.includes("table topics master"))     sec.tabletopics = i;
-      if (sec.evaluation  === undefined && /^evaluator\s+\d+$/i.test(rBase))        sec.evaluation  = i;
+      // "Evaluator N" alone now also matches the speech-block's "Introduces
+      // speaker" row (Evaluator 1 (Introduces speaker), the first speaker's
+      // evaluator introducing them) — that's NOT the evaluation session.
+      // Prefer instance_group/segment_label (populated by the backend) to
+      // find the real evaluation row; fall back to the old regex only if
+      // that metadata isn't present (legacy/unmatched rows).
+      if (sec.evaluation === undefined) {
+        if (a.instance_group) {
+          if (a.instance_group === "eval_block") sec.evaluation = i;
+        } else if (/^evaluator\s+\d+$/i.test(rBase) && !/introduces speaker/i.test(rn)) {
+          sec.evaluation = i;
+        }
+      }
       if (sec.conclusion  === undefined && /presiding/i.test(rLow) &&
           (rLow.includes("closing") || rLow.includes("guest feedback")))             sec.conclusion  = i;
     }
