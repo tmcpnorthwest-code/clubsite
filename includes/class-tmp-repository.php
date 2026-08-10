@@ -4592,6 +4592,10 @@ class TMP_Repository {
                     if (!in_array($note, $by_member[$mid]['pairing_notes'], true)) {
                         $by_member[$mid]['pairing_notes'][] = $note;
                     }
+                    $prep_note = 'Please share your speech title, project details and evaluation resources with Evaluator, Mentor and VPE';
+                    if (!in_array($prep_note, $by_member[$mid]['pairing_notes'], true)) {
+                        $by_member[$mid]['pairing_notes'][] = $prep_note;
+                    }
                 } elseif ($role_row['role_key'] === 'evaluator') {
                     $speaker_name = $speaker_by_instance[$inst] ?? null;
                     $note = 'Your speaker: ' . ($speaker_name ?: 'not yet assigned');
@@ -4606,7 +4610,7 @@ class TMP_Repository {
         $start_fmt  = !empty($meeting['start_time']) ? date('g:i A', strtotime($meeting['start_time'])) : '';
         $theme      = $meeting['theme'] ?? '';
         $venue      = $meeting['venue'] ?? '';
-        $dashboard  = home_url('/member-dashboard/');
+        $dashboard  = home_url('/#tmc-upcoming');
         $found         = count($by_member);
         $sent          = 0;
         $failed_emails = [];
