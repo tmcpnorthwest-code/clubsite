@@ -96,6 +96,23 @@ class TMP_Repository {
         return array_merge($defaults, (array) $stored);
     }
 
+    /**
+     * Resolves the minimum gate level for a role_id, preferring an admin
+     * override (still stored in the legacy tmp_role_gate_levels option, but
+     * looked up by role_key now instead of a substring pattern match) over
+     * the catalog's own default_gate_level.
+     */
+    public static function get_gate_level_for_role_id($role_id) {
+        $role = self::get_role_catalog_row($role_id);
+        if (!$role) return 0;
+
+        $stored = get_option('tmp_role_gate_levels', null);
+        if (is_array($stored) && array_key_exists($role['role_key'], $stored)) {
+            return (int) $stored[$role['role_key']];
+        }
+        return (int) $role['default_gate_level'];
+    }
+
     public static function get_standard_roles() {
         return [
             'Sergeant at Arms'       => 'SAA',
@@ -273,6 +290,11 @@ class TMP_Repository {
      * Cooloff only applies to high-repetition roles that benefit from rotation:
      * Speaker (Ice Breaker), Toastmaster of the Day, General Evaluator.
      */
+    public static function is_cooloff_role_id($role_id) {
+        $role = self::get_role_catalog_row($role_id);
+        return $role ? (bool) $role['is_cooloff_eligible'] : false;
+    }
+
     private static function is_cooloff_role($base_role) {
         $lower = strtolower($base_role);
         return preg_match('/^speaker(\s+\d+)?$/i', $base_role)
@@ -1471,13 +1493,20 @@ class TMP_Repository {
             $meeting_reqs = array_filter($all_requests, fn($r) => (int) $r['meeting_id'] === (int) $meeting['id']);
 
             $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
-                "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name
+                "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name,
+                        m.pathway AS member_pathway, m.level_completed AS member_level_completed,
+                        m.current_project AS member_current_project
                  FROM {$assignments} a
                  LEFT JOIN {$members} m ON m.id = a.member_id
                  WHERE a.meeting_id = %d
                  ORDER BY a.sort_order ASC, a.id ASC",
                 $meeting['id']
             ), ARRAY_A) ?: [];
+
+            foreach ($meeting['assignments'] as &$asgn_pathway) {
+                $asgn_pathway['pathway_label'] = self::format_speaker_pathway_label($asgn_pathway);
+            }
+            unset($asgn_pathway);
 
             foreach ($meeting['assignments'] as &$assignment) {
                 $base_target    = self::get_base_role_name($assignment['role_name']);
@@ -1493,12 +1522,14 @@ class TMP_Repository {
                 $assignment['first_requester'] = !empty($matches) ? reset($matches)['member_name'] : null;
 
                 if (!empty($assignment['member_id'])) {
-                    $assignment['suitability'] = self::check_suitability($assignment['role_name'], $assignment['member_id']);
+                    $assignment['suitability'] = self::check_suitability($assignment['role_name'], $assignment['member_id'], null, $assignment['role_id'] ?? null);
                 }
 
                 // Fallback: compute timing for rows created before timing columns existed
                 if ($assignment['time_green'] === null) {
-                    [$tg, $ty, $tr] = self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null);
+                    [$tg, $ty, $tr] = !empty($assignment['role_id'])
+                        ? self::get_timing_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null, (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null)
+                        : self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null);
                     $assignment['time_green']  = $tg;
                     $assignment['time_yellow'] = $ty;
                     $assignment['time_red']    = $tr;
@@ -1532,7 +1563,9 @@ class TMP_Repository {
 
         foreach ($meeting['assignments'] as &$assignment) {
             if ($assignment['time_green'] === null) {
-                [$tg, $ty, $tr] = self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null);
+                [$tg, $ty, $tr] = !empty($assignment['role_id'])
+                    ? self::get_timing_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null, (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null)
+                    : self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null);
                 $assignment['time_green']  = $tg;
                 $assignment['time_yellow'] = $ty;
                 $assignment['time_red']    = $tr;
@@ -1547,11 +1580,12 @@ class TMP_Repository {
     // -------------------------------------------------------------------------
 
     /**
-     * @param string $role_name
-     * @param int    $member_id
-     * @param array  $participation_at_level  [role_name => count] for the member's current level (optional)
+     * @param string   $role_name
+     * @param int      $member_id
+     * @param array    $participation_at_level  [role_name => count] for the member's current level (optional)
+     * @param int|null $role_id                 Preferred over string-parsing $role_name when provided.
      */
-    public static function check_suitability($role_name, $member_id, $participation_at_level = null) {
+    public static function check_suitability($role_name, $member_id, $participation_at_level = null, $role_id = null) {
         $member = self::get_member($member_id);
         if (!$member) {
             return ['suitable' => false, 'reason' => 'No member'];
@@ -1564,9 +1598,30 @@ class TMP_Repository {
             return ['suitable' => false, 'reason' => 'Unpaid Member'];
         }
 
-        $role  = strtolower($role_name);
         $level_completed = (int) ($member['level_completed'] ?? 0);
         $level = (int) $member['level'];
+
+        $role_row = $role_id ? self::get_role_catalog_row($role_id) : null;
+
+        if ($role_row) {
+            $gate = self::get_gate_level_for_role_id($role_id);
+            $result = $level_completed >= $gate
+                ? ['suitable' => true,  'reason' => "L{$gate}+"]
+                : ['suitable' => false, 'reason' => "Needs L{$gate}+"];
+
+            // L1 ordering: Ice Breaker (Speaker at L1) only after Table Topics Speaker at L1
+            if ($result['suitable'] && $role_row['role_key'] === 'speaker' && $level_completed >= 1) {
+                $counts = $participation_at_level ?? self::get_member_participation_counts_for_member($member_id)[1] ?? [];
+                $tts_done = isset($counts['Table Topics Speaker']) ? (int) $counts['Table Topics Speaker'] : 0;
+                if ($tts_done === 0) {
+                    return ['suitable' => false, 'reason' => 'Must do TT Speaker before Ice Breaker'];
+                }
+            }
+            return $result;
+        }
+
+        // Legacy string-based fallback for rows without a resolvable role_id.
+        $role  = strtolower($role_name);
 
         // Dynamic level gate — patterns ordered so longer/more-specific match first
         $gate_levels = self::get_current_gate_levels();
@@ -1783,6 +1838,9 @@ class TMP_Repository {
              ORDER BY a.sort_order ASC, a.id ASC",
             absint($meeting_id)
         ), ARRAY_A);
+        // Note: SELECT above still lists explicit columns from the original
+        // query (a.id, a.role_name, ...) — role_id/segment_label are pulled
+        // via a.* equivalent below by re-selecting; see loop for role_id use.
 
         $member       = self::current_member();
         $member_level           = $member ? (int) $member['level'] : 1;
@@ -1792,26 +1850,33 @@ class TMP_Repository {
         $participation = $member ? self::get_member_participation_counts_for_member($member_id) : [];
         $level_counts  = $participation[$member_level] ?? [];
 
-        // Build per-role cooloff map for this member
+        // Build per-role cooloff map for this member, keyed by role_id (falls
+        // back to base role_name string for any history row without role_id).
         $cooloff_weeks  = (int) get_option('tmp_role_cooloff_weeks', 4);
         $cooloff_since  = date('Y-m-d', strtotime("-{$cooloff_weeks} weeks", current_time('timestamp')));
-        $cooloff_info   = [];
+        $cooloff_info_by_role_id = [];
+        $cooloff_info_by_name    = [];
 
         if ($member_id) {
             $recent = $wpdb->get_results($wpdb->prepare(
-                "SELECT role_name, MAX(meeting_date) as last_date
+                "SELECT role_name, role_id, MAX(meeting_date) as last_date
                  FROM {$history}
                  WHERE member_id = %d AND meeting_date >= %s
-                 GROUP BY role_name",
+                 GROUP BY COALESCE(role_id, 0), role_name",
                 $member_id, $cooloff_since
             ), ARRAY_A);
             foreach ($recent as $r) {
                 $eligible_ts = strtotime($r['last_date']) + ($cooloff_weeks * 7 * 86400);
-                $cooloff_info[$r['role_name']] = [
+                $entry = [
                     'in_cooloff'     => true,
                     'last_performed' => $r['last_date'],
                     'eligible_from'  => date('Y-m-d', $eligible_ts),
                 ];
+                if (!empty($r['role_id'])) {
+                    $cooloff_info_by_role_id[(int) $r['role_id']] = $entry;
+                } else {
+                    $cooloff_info_by_name[$r['role_name']] = $entry;
+                }
             }
         }
 
@@ -1819,27 +1884,55 @@ class TMP_Repository {
         $needs_service_role  = ($member_id && self::needs_service_role_before_speech($member_id));
         $last_speech_date    = $member_id ? self::get_last_speech_date($member_id) : null;
 
+        // Fetch role_id/segment_label for the open slots in one pass (the
+        // query above only selected specific columns, not a.*).
+        $slot_ids = array_column($open_slots, 'assignment_id');
+        $role_meta_by_assignment = [];
+        if (!empty($slot_ids)) {
+            $placeholders = implode(',', array_fill(0, count($slot_ids), '%d'));
+            $meta_rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT id, role_id, segment_label FROM {$assignments} WHERE id IN ({$placeholders})",
+                ...$slot_ids
+            ), ARRAY_A);
+            foreach ($meta_rows as $m) {
+                $role_meta_by_assignment[(int) $m['id']] = $m;
+            }
+        }
+
         // Attach per-slot flags
         foreach ($open_slots as &$slot) {
+            $meta    = $role_meta_by_assignment[(int) $slot['assignment_id']] ?? null;
+            $role_id = $meta['role_id'] ?? null;
+            $role_row = $role_id ? self::get_role_catalog_row($role_id) : null;
             $base_role = self::get_base_role_name($slot['role_name']);
 
-            // Check level requirement from gate settings
-            $min_level = 0; // Default: no requirement (use settings only)
-            $gate_levels = self::get_current_gate_levels();
-            foreach ($gate_levels as $pattern => $level) {
-                if (stripos($base_role, $pattern) !== false) {
-                    $min_level = (int) $level;
-                    break;
+            if ($role_row) {
+                $min_level = self::get_gate_level_for_role_id($role_id);
+            } else {
+                // Legacy string-based fallback for unmatched slots.
+                $min_level = 0;
+                $gate_levels = self::get_current_gate_levels();
+                foreach ($gate_levels as $pattern => $level) {
+                    if (stripos($base_role, $pattern) !== false) {
+                        $min_level = (int) $level;
+                        break;
+                    }
                 }
             }
             $slot['qualified']   = $member_level_completed >= $min_level;
             $slot['requirement'] = $min_level > 0 ? "Level {$min_level}+ completed required" : "";
 
             // Cooloff only for Speaker / TMOD / GE — not for Timer, Grammarian, etc.
-            $slot['cooloff'] = self::is_cooloff_role($base_role) ? ($cooloff_info[$base_role] ?? null) : null;
+            if ($role_row) {
+                $slot['cooloff'] = self::is_cooloff_role_id($role_id) ? ($cooloff_info_by_role_id[$role_id] ?? null) : null;
+            } else {
+                $slot['cooloff'] = self::is_cooloff_role($base_role) ? ($cooloff_info_by_name[$base_role] ?? null) : null;
+            }
 
             // Speech roles (Speaker/Ice Breaker): must have a service role since last speech
-            $is_speech_role = (bool) preg_match('/^speaker(\s+\d+)?$/i', $base_role) || strtolower($base_role) === 'ice breaker';
+            $is_speech_role = $role_row
+                ? (bool) $role_row['is_speech_role']
+                : ((bool) preg_match('/^speaker(\s+\d+)?$/i', $base_role) || strtolower($base_role) === 'ice breaker');
             if ($is_speech_role && $needs_service_role) {
                 $slot['qualified']   = false;
                 $slot['requirement'] = "Complete a service role (e.g. Evaluator, Timer, Grammarian) since your last speech on {$last_speech_date} first";
@@ -1854,7 +1947,8 @@ class TMP_Repository {
                     $needed_roles[] = $r;
                 }
             }
-            $slot['is_goal'] = in_array($base_role, $needed_roles, true) && !isset($level_counts[$base_role]);
+            $goal_role_name = $role_row ? $role_row['display_name'] : $base_role;
+            $slot['is_goal'] = in_array($goal_role_name, $needed_roles, true) && !isset($level_counts[$goal_role_name]);
         }
 
         return [
@@ -2293,6 +2387,28 @@ class TMP_Repository {
         return current_time('timestamp') < $eligible_ts;
     }
 
+    public static function is_in_cooloff_now_role_id($member_id, $role_id) {
+        if (!self::is_cooloff_role_id($role_id)) {
+            return false;
+        }
+
+        global $wpdb;
+        $history = self::participation_history_table();
+        $cooloff_weeks = (int) get_option('tmp_role_cooloff_weeks', 4);
+
+        $last_date = $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(meeting_date) FROM {$history} WHERE member_id = %d AND role_id = %d",
+            $member_id, $role_id
+        ));
+
+        if (!$last_date) {
+            return false;
+        }
+
+        $eligible_ts = strtotime($last_date) + ($cooloff_weeks * 7 * 86400);
+        return current_time('timestamp') < $eligible_ts;
+    }
+
     /**
      * Date of the member's most recent completed speech (Speaker/Ice Breaker),
      * or null if they've never given one.
@@ -2341,6 +2457,8 @@ class TMP_Repository {
         $base_role = self::get_base_role_name($request['role_name'] ?? '');
         $member = self::get_member($request['member_id'] ?? 0);
         $winning_member = self::get_member($winning_request['member_id'] ?? 0);
+        $role_id  = !empty($request['role_id']) ? (int) $request['role_id'] : null;
+        $role_row = $role_id ? self::get_role_catalog_row($role_id) : null;
 
         // Reason 1: Higher priority selected
         if ($winning_request['priority'] < $request['priority']) {
@@ -2349,21 +2467,34 @@ class TMP_Repository {
         }
 
         // Reason 2: Level requirement not met
-        $gate_levels = self::get_current_gate_levels();
-        foreach ($gate_levels as $pattern => $min_level) {
-            if (strpos(strtolower($base_role), $pattern) !== false) {
-                $member_level = (int) ($member['level'] ?? 1);
-                if ($member_level < $min_level) {
-                    $winner_name = $winning_member['full_name'] ?? 'Another member';
-                    return "You are Level {$member_level}, but {$base_role} requires Level {$min_level}+. {$winner_name} was selected.";
+        $member_level = (int) ($member['level'] ?? 1);
+        if ($role_row) {
+            $min_level = self::get_gate_level_for_role_id($role_id);
+            if ($member_level < $min_level) {
+                $winner_name = $winning_member['full_name'] ?? 'Another member';
+                return "You are Level {$member_level}, but {$base_role} requires Level {$min_level}+. {$winner_name} was selected.";
+            }
+        } else {
+            $gate_levels = self::get_current_gate_levels();
+            foreach ($gate_levels as $pattern => $min_level) {
+                if (strpos(strtolower($base_role), $pattern) !== false) {
+                    if ($member_level < $min_level) {
+                        $winner_name = $winning_member['full_name'] ?? 'Another member';
+                        return "You are Level {$member_level}, but {$base_role} requires Level {$min_level}+. {$winner_name} was selected.";
+                    }
+                    break;
                 }
-                break;
             }
         }
 
         // Reason 3: In cooloff
-        if (self::is_in_cooloff_now($request['member_id'] ?? 0, $base_role)) {
-            $eligible_date = self::get_cooloff_eligible_date($request['member_id'] ?? 0, $base_role);
+        $in_cooloff = $role_row
+            ? self::is_in_cooloff_now_role_id($request['member_id'] ?? 0, $role_id)
+            : self::is_in_cooloff_now($request['member_id'] ?? 0, $base_role);
+        if ($in_cooloff) {
+            $eligible_date = $role_row
+                ? self::get_cooloff_eligible_date_role_id($request['member_id'] ?? 0, $role_id)
+                : self::get_cooloff_eligible_date($request['member_id'] ?? 0, $base_role);
             return "You are in cooloff for {$base_role} until {$eligible_date}. Available again after that date.";
         }
 
@@ -2388,6 +2519,24 @@ class TMP_Repository {
              WHERE member_id = %d AND role_name = %s",
             $member_id,
             $base_role
+        ));
+
+        if (!$last_date) {
+            return date('Y-m-d');
+        }
+
+        $eligible_ts = strtotime($last_date) + ($cooloff_weeks * 7 * 86400);
+        return date('Y-m-d', $eligible_ts);
+    }
+
+    public static function get_cooloff_eligible_date_role_id($member_id, $role_id) {
+        global $wpdb;
+        $history = self::participation_history_table();
+        $cooloff_weeks = (int) get_option('tmp_role_cooloff_weeks', 4);
+
+        $last_date = $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(meeting_date) FROM {$history} WHERE member_id = %d AND role_id = %d",
+            $member_id, $role_id
         ));
 
         if (!$last_date) {
@@ -2497,7 +2646,7 @@ class TMP_Repository {
 
         // Fetch the request — role_name is stored directly on the request row
         $request = $wpdb->get_row($wpdb->prepare(
-            "SELECT id, role_name FROM {$requests}
+            "SELECT id, role_name, role_id FROM {$requests}
              WHERE id = %d AND member_id = %d AND status = 'Pending'",
             $request_id, $member_id
         ), ARRAY_A);
@@ -2507,26 +2656,40 @@ class TMP_Repository {
         }
 
         $base_role = $request['role_name']; // e.g. "Speaker" or "Evaluator"
+        $role_id   = !empty($request['role_id']) ? (int) $request['role_id'] : null;
 
         // Re-validate eligibility
-        $validation = self::validate_request_eligibility($member_id, $base_role);
+        $validation = self::validate_request_eligibility($member_id, $base_role, $role_id);
         if (!$validation['eligible']) {
             return new WP_Error('tmp_ineligible', $validation['reason'], ['status' => 400]);
         }
 
-        // Find the next open slot for this role type (lowest sort_order first)
-        // Matches "Speaker", "Speaker 1", "Speaker 2 (Speech)", etc.
-        $slot_pattern = '^' . preg_quote($base_role, '/') . '( [0-9]+)?( \\(.*\\))?$';
-        $assignment_id = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$assignments}
-             WHERE meeting_id = %d
-               AND role_name REGEXP %s
-               AND (member_id IS NULL OR member_id = 0 OR member_id = '')
-               AND status NOT IN ('Confirmed', 'Completed')
-             ORDER BY sort_order ASC, id ASC
-             LIMIT 1",
-            $meeting_id, $slot_pattern
-        ));
+        // Find the next open slot for this role type (lowest sort_order first).
+        if ($role_id) {
+            $assignment_id = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$assignments}
+                 WHERE meeting_id = %d
+                   AND role_id = %d
+                   AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                   AND status NOT IN ('Confirmed', 'Completed')
+                 ORDER BY sort_order ASC, id ASC
+                 LIMIT 1",
+                $meeting_id, $role_id
+            ));
+        } else {
+            // Legacy fallback: matches "Speaker", "Speaker 1", "Speaker 2 (Speech)", etc.
+            $slot_pattern = '^' . preg_quote($base_role, '/') . '( [0-9]+)?( \\(.*\\))?$';
+            $assignment_id = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$assignments}
+                 WHERE meeting_id = %d
+                   AND role_name REGEXP %s
+                   AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                   AND status NOT IN ('Confirmed', 'Completed')
+                 ORDER BY sort_order ASC, id ASC
+                 LIMIT 1",
+                $meeting_id, $slot_pattern
+            ));
+        }
 
         if (!$assignment_id) {
             return new WP_Error('tmp_no_slots', "No open {$base_role} slots remaining for this meeting.", ['status' => 409]);
@@ -2555,7 +2718,7 @@ class TMP_Repository {
 
         // Cancel this member's other pending requests, then cascade-reject other
         // members' requests for this role once every slot is filled.
-        self::reconcile_requests_for_filled_slot($meeting_id, $member_id, $base_role, $request_id);
+        self::reconcile_requests_for_filled_slot($meeting_id, $member_id, $base_role, $request_id, $role_id);
 
         return [
             'success'       => true,
@@ -2573,7 +2736,7 @@ class TMP_Repository {
      * Deliberately NOT called from direct/manual assignment edits — those can be
      * changed minutes later, and there's no way to undo a cascade-rejected request.
      */
-    private static function reconcile_requests_for_filled_slot($meeting_id, $member_id, $base_role, $exclude_request_id = 0) {
+    private static function reconcile_requests_for_filled_slot($meeting_id, $member_id, $base_role, $exclude_request_id = 0, $role_id = null) {
         global $wpdb;
         $requests    = self::request_table();
         $assignments = self::assignment_table();
@@ -2587,15 +2750,26 @@ class TMP_Repository {
             $now, $member_id, $meeting_id, $exclude_request_id
         ));
 
-        $slot_pattern = '^' . preg_quote($base_role, '/') . '( [0-9]+)?( \\(.*\\))?$';
-        $remaining_open = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$assignments}
-             WHERE meeting_id = %d
-               AND role_name REGEXP %s
-               AND (member_id IS NULL OR member_id = 0 OR member_id = '')
-               AND status NOT IN ('Confirmed', 'Completed')",
-            $meeting_id, $slot_pattern
-        ));
+        if ($role_id) {
+            $remaining_open = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$assignments}
+                 WHERE meeting_id = %d
+                   AND role_id = %d
+                   AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                   AND status NOT IN ('Confirmed', 'Completed')",
+                $meeting_id, $role_id
+            ));
+        } else {
+            $slot_pattern = '^' . preg_quote($base_role, '/') . '( [0-9]+)?( \\(.*\\))?$';
+            $remaining_open = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$assignments}
+                 WHERE meeting_id = %d
+                   AND role_name REGEXP %s
+                   AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                   AND status NOT IN ('Confirmed', 'Completed')",
+                $meeting_id, $slot_pattern
+            ));
+        }
 
         if ($remaining_open === 0) {
             $wpdb->query($wpdb->prepare(
@@ -2639,7 +2813,7 @@ class TMP_Repository {
      * Validate if a member can be approved for a role type at approval time.
      * Takes the base role name (e.g. "Speaker") — no assignment_id needed.
      */
-    private static function validate_request_eligibility($member_id, $role_name) {
+    private static function validate_request_eligibility($member_id, $role_name, $role_id = null) {
         $member = self::get_member($member_id);
         if (!$member) {
             return ['eligible' => false, 'reason' => 'Member not found'];
@@ -2647,25 +2821,41 @@ class TMP_Repository {
 
         $member_level = (int) $member['level'];
         $base_role = self::get_base_role_name($role_name);
+        $role_row = $role_id ? self::get_role_catalog_row($role_id) : null;
 
         // Check level gate
-        $gate_levels = self::get_current_gate_levels();
-        foreach ($gate_levels as $pattern => $min_level) {
-            if (strpos(strtolower($base_role), $pattern) !== false) {
-                $min = (int) $min_level;
-                if ($member_level < $min) {
-                    return [
-                        'eligible' => false,
-                        'reason' => "Member is Level {$member_level}, requires Level {$min}+"
-                    ];
+        if ($role_row) {
+            $min = self::get_gate_level_for_role_id($role_id);
+            if ($member_level < $min) {
+                return [
+                    'eligible' => false,
+                    'reason' => "Member is Level {$member_level}, requires Level {$min}+"
+                ];
+            }
+        } else {
+            $gate_levels = self::get_current_gate_levels();
+            foreach ($gate_levels as $pattern => $min_level) {
+                if (strpos(strtolower($base_role), $pattern) !== false) {
+                    $min = (int) $min_level;
+                    if ($member_level < $min) {
+                        return [
+                            'eligible' => false,
+                            'reason' => "Member is Level {$member_level}, requires Level {$min}+"
+                        ];
+                    }
+                    break;
                 }
-                break;
             }
         }
 
         // Check cooloff (re-validate)
-        if (self::is_in_cooloff_now($member_id, $base_role)) {
-            $eligible_date = self::get_cooloff_eligible_date($member_id, $base_role);
+        $in_cooloff = $role_row
+            ? self::is_in_cooloff_now_role_id($member_id, $role_id)
+            : self::is_in_cooloff_now($member_id, $base_role);
+        if ($in_cooloff) {
+            $eligible_date = $role_row
+                ? self::get_cooloff_eligible_date_role_id($member_id, $role_id)
+                : self::get_cooloff_eligible_date($member_id, $base_role);
             return [
                 'eligible' => false,
                 'reason' => "Member in cooloff until {$eligible_date}"
@@ -2673,7 +2863,9 @@ class TMP_Repository {
         }
 
         // Service role required between speeches (all levels)
-        $is_speech_role = (bool) preg_match('/^speaker(\s+\d+)?$/i', $base_role) || strtolower($base_role) === 'ice breaker';
+        $is_speech_role = $role_row
+            ? (bool) $role_row['is_speech_role']
+            : ((bool) preg_match('/^speaker(\s+\d+)?$/i', $base_role) || strtolower($base_role) === 'ice breaker');
         if ($is_speech_role && self::needs_service_role_before_speech($member_id)) {
             $last_speech_date = self::get_last_speech_date($member_id);
             return [
@@ -2710,7 +2902,7 @@ class TMP_Repository {
         $trace[] = "Suggestion engine v3 — meeting ID: $meeting_id";
 
         $all_assignments = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, role_name, member_id FROM {$assignments_table} WHERE meeting_id = %d",
+            "SELECT id, role_name, role_id, member_id FROM {$assignments_table} WHERE meeting_id = %d",
             $meeting_id
         ), ARRAY_A);
 
@@ -2742,12 +2934,24 @@ class TMP_Repository {
             $meeting_id
         ), ARRAY_A);
 
+        // is_singular_role_for(): prefers role_catalog.is_numbered=0 (via role_id)
+        // over the legacy string-pattern check, keyed the same either way (base
+        // role_name string, so the singular_role_map stays a simple assoc array
+        // regardless of which path resolved it).
+        $is_singular_role_for = function ($role_name, $role_id) {
+            if ($role_id) {
+                $row = self::get_role_catalog_row($role_id);
+                if ($row) return $row['is_numbered'] == 0;
+            }
+            return self::is_singular_role(self::get_base_role_name($role_name));
+        };
+
         foreach ($all_assignments as $asgn) {
             $m_id = (int) $asgn['member_id'];
             if ($m_id > 0) {
                 $assigned_ids[] = $m_id;
                 $base = self::get_base_role_name($asgn['role_name']);
-                if (self::is_singular_role($base)) {
+                if ($is_singular_role_for($asgn['role_name'], $asgn['role_id'] ?? null)) {
                     $singular_role_map[$base] = $m_id;
                 }
             }
@@ -2755,11 +2959,15 @@ class TMP_Repository {
         $assigned_ids = array_unique($assigned_ids);
 
         $slots_raw = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, role_name FROM {$assignments_table} WHERE meeting_id = %d AND (member_id IS NULL OR member_id = 0 OR member_id = '')",
+            "SELECT id, role_name, role_id FROM {$assignments_table} WHERE meeting_id = %d AND (member_id IS NULL OR member_id = 0 OR member_id = '')",
             $meeting_id
         ), ARRAY_A);
 
         $slots = array_filter($slots_raw, function ($s) {
+            if (!empty($s['role_id'])) {
+                $row = self::get_role_catalog_row($s['role_id']);
+                if ($row) return $row['role_key'] !== 'presiding_officer' && $row['role_key'] !== 'break';
+            }
             $lower = strtolower($s['role_name']);
             return strpos($lower, 'presiding officer') === false
                 && strpos($s['role_name'], 'Break') !== 0;
@@ -2767,10 +2975,15 @@ class TMP_Repository {
 
         // Non-speaker slots processed first so the +40 gap bonus attracts members
         // toward role requirements before speaker (Ice Breaker) slots are considered.
-        usort($slots, function ($a, $b) {
-            $a_spk = (bool) preg_match('/^speaker(\s+\d+)?$/i', self::get_base_role_name($a['role_name']));
-            $b_spk = (bool) preg_match('/^speaker(\s+\d+)?$/i', self::get_base_role_name($b['role_name']));
-            return $a_spk - $b_spk;
+        $is_speaker_slot = function ($s) {
+            if (!empty($s['role_id'])) {
+                $row = self::get_role_catalog_row($s['role_id']);
+                if ($row) return $row['is_speech_role'] == 1;
+            }
+            return (bool) preg_match('/^speaker(\s+\d+)?$/i', self::get_base_role_name($s['role_name']));
+        };
+        usort($slots, function ($a, $b) use ($is_speaker_slot) {
+            return $is_speaker_slot($a) - $is_speaker_slot($b);
         });
 
         $open_count = count($slots);
@@ -2802,19 +3015,25 @@ class TMP_Repository {
             $last_role_map[(int) $r['member_id']] = $r['last_date'];
         }
 
-        // Pre-compute: cooloff map [member_id][base_role] = last_date (if within cooloff window)
+        // Pre-compute: cooloff map [member_id][base_role] = last_date (if within
+        // cooloff window), plus a parallel role_id-keyed map for rows that have
+        // one — both populated from the same query so either lookup style works.
         $cooloff_weeks    = (int) get_option('tmp_role_cooloff_weeks', 4);
         $cooloff_boundary = date('Y-m-d', strtotime("-{$cooloff_weeks} weeks", current_time('timestamp')));
         $recent_roles     = $wpdb->get_results($wpdb->prepare(
-            "SELECT member_id, role_name, MAX(meeting_date) as last_date
+            "SELECT member_id, role_name, role_id, MAX(meeting_date) as last_date
              FROM {$history_table}
              WHERE meeting_date >= %s
-             GROUP BY member_id, role_name",
+             GROUP BY member_id, COALESCE(role_id, 0), role_name",
             $cooloff_boundary
         ), ARRAY_A);
-        $cooloff_map = [];
+        $cooloff_map         = [];
+        $cooloff_map_by_role_id = [];
         foreach ($recent_roles as $r) {
             $cooloff_map[(int) $r['member_id']][$r['role_name']] = $r['last_date'];
+            if (!empty($r['role_id'])) {
+                $cooloff_map_by_role_id[(int) $r['member_id']][(int) $r['role_id']] = $r['last_date'];
+            }
         }
 
         // Pre-compute: presentation series counts per member per level
@@ -2863,7 +3082,7 @@ class TMP_Repository {
                             $assigned_ids[] = $m_id;
                             $trace[] = "P{$p} request: {$m_data['full_name']} → {$slot['role_name']}";
                             $base = self::get_base_role_name($slot['role_name']);
-                            if (self::is_singular_role($base)) {
+                            if ($is_singular_role_for($slot['role_name'], $slot['role_id'] ?? null)) {
                                 $singular_role_map[$base] = $m_id;
                             }
                             break;
@@ -2884,9 +3103,11 @@ class TMP_Repository {
 
                 $role_label = $slot['role_name'];
                 $base_role  = self::get_base_role_name($role_label);
+                $slot_role_id = !empty($slot['role_id']) ? (int) $slot['role_id'] : null;
+                $slot_role_row = $slot_role_id ? self::get_role_catalog_row($slot_role_id) : null;
 
                 // Singular role: reuse same member already assigned in another segment
-                if (self::is_singular_role($base_role) && isset($singular_role_map[$base_role])) {
+                if ($is_singular_role_for($role_label, $slot_role_id) && isset($singular_role_map[$base_role])) {
                     $m_id   = $singular_role_map[$base_role];
                     $m_data = array_values(array_filter($members, fn($m) => (int) $m['id'] === $m_id))[0] ?? null;
                     if ($m_data) {
@@ -2899,14 +3120,18 @@ class TMP_Repository {
                     }
                 }
 
-                // Hard level gate (skip unsuitable entirely) — dynamic, from WP option
-                $role_lower  = strtolower($base_role);
-                $gate_level  = 0;
-                $gate_levels = self::get_current_gate_levels();
-                foreach ($gate_levels as $pattern => $min_level) {
-                    if (strpos($role_lower, $pattern) !== false) {
-                        $gate_level = (int) $min_level;
-                        break;
+                // Hard level gate (skip unsuitable entirely)
+                if ($slot_role_row) {
+                    $gate_level = self::get_gate_level_for_role_id($slot_role_id);
+                } else {
+                    $role_lower  = strtolower($base_role);
+                    $gate_level  = 0;
+                    $gate_levels = self::get_current_gate_levels();
+                    foreach ($gate_levels as $pattern => $min_level) {
+                        if (strpos($role_lower, $pattern) !== false) {
+                            $gate_level = (int) $min_level;
+                            break;
+                        }
                     }
                 }
 
@@ -2926,13 +3151,24 @@ class TMP_Repository {
                     }
 
                     // Cooloff check — only for Speaker / TMOD / GE
-                    if (self::is_cooloff_role($base_role) && isset($cooloff_map[$m_id][$base_role])) {
-                        $trace[] = "Cooloff skip: {$member['full_name']} for $base_role (last: {$cooloff_map[$m_id][$base_role]})";
-                        continue;
+                    $is_cooloff_eligible = $slot_role_row
+                        ? (bool) $slot_role_row['is_cooloff_eligible']
+                        : self::is_cooloff_role($base_role);
+                    if ($is_cooloff_eligible) {
+                        $last_cooloff_date = $slot_role_id
+                            ? ($cooloff_map_by_role_id[$m_id][$slot_role_id] ?? null)
+                            : ($cooloff_map[$m_id][$base_role] ?? null);
+                        if ($last_cooloff_date) {
+                            $trace[] = "Cooloff skip: {$member['full_name']} for $base_role (last: {$last_cooloff_date})";
+                            continue;
+                        }
                     }
 
                     // L1 ordering: Ice Breaker requires prior Table Topics Speaker
-                    if ($level <= 1 && preg_match('/^speaker(\s+\d+)?$/i', $base_role)) {
+                    $is_speech_role_slot = $slot_role_row
+                        ? (bool) $slot_role_row['is_speech_role']
+                        : (bool) preg_match('/^speaker(\s+\d+)?$/i', $base_role);
+                    if ($level <= 1 && $is_speech_role_slot) {
                         $l1_counts = $all_counts[$m_id][1] ?? [];
                         if (($l1_counts['Table Topics Speaker'] ?? 0) === 0) {
                             $trace[] = "L1 ordering skip: {$member['full_name']} needs TT Speaker before Ice Breaker";
@@ -2966,7 +3202,7 @@ class TMP_Repository {
                     }
 
                     // −20 penalty: Ice Breaker slot but member has unmet non-speech role requirements
-                    if (preg_match('/^speaker(\s+\d+)?$/i', $base_role)) {
+                    if ($is_speech_role_slot) {
                         $has_unmet_non_speaker = false;
                         foreach ($gaps as $gap) {
                             if ($gap['met']) {
@@ -3016,7 +3252,7 @@ class TMP_Repository {
                         'progression_note'     => $best_reason,
                     ]);
                     $assigned_ids[] = (int) $best_member['id'];
-                    if (self::is_singular_role($base_role)) {
+                    if ($is_singular_role_for($role_label, $slot_role_id)) {
                         $singular_role_map[$base_role] = (int) $best_member['id'];
                     }
                     $trace[] = "Score match: {$best_member['full_name']} ({$best_score}pts) → $role_label ({$best_reason})";
@@ -3400,7 +3636,7 @@ class TMP_Repository {
 
         if (!empty($data['id'])) {
             $old = $wpdb->get_row($wpdb->prepare(
-                "SELECT status, member_id, role_name, meeting_id, presentation_series, duration, timer_duration FROM {$table} WHERE id = %d",
+                "SELECT status, member_id, role_name, role_id, segment_label, meeting_id, presentation_series, duration, timer_duration FROM {$table} WHERE id = %d",
                 $data['id']
             ), ARRAY_A);
 
@@ -3446,8 +3682,14 @@ class TMP_Repository {
             if ($timing_inputs_changed && !$timing_explicit && $old) {
                 $eff_dur       = isset($record['duration'])                          ? (int) $record['duration']    : (int) ($old['duration'] ?? 0);
                 $eff_timer_dur = array_key_exists('timer_duration', $record)         ? $record['timer_duration']    : ($old['timer_duration'] ?? null);
-                $eff_role      = $record['role_name']                                ?? ($old['role_name'] ?? '');
-                [$tg, $ty, $tr]         = self::get_timing_for_role($eff_role, $eff_dur, $eff_timer_dur);
+                $eff_role_id   = array_key_exists('role_id', $record)                ? $record['role_id']           : ($old['role_id'] ?? null);
+                $eff_segment   = array_key_exists('segment_label', $record)          ? $record['segment_label']     : ($old['segment_label'] ?? null);
+                if (!empty($eff_role_id)) {
+                    [$tg, $ty, $tr] = self::get_timing_for_role_id($eff_role_id, $eff_segment, $eff_dur, $eff_timer_dur);
+                } else {
+                    $eff_role       = $record['role_name'] ?? ($old['role_name'] ?? '');
+                    [$tg, $ty, $tr] = self::get_timing_for_role($eff_role, $eff_dur, $eff_timer_dur);
+                }
                 $record['time_green']   = $tg;
                 $record['time_yellow']  = $ty;
                 $record['time_red']     = $tr;
@@ -3458,25 +3700,45 @@ class TMP_Repository {
 
             $meeting_id_for_singular = $record['meeting_id'] ?? ($old['meeting_id'] ?? 0);
             if ($meeting_id_for_singular) {
-                $full_role = $wpdb->get_var($wpdb->prepare("SELECT role_name FROM {$table} WHERE id = %d", $data['id']));
+                $row = $wpdb->get_row($wpdb->prepare("SELECT role_name, role_id FROM {$table} WHERE id = %d", $data['id']), ARRAY_A);
+                $full_role = $row['role_name'] ?? '';
+                $row_role_id = !empty($row['role_id']) ? (int) $row['role_id'] : null;
                 $base      = self::get_base_role_name($full_role);
+                $row_role_row = $row_role_id ? self::get_role_catalog_row($row_role_id) : null;
+                $is_singular = $row_role_row ? ($row_role_row['is_numbered'] == 0) : self::is_singular_role($base);
 
                 // Only sync member_id/status across sub-slots when a member assignment
                 // was explicitly included in the payload — not for duration-only updates.
-                if (self::is_singular_role($base) && array_key_exists('member_id', $data)) {
+                if ($is_singular && array_key_exists('member_id', $data)) {
                     $new_member_id = !empty($record['member_id']) ? absint($record['member_id']) : 0;
                     $new_status_v  = sanitize_text_field($record['status'] ?? 'Confirmed');
 
-                    $wpdb->query($wpdb->prepare(
-                        "UPDATE {$table} SET member_id = IF(%d = 0, NULL, %d), status = %s
-                         WHERE meeting_id = %d AND (role_name = %s OR role_name LIKE %s)",
-                        $new_member_id,
-                        $new_member_id,
-                        $new_status_v,
-                        $meeting_id_for_singular,
-                        $base,
-                        $wpdb->esc_like($base) . ' (%'
-                    ));
+                    if ($row_role_id) {
+                        // Precise sync: only rows sharing the exact same role_id (and,
+                        // since this is a singular/non-numbered role, instance_number is
+                        // always NULL for all of them) — no substring over-matching.
+                        $wpdb->query($wpdb->prepare(
+                            "UPDATE {$table} SET member_id = IF(%d = 0, NULL, %d), status = %s
+                             WHERE meeting_id = %d AND role_id = %d",
+                            $new_member_id,
+                            $new_member_id,
+                            $new_status_v,
+                            $meeting_id_for_singular,
+                            $row_role_id
+                        ));
+                    } else {
+                        // Legacy fallback for rows without a resolvable role_id.
+                        $wpdb->query($wpdb->prepare(
+                            "UPDATE {$table} SET member_id = IF(%d = 0, NULL, %d), status = %s
+                             WHERE meeting_id = %d AND (role_name = %s OR role_name LIKE %s)",
+                            $new_member_id,
+                            $new_member_id,
+                            $new_status_v,
+                            $meeting_id_for_singular,
+                            $base,
+                            $wpdb->esc_like($base) . ' (%'
+                        ));
+                    }
                 }
             }
 
@@ -3607,17 +3869,33 @@ class TMP_Repository {
         $member_level = (int) $member['level'];
         $gate_levels  = self::get_current_gate_levels();
         $assignments  = self::assignment_table();
+        $catalog_cache = self::role_catalog_cache();
+
+        // Resolve each requested role_name to a role_id up front (frontend
+        // sends catalog display names, e.g. "Speaker", "Evaluator").
+        $role_ids_by_name = [];
+        foreach ($priorities as $role_name) {
+            if (empty($role_name)) continue;
+            $clean = sanitize_text_field($role_name);
+            $role_ids_by_name[$clean] = $catalog_cache['by_display_name'][strtolower($clean)]['id'] ?? null;
+        }
 
         // Validate level gate and open-slot availability for each requested role
         foreach ($priorities as $role_name) {
             if (empty($role_name)) continue;
             $role_name = sanitize_text_field($role_name);
+            $role_id   = $role_ids_by_name[$role_name] ?? null;
+            $role_row  = $role_id ? self::get_role_catalog_row($role_id) : null;
 
-            $min_level = 0;
-            foreach ($gate_levels as $pattern => $level) {
-                if (stripos($role_name, $pattern) !== false) {
-                    $min_level = (int) $level;
-                    break;
+            if ($role_row) {
+                $min_level = self::get_gate_level_for_role_id($role_id);
+            } else {
+                $min_level = 0;
+                foreach ($gate_levels as $pattern => $level) {
+                    if (stripos($role_name, $pattern) !== false) {
+                        $min_level = (int) $level;
+                        break;
+                    }
                 }
             }
             if ($member_level < $min_level) {
@@ -3628,7 +3906,9 @@ class TMP_Repository {
                 );
             }
 
-            $is_speech_role = (bool) preg_match('/^speaker(\s+\d+)?$/i', $role_name) || strtolower($role_name) === 'ice breaker';
+            $is_speech_role = $role_row
+                ? (bool) $role_row['is_speech_role']
+                : ((bool) preg_match('/^speaker(\s+\d+)?$/i', $role_name) || strtolower($role_name) === 'ice breaker');
             if ($is_speech_role && self::needs_service_role_before_speech($member_id)) {
                 $last_speech_date = self::get_last_speech_date($member_id);
                 return new WP_Error(
@@ -3639,8 +3919,13 @@ class TMP_Repository {
             }
 
             $base_role = self::get_base_role_name($role_name);
-            if (self::is_in_cooloff_now($member_id, $base_role)) {
-                $eligible_date = self::get_cooloff_eligible_date($member_id, $base_role);
+            $in_cooloff = $role_row
+                ? self::is_in_cooloff_now_role_id($member_id, $role_id)
+                : self::is_in_cooloff_now($member_id, $base_role);
+            if ($in_cooloff) {
+                $eligible_date = $role_row
+                    ? self::get_cooloff_eligible_date_role_id($member_id, $role_id)
+                    : self::get_cooloff_eligible_date($member_id, $base_role);
                 return new WP_Error(
                     'tmp_cooloff',
                     "You are in cooloff for {$base_role} until {$eligible_date}. Available again after that date.",
@@ -3649,15 +3934,26 @@ class TMP_Repository {
             }
 
             // Must have at least one open slot for this role type in the meeting
-            $pattern = '^' . preg_quote($role_name, '/') . '( [0-9]+)?( \\(.*\\))?$';
-            $open = (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$assignments}
-                 WHERE meeting_id = %d
-                   AND role_name REGEXP %s
-                   AND (member_id IS NULL OR member_id = 0 OR member_id = '')
-                   AND status NOT IN ('Confirmed', 'Completed')",
-                $meeting_id, $pattern
-            ));
+            if ($role_id) {
+                $open = (int) $wpdb->get_var($wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$assignments}
+                     WHERE meeting_id = %d
+                       AND role_id = %d
+                       AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                       AND status NOT IN ('Confirmed', 'Completed')",
+                    $meeting_id, $role_id
+                ));
+            } else {
+                $pattern = '^' . preg_quote($role_name, '/') . '( [0-9]+)?( \\(.*\\))?$';
+                $open = (int) $wpdb->get_var($wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$assignments}
+                     WHERE meeting_id = %d
+                       AND role_name REGEXP %s
+                       AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                       AND status NOT IN ('Confirmed', 'Completed')",
+                    $meeting_id, $pattern
+                ));
+            }
             if ($open === 0) {
                 return new WP_Error(
                     'tmp_no_slots',
@@ -3671,11 +3967,13 @@ class TMP_Repository {
 
         foreach ($priorities as $index => $role_name) {
             if (empty($role_name)) continue;
+            $clean = sanitize_text_field($role_name);
             $wpdb->insert($table, [
                 'meeting_id'    => $meeting_id,
                 'member_id'     => $member_id,
                 'assignment_id' => null,
-                'role_name'     => sanitize_text_field($role_name),
+                'role_name'     => $clean,
+                'role_id'       => $role_ids_by_name[$clean] ?? null,
                 'priority'      => $index + 1,
                 'created_at'    => current_time('mysql'),
             ]);
@@ -3791,7 +4089,8 @@ class TMP_Repository {
         foreach ($raw_requests as $req) {
             $meeting_key = $req['meeting_id'];
             $role_base = self::get_base_role_name($req['role_name']); // Normalize role name
-            $slot_key = $role_base;
+            $role_id   = !empty($req['role_id']) ? (int) $req['role_id'] : null;
+            $slot_key  = $role_id ? "id:{$role_id}" : $role_base;
 
             if (!isset($meetings_map[$meeting_key])) {
                 $meetings_map[$meeting_key] = [
@@ -3804,15 +4103,26 @@ class TMP_Repository {
 
             if (!isset($meetings_map[$meeting_key]['roles'][$slot_key])) {
                 // Count how many open assignment slots exist for this role type in this meeting
-                $slot_pattern = '^' . preg_quote($role_base, '/') . '( [0-9]+)?( \\(.*\\))?$';
-                $open_slots = (int) $wpdb->get_var($wpdb->prepare(
-                    "SELECT COUNT(*) FROM {$assignments}
-                     WHERE meeting_id = %d
-                       AND role_name REGEXP %s
-                       AND (member_id IS NULL OR member_id = 0 OR member_id = '')
-                       AND status NOT IN ('Confirmed', 'Completed')",
-                    $meeting_key, $slot_pattern
-                ));
+                if ($role_id) {
+                    $open_slots = (int) $wpdb->get_var($wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$assignments}
+                         WHERE meeting_id = %d
+                           AND role_id = %d
+                           AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                           AND status NOT IN ('Confirmed', 'Completed')",
+                        $meeting_key, $role_id
+                    ));
+                } else {
+                    $slot_pattern = '^' . preg_quote($role_base, '/') . '( [0-9]+)?( \\(.*\\))?$';
+                    $open_slots = (int) $wpdb->get_var($wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$assignments}
+                         WHERE meeting_id = %d
+                           AND role_name REGEXP %s
+                           AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                           AND status NOT IN ('Confirmed', 'Completed')",
+                        $meeting_key, $slot_pattern
+                    ));
+                }
                 $meetings_map[$meeting_key]['roles'][$slot_key] = [
                     'roleName'       => $role_base,
                     'openSlotsCount' => $open_slots,
@@ -4178,7 +4488,7 @@ class TMP_Repository {
 
         // Collect roles grouped by member_id, skip unassigned and Break slots
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT a.role_name, m.id AS member_id, m.full_name, m.email
+            "SELECT a.role_name, a.role_id, a.instance_number, m.id AS member_id, m.full_name, m.email
              FROM " . self::assignment_table() . " a
              JOIN " . self::member_table() . " m ON m.id = a.member_id
              WHERE a.meeting_id = %d AND a.member_id IS NOT NULL
@@ -4189,6 +4499,23 @@ class TMP_Repository {
         if (empty($rows)) return ['found' => 0, 'sent' => 0];
 
         $by_member = [];
+        // Paired Speaker <-> Evaluator lookup: instance_number => member full_name,
+        // built per role_key so a Speaker's notification can name their Evaluator
+        // and vice versa. Only meaningful once role_id/instance_number are
+        // populated (phase 1 backfill + phase 2 template-driven generation);
+        // rows without them simply don't participate in pairing (no name shown).
+        $speaker_by_instance   = [];
+        $evaluator_by_instance = [];
+
+        foreach ($rows as $row) {
+            $role_row = !empty($row['role_id']) ? self::get_role_catalog_row($row['role_id']) : null;
+            if ($role_row && !empty($row['instance_number'])) {
+                $inst = (int) $row['instance_number'];
+                if ($role_row['role_key'] === 'speaker')   $speaker_by_instance[$inst]   = $row['full_name'];
+                if ($role_row['role_key'] === 'evaluator') $evaluator_by_instance[$inst] = $row['full_name'];
+            }
+        }
+
         foreach ($rows as $row) {
             $base = self::get_base_role_name($row['role_name']);
             if (strtolower($base) === 'break') continue;
@@ -4198,11 +4525,34 @@ class TMP_Repository {
                     'name'  => $row['full_name'],
                     'email' => $row['email'],
                     'roles' => [],
+                    'pairing_notes' => [],
                 ];
             }
             // Avoid listing the same base role twice (e.g. TMOD appears in multiple sub-slots)
             if (!in_array($base, $by_member[$mid]['roles'], true)) {
                 $by_member[$mid]['roles'][] = $base;
+            }
+
+            // Paired-role cross-reference: Speaker N is told their Evaluator's
+            // name and vice versa. Scoped to the pre-assigned Speaker/Evaluator
+            // pairing only — Table Topics speakers are live/ad hoc, not known
+            // ahead of the meeting, so they're intentionally excluded.
+            $role_row = !empty($row['role_id']) ? self::get_role_catalog_row($row['role_id']) : null;
+            if ($role_row && !empty($row['instance_number'])) {
+                $inst = (int) $row['instance_number'];
+                if ($role_row['role_key'] === 'speaker') {
+                    $evaluator_name = $evaluator_by_instance[$inst] ?? null;
+                    $note = 'Your evaluator: ' . ($evaluator_name ?: 'not yet assigned');
+                    if (!in_array($note, $by_member[$mid]['pairing_notes'], true)) {
+                        $by_member[$mid]['pairing_notes'][] = $note;
+                    }
+                } elseif ($role_row['role_key'] === 'evaluator') {
+                    $speaker_name = $speaker_by_instance[$inst] ?? null;
+                    $note = 'Your speaker: ' . ($speaker_name ?: 'not yet assigned');
+                    if (!in_array($note, $by_member[$mid]['pairing_notes'], true)) {
+                        $by_member[$mid]['pairing_notes'][] = $note;
+                    }
+                }
             }
         }
 
@@ -4219,7 +4569,11 @@ class TMP_Repository {
             // Test mode: one summary email listing every member + their roles
             $lines = [];
             foreach ($by_member as $member) {
-                $lines[] = "{$member['name']}: " . implode(', ', $member['roles']);
+                $line = "{$member['name']}: " . implode(', ', $member['roles']);
+                if (!empty($member['pairing_notes'])) {
+                    $line .= ' (' . implode('; ', $member['pairing_notes']) . ')';
+                }
+                $lines[] = $line;
             }
             $subject = "[TEST] Role notification preview — {$date_fmt}";
             $message = "TEST PREVIEW — this is what each member will receive.\n\n"
@@ -4238,13 +4592,17 @@ class TMP_Repository {
             $failed_emails = [];
             foreach ($by_member as $member) {
                 if (empty($member['email'])) continue;
-                $role_list  = implode("\n  • ", $member['roles']);
+                $role_list    = implode("\n  • ", $member['roles']);
+                $pairing_block = !empty($member['pairing_notes'])
+                    ? implode("\n  • ", $member['pairing_notes']) . "\n\n"
+                    : '';
                 $time_line  = $start_fmt ? "  Time    : {$start_fmt}\n" : '';
                 $venue_line = $venue     ? "  Venue   : {$venue}\n"     : '';
                 $subject    = "Your Toastmasters role — {$date_fmt}";
                 $message    = "Hi {$member['name']},\n\n"
                     . "You have been assigned the following role(s) for our upcoming meeting:\n\n"
                     . "  • {$role_list}\n\n"
+                    . ($pairing_block ? "  • {$pairing_block}" : '')
                     . "Meeting details:\n"
                     . "  Date    : {$date_fmt}\n"
                     . $time_line . $venue_line
@@ -4295,7 +4653,9 @@ class TMP_Repository {
         if (!$meeting) return new WP_Error('not_found', 'Meeting not found', ['status' => 404]);
 
         $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
-            "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name, m.email
+            "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name, m.email,
+                    m.pathway AS member_pathway, m.level_completed AS member_level_completed,
+                    m.current_project AS member_current_project
              FROM " . self::assignment_table() . " a
              LEFT JOIN " . self::member_table() . " m ON m.id = a.member_id
              WHERE a.meeting_id = %d
@@ -4306,7 +4666,9 @@ class TMP_Repository {
         $bcc_emails = [];
         foreach ($meeting['assignments'] as &$assignment) {
             if ($assignment['time_green'] === null) {
-                [$tg, $ty, $tr] = self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null);
+                [$tg, $ty, $tr] = !empty($assignment['role_id'])
+                    ? self::get_timing_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null, (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null)
+                    : self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null);
                 $assignment['time_green']  = $tg;
                 $assignment['time_yellow'] = $ty;
                 $assignment['time_red']    = $tr;
@@ -4346,6 +4708,44 @@ class TMP_Repository {
      * Renders a standalone HTML agenda document (same layout as the client-side
      * print view) for use as an email attachment.
      */
+    /**
+     * TI Pathway full name -> short abbreviation, for the compact
+     * "PM | L2 | <project>" label shown next to each speaker's agenda row.
+     * Only "Presentation Mastery" (this club's default/observed pathway,
+     * per wp_tmp_members.pathway's schema default) is mapped — any other
+     * pathway value is displayed as-is rather than guessing an
+     * abbreviation for a pathway not confirmed in use here. Extend this
+     * map if/when the club actually enrolls members in other TI pathways.
+     */
+    public static function pathway_abbreviations() {
+        return [
+            'Presentation Mastery' => 'PM',
+        ];
+    }
+
+    /**
+     * Builds the compact "PM | L2 | Persuasive speaking" label for a
+     * Speaker/Ad Hoc Speaker agenda row with an assigned member — read-side
+     * only, sourced from the member's own profile fields (pathway is a
+     * member attribute, not a role attribute, so it lives here rather than
+     * in role_catalog). current_project stays free text (no invented P1/P2
+     * numbering scheme — see phase-1 plan's open decision).
+     */
+    public static function format_speaker_pathway_label($assignment) {
+        $pathway  = trim((string) ($assignment['member_pathway'] ?? ''));
+        $level    = $assignment['member_level_completed'] ?? null;
+        $project  = trim((string) ($assignment['member_current_project'] ?? ''));
+        if ($pathway === '' && $level === null && $project === '') {
+            return '';
+        }
+        $abbrevs = self::pathway_abbreviations();
+        $parts = [];
+        if ($pathway !== '') $parts[] = $abbrevs[$pathway] ?? $pathway;
+        if ($level !== null) $parts[] = 'L' . (int) $level;
+        if ($project !== '') $parts[] = $project;
+        return implode(' | ', $parts);
+    }
+
     private static function render_agenda_html($meeting) {
         $esc = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
 
@@ -4386,12 +4786,22 @@ class TMP_Repository {
                 continue;
             }
 
+            $role_key = !empty($a['role_id']) ? (self::get_role_catalog_row($a['role_id'])['role_key'] ?? null) : null;
+            $is_speaker_row = $role_key
+                ? in_array($role_key, ['speaker', 'ad_hoc_speaker'], true)
+                : (bool) preg_match('/^(speaker|ad hoc speaker)(\s+\d+)?$/i', self::get_base_role_name($a['role_name']));
+            $pathway_label = ($is_speaker_row && !empty($a['member_id']))
+                ? self::format_speaker_pathway_label($a)
+                : '';
+
             $rows_html .= '<tr>'
                 . '<td>' . $esc($start) . '</td>'
                 . '<td style="color:#2e7d32;text-align:center;">' . $esc($fmt_t($a['time_green'])) . '</td>'
                 . '<td style="color:#b8860b;text-align:center;">' . $esc($fmt_t($a['time_yellow'])) . '</td>'
                 . '<td style="color:#c62828;text-align:center;">' . $esc($fmt_t($a['time_red'])) . '</td>'
-                . '<td>' . $esc($a['role_name']) . ($a['speech_title'] ? '<br><span style="font-size:10px;color:#777;">' . $esc($a['speech_title']) . '</span>' : '') . '</td>'
+                . '<td>' . $esc($a['role_name'])
+                    . ($pathway_label ? ' <span style="font-size:10px;color:#555;">[' . $esc($pathway_label) . ']</span>' : '')
+                    . ($a['speech_title'] ? '<br><span style="font-size:10px;color:#777;">' . $esc($a['speech_title']) . '</span>' : '') . '</td>'
                 . '<td style="font-style:italic;">' . $esc($a['member_name'] ?? '') . '</td>'
                 . '</tr>';
         }
@@ -4433,6 +4843,17 @@ class TMP_Repository {
      * Strips agenda parentheticals first (e.g. "Timer (Report)" → "Timer").
      * Uses word-boundary patterns to avoid false substring matches.
      */
+    /**
+     * Voting category resolved from role_catalog.vote_category. Prefer this
+     * over the legacy string-based nominee_category_for_role() when role_id
+     * is known — note Table Topics Speaker resolves to NULL either way
+     * (excluded from auto-population, managed live by VPE instead).
+     */
+    public static function nominee_category_for_role_id($role_id) {
+        $role = self::get_role_catalog_row($role_id);
+        return $role ? $role['vote_category'] : null;
+    }
+
     private static function nominee_category_for_role($role_name) {
         // Strip agenda detail suffix: "Toastmaster of the Day (Intro of theme)" → "Toastmaster of the Day"
         $base  = trim(preg_replace('/\s*\(.*\)$/', '', $role_name));
@@ -4477,7 +4898,7 @@ class TMP_Repository {
         $members_table     = self::member_table();
 
         $assignments = $wpdb->get_results($wpdb->prepare(
-            "SELECT a.id, a.role_name, a.member_id, m.full_name
+            "SELECT a.id, a.role_name, a.role_id, a.member_id, m.full_name
                FROM {$assignments_table} a
           LEFT JOIN {$members_table} m ON m.id = a.member_id
               WHERE a.meeting_id = %d AND a.member_id IS NOT NULL",
@@ -4500,7 +4921,8 @@ class TMP_Repository {
         foreach ($assignments as $a) {
             // Base role name strips the agenda-segment detail in parentheses
             $base_role = trim(preg_replace('/\s*\(.*\)$/', '', $a['role_name']));
-            $cat       = self::nominee_category_for_role($base_role);
+            $role_id   = !empty($a['role_id']) ? (int) $a['role_id'] : null;
+            $cat       = $role_id ? self::nominee_category_for_role_id($role_id) : self::nominee_category_for_role($base_role);
             if (!$cat) continue;
 
             $key = $cat . '_' . $a['member_id'];
@@ -4511,6 +4933,7 @@ class TMP_Repository {
                 $wpdb->update($nominees_table, [
                     'display_name' => $a['full_name'] ?? '',
                     'role_name'    => $base_role,
+                    'role_id'      => $role_id,
                     'sort_order'   => $sort++,
                 ], ['id' => $existing_by_key[$key]]);
                 unset($existing_by_key[$key]);
@@ -4523,6 +4946,7 @@ class TMP_Repository {
                 'member_id'    => (int) $a['member_id'],
                 'display_name' => $a['full_name'] ?? '',
                 'role_name'    => $base_role,
+                'role_id'      => $role_id,
                 'sort_order'   => $sort++,
                 'created_at'   => $now,
             ]);
@@ -5128,12 +5552,22 @@ class TMP_Repository {
                 $m = self::get_member($mid);
                 $display_name = $m['full_name'] ?? '';
             }
+            // Copy role_id from the winning nominee row (same meeting/category/
+            // member) — populate_vote_nominees() writes role_id at nominee-creation
+            // time, so it's already resolved here, no re-classification needed.
+            $win_role_id = $mid ? $wpdb->get_var($wpdb->prepare(
+                "SELECT role_id FROM " . self::vote_nominees_table() . "
+                 WHERE meeting_id = %d AND category = %s AND member_id = %d
+                 LIMIT 1",
+                $meeting_id, $cat, $mid
+            )) : null;
             $wpdb->insert($wins_tbl, [
                 'meeting_id'   => $meeting_id,
                 'member_id'    => $mid,
                 'display_name' => $display_name,
                 'category'     => $cat,
                 'role_name'    => sanitize_text_field($w['role_name'] ?? ''),
+                'role_id'      => $win_role_id ? (int) $win_role_id : null,
                 'vote_count'   => (int) ($w['vote_count'] ?? 0),
                 'is_tie'       => (int) ($w['is_tie'] ?? 0),
                 'won_at'       => $meeting_date,
@@ -5423,6 +5857,22 @@ class TMP_Repository {
     }
 
     /**
+     * Roles that count as "service roles" for the recognition scoring,
+     * resolved from role_catalog.is_service_role. Prefer this over the
+     * legacy string-based is_service_role() below when role_id is known.
+     *
+     * Note: this deliberately differs from the legacy function in one
+     * case — Table Topics Speaker is NOT a service role here (the legacy
+     * string list incorrectly included it; confirmed 2026-08-10 that
+     * Table Topics Evaluator is a service role but Table Topics Speaker
+     * is not).
+     */
+    public static function is_service_role_id($role_id) {
+        $role = self::get_role_catalog_row($role_id);
+        return $role ? (bool) $role['is_service_role'] : false;
+    }
+
+    /**
      * Roles that count as "service roles" for the recognition scoring.
      * Prepared speeches (Ice Breaker, project speeches) are personal development
      * and are intentionally excluded — they don't count toward club service.
@@ -5500,7 +5950,7 @@ class TMP_Repository {
         // A2 — service roles taken, deduplicated to 1 per meeting per member
         // We count distinct meeting_ids where at least one service role was performed.
         $history_rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT member_id, meeting_id, role_name
+            "SELECT member_id, meeting_id, role_name, role_id
              FROM {$history_tbl}
              WHERE meeting_date BETWEEN %s AND %s",
             $period_start, $period_end
@@ -5508,7 +5958,10 @@ class TMP_Repository {
 
         $service_meetings_map = []; // member_id → set of meeting_ids with a service role
         foreach ($history_rows as $r) {
-            if (self::is_service_role($r['role_name'])) {
+            $is_service = !empty($r['role_id'])
+                ? self::is_service_role_id($r['role_id'])
+                : self::is_service_role($r['role_name']);
+            if ($is_service) {
                 $mid = (int) $r['member_id'];
                 $service_meetings_map[$mid][(int) $r['meeting_id']] = true;
             }

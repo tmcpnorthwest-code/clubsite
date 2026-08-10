@@ -71,9 +71,6 @@
   }
 
   function generatePrintView(meeting) {
-    const w = window.open("", "_blank");
-    if (!w) { alert("Please allow pop-ups for this site to print the agenda."); return; }
-
     const [startH, startMin] = (meeting.start_time || "18:30:00").split(":").map(Number);
     const startTotal = startH * 60 + startMin;
     const totalDur   = Number(meeting.total_duration || 120);
@@ -169,12 +166,16 @@
       const tg  = fmtT(a.time_green);
       const ty  = fmtT(a.time_yellow);
       const tr_ = fmtT(a.time_red);
+      // pathway_label ("PM | L2 | <project>") is computed server-side
+      // (TMP_Repository::format_speaker_pathway_label()) and only populated
+      // for Speaker/Ad Hoc Speaker rows with an assigned member.
+      const pathwayTag = a.pathway_label ? ` <span class="pv-pathway">[${esc(a.pathway_label)}]</span>` : "";
       bodyRows += `<tr>
         <td class="pv-time">${start}</td>
         <td class="pv-g">${tg}</td>
         <td class="pv-y">${ty}</td>
         <td class="pv-r">${tr_}</td>
-        <td>${esc(a.role_name)}${a.speech_title ? `<br><span class="pv-subtitle">${esc(a.speech_title)}</span>` : ""}</td>
+        <td>${esc(a.role_name)}${pathwayTag}${a.speech_title ? `<br><span class="pv-subtitle">${esc(a.speech_title)}</span>` : ""}</td>
         <td class="pv-presenter">${esc(a.member_name || "")}</td>
       </tr>`;
     }
@@ -183,7 +184,7 @@
       ? `<p style="margin-top:20px;font-size:11px;color:#666;font-style:italic;white-space:pre-wrap;">${esc(meeting.agenda_notes)}</p>`
       : "";
 
-    w.document.write(`<!DOCTYPE html><html><head>
+    const printHtml = `<!DOCTYPE html><html><head>
       <meta charset="UTF-8">
       <title>Meeting Agenda – ${esc(meeting.meeting_date)}</title>
       <style>
@@ -215,6 +216,7 @@
         .pv-r { color: #c62828; font-weight: 700; text-align: center; }
         .pv-presenter { font-style: italic; color: #333; }
         .pv-subtitle  { font-size: 10px; color: #777; display: block; margin-top: 2px; }
+        .pv-pathway   { font-size: 10px; color: #555; }
         .pv-section td { background: #18324a; color: #fff; font-weight: 700; text-align: center; padding: 6px 10px; letter-spacing: 0.07em; text-transform: uppercase; font-size: 10.5px; }
         .pv-break td  { background: #f0f0f0; color: #666; font-style: italic; text-align: center; }
         .pv-gather td { color: #888; font-style: italic; font-size: 11px; }
@@ -250,8 +252,25 @@
       </table>
       ${notesHtml}
       <script>window.print();window.onafterprint=()=>window.close();<\/script>
-    </body></html>`);
-    w.document.close();
+    </body></html>`;
+
+    // Blob URL instead of window.open("")+document.write(): mobile browsers
+    // (iOS Safari in particular) block or mishandle writing into a blank
+    // popup window, especially once any async work has happened since the
+    // triggering tap. A blob: URL is a real navigable document the browser
+    // opens like any other page, so print()/close() inside it still work,
+    // and it isn't treated as a suspicious blank-window popup.
+    const blob = new Blob([printHtml], { type: "text/html" });
+    const blobUrl = URL.createObjectURL(blob);
+    const w = window.open(blobUrl, "_blank");
+    if (!w) {
+      URL.revokeObjectURL(blobUrl);
+      alert("Please allow pop-ups for this site to print the agenda.");
+      return;
+    }
+    // Release the blob once the new tab has loaded it (revoking earlier
+    // would race the navigation on slower mobile connections).
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
   }
 
   async function api(path, options = {}) {

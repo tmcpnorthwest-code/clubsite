@@ -878,7 +878,7 @@ class TMP_Activator {
             ['presiding_officer', 'Presiding Officer', 'Presiding Officer', 0, 0, 0, 0, 1, null, 180, 240, 300, 5, null, 20],
             ['tmod', 'Toastmaster of the Day', 'TMOD', 0, 1, 1, 0, 2, 'main_role', null, null, null, 1, 'Toastmaster of the Day', 30],
             ['table_topics_master', 'Table Topics Master', 'Topics Master', 0, 1, 0, 0, 0, 'main_role', 600, 900, 1200, 10, 'Table Topics Master', 40],
-            ['table_topics_evaluator', 'Table Topics Evaluator', 'TT Evaluator', 0, 0, 0, 0, 1, null, 120, 180, 240, 2, null, 50],
+            ['table_topics_evaluator', 'Table Topics Evaluator', 'TT Evaluator', 0, 1, 0, 0, 1, null, 120, 180, 240, 2, null, 50],
             ['table_topics_speaker', 'Table Topics Speaker', 'TT Speaker', 0, 0, 0, 0, 0, null, null, null, null, null, 'Table Topics Speaker', 60],
             ['general_evaluator', 'General Evaluator', 'GE', 0, 1, 1, 0, 2, 'main_role', 180, 240, 300, 3, 'General Evaluator', 70],
             ['evaluator', 'Evaluator', 'Evaluator', 1, 1, 0, 0, 1, 'evaluator', 180, 240, 300, 3, 'Evaluator', 80],
