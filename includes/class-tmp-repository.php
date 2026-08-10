@@ -2418,27 +2418,47 @@ class TMP_Repository {
     }
 
     /**
-     * Date of the member's most recent completed speech (Speaker/Ice Breaker),
-     * or null if they've never given one.
+     * Date of the member's most recent speech (Speaker/Ice Breaker), or null
+     * if they've never given one. Checks both finalized participation_history
+     * AND already-occurred role_assignments, since a meeting's assignments
+     * aren't copied into participation_history until its status is flipped
+     * to 'Completed' (which can lag well after the meeting date) — relying
+     * on history alone let members re-request a speech before that wrap-up
+     * happened.
      */
     private static function get_last_speech_date($member_id) {
         global $wpdb;
-        $history = self::participation_history_table();
+        $history     = self::participation_history_table();
+        $assignments = self::assignment_table();
+        $meetings    = self::meeting_table();
+
         return $wpdb->get_var($wpdb->prepare(
-            "SELECT MAX(meeting_date) FROM {$history}
-             WHERE member_id = %d AND (role_name LIKE 'Speaker%%' OR role_name = 'Ice Breaker')",
-            $member_id
+            "SELECT MAX(d) FROM (
+                SELECT MAX(meeting_date) AS d FROM {$history}
+                 WHERE member_id = %d AND (role_name LIKE 'Speaker%%' OR role_name = 'Ice Breaker')
+                UNION ALL
+                SELECT MAX(m.meeting_date) AS d FROM {$assignments} a
+                 JOIN {$meetings} m ON m.id = a.meeting_id
+                 WHERE a.member_id = %d
+                   AND (a.role_name LIKE 'Speaker%%' OR a.role_name = 'Ice Breaker')
+                   AND m.meeting_date <= CURDATE()
+            ) combined",
+            $member_id, $member_id
         ));
     }
 
     /**
      * A member must complete at least one non-speech (service) role between
      * speeches. Returns true (blocked) only if they have a prior speech AND
-     * no service role recorded since that speech's meeting date.
+     * no service role recorded since that speech's meeting date. Checks both
+     * finalized participation_history AND already-occurred role_assignments
+     * for the same reason as get_last_speech_date().
      */
     private static function needs_service_role_before_speech($member_id) {
         global $wpdb;
-        $history = self::participation_history_table();
+        $history     = self::participation_history_table();
+        $assignments = self::assignment_table();
+        $meetings    = self::meeting_table();
 
         $last_speech_date = self::get_last_speech_date($member_id);
 
@@ -2447,12 +2467,22 @@ class TMP_Repository {
         }
 
         $service_count = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$history}
-             WHERE member_id = %d
-               AND meeting_date > %s
-               AND role_name NOT LIKE 'Speaker%%'
-               AND role_name != 'Ice Breaker'",
-            $member_id, $last_speech_date
+            "SELECT COUNT(*) FROM (
+                SELECT id FROM {$history}
+                 WHERE member_id = %d
+                   AND meeting_date > %s
+                   AND role_name NOT LIKE 'Speaker%%'
+                   AND role_name != 'Ice Breaker'
+                UNION ALL
+                SELECT a.id FROM {$assignments} a
+                 JOIN {$meetings} m ON m.id = a.meeting_id
+                 WHERE a.member_id = %d
+                   AND m.meeting_date > %s
+                   AND m.meeting_date <= CURDATE()
+                   AND a.role_name NOT LIKE 'Speaker%%'
+                   AND a.role_name != 'Ice Breaker'
+            ) combined",
+            $member_id, $last_speech_date, $member_id, $last_speech_date
         ));
 
         return $service_count === 0;
