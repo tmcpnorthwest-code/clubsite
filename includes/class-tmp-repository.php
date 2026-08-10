@@ -1504,7 +1504,15 @@ class TMP_Repository {
             ), ARRAY_A) ?: [];
 
             foreach ($meeting['assignments'] as &$asgn_pathway) {
-                $asgn_pathway['pathway_label'] = self::format_speaker_pathway_label($asgn_pathway);
+                $pathway_role_key = !empty($asgn_pathway['role_id'])
+                    ? (self::get_role_catalog_row($asgn_pathway['role_id'])['role_key'] ?? null)
+                    : null;
+                $pathway_is_speaker_row = $pathway_role_key
+                    ? in_array($pathway_role_key, ['speaker', 'ad_hoc_speaker'], true)
+                    : (bool) preg_match('/^(speaker|ad hoc speaker)(\s+\d+)?$/i', self::get_base_role_name($asgn_pathway['role_name']));
+                $asgn_pathway['pathway_label'] = ($pathway_is_speaker_row && !empty($asgn_pathway['member_id']))
+                    ? self::format_speaker_pathway_label($asgn_pathway)
+                    : '';
             }
             unset($asgn_pathway);
 
@@ -4711,15 +4719,23 @@ class TMP_Repository {
     /**
      * TI Pathway full name -> short abbreviation, for the compact
      * "PM | L2 | <project>" label shown next to each speaker's agenda row.
-     * Only "Presentation Mastery" (this club's default/observed pathway,
-     * per wp_tmp_members.pathway's schema default) is mapped — any other
-     * pathway value is displayed as-is rather than guessing an
-     * abbreviation for a pathway not confirmed in use here. Extend this
-     * map if/when the club actually enrolls members in other TI pathways.
+     * Mirrors TMP_REST_API::parse_credential()'s code map exactly (that's
+     * the CSV-import parser that writes wp_tmp_members.pathway from
+     * 2-letter TI credential codes like "PM3"/"DL1") — those 10 pathways
+     * are confirmed in real use by imported member data, not guessed.
      */
     public static function pathway_abbreviations() {
         return [
-            'Presentation Mastery' => 'PM',
+            'Dynamic Leadership'      => 'DL',
+            'Effective Coaching'      => 'EC',
+            'Engaging Humor'          => 'EH',
+            'Innovative Planning'     => 'IP',
+            'Motivational Strategies' => 'MS',
+            'Persuasive Influence'    => 'PI',
+            'Presentation Mastery'    => 'PM',
+            'Strategic Relationships' => 'SR',
+            'Team Collaboration'      => 'TC',
+            'Visionary Communication' => 'VC',
         ];
     }
 
