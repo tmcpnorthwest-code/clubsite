@@ -1088,54 +1088,60 @@ class TMP_Repository {
         $durs = array_merge(self::get_agenda_durations(), $duration_overrides);
 
         $expanded = [];
+        $processed_groups = []; // instance_group => true, once its rows have all been expanded together
+
+        // eval_block tracks 1:1 with speech_slots (one Evaluation per Speech).
+        $slot_counts = ['speech_block' => $speech_slots, 'eval_block' => $speech_slots, 'adhoc_block' => $adhoc_slots, 'fun_block' => $fun_slots];
 
         foreach ($items as $item) {
             $role_key = $item['role_key'];
+            $is_repeating = (int) $item['repeat_per_speech'] === 1;
+            $group = $item['instance_group'];
+
+            if ($is_repeating && $group) {
+                // Expand the ENTIRE group (all its template rows: TMOD intro,
+                // Speaker's Speech, Evaluator's Evaluation, etc.) together,
+                // instance by instance — intro-1, speech-1, intro-2, speech-2,
+                // ... — not row-by-row across all instances. This is triggered
+                // once, on the first row belonging to the group; subsequent
+                // rows of the same group are skipped since they were already
+                // included in that first pass.
+                if (isset($processed_groups[$group])) {
+                    continue;
+                }
+                $processed_groups[$group] = true;
+
+                $group_items = array_values(array_filter($items, fn($i) => $i['instance_group'] === $group));
+                $total = $slot_counts[$group] ?? 0;
+
+                for ($i = 1; $i <= $total; $i++) {
+                    foreach ($group_items as $g_item) {
+                        $g_role_key = $g_item['role_key'];
+                        // 'tmod' rows within the block still need TMOD selected;
+                        // the block's own primary role (speaker/evaluator/etc.)
+                        // is implied by slot count > 0, not the roles checklist.
+                        if ($g_role_key === 'tmod' && !isset($selected['tmod'])) continue;
+                        if (!empty($g_item['requires_role_key']) && !isset($selected[$g_item['requires_role_key']])) continue;
+                        $expanded[] = self::build_expanded_agenda_item($g_item, $i, $total, $durs);
+                    }
+                }
+                continue;
+            }
 
             // Optional segments only appear if the VPE selected that role
             // (or the segment's own role is 'break', which is never optional-gated).
             if ((int) $item['is_optional'] === 1 && !isset($selected[$role_key]) && $role_key !== 'break') {
                 continue;
             }
-            // Non-optional segments still require their role to have been
-            // selected, UNLESS the role is inherently always-on (break) or
-            // a numbered/repeating role whose presence is governed by the
-            // slot counts below rather than the roles checklist.
-            $is_repeating = (int) $item['repeat_per_speech'] === 1;
-            if ((int) $item['is_optional'] === 0 && $role_key !== 'break' && !$is_repeating && !isset($selected[$role_key])) {
+            // Non-optional segments still require their role to have been selected,
+            // UNLESS the role is inherently always-on (break).
+            if ((int) $item['is_optional'] === 0 && $role_key !== 'break' && !isset($selected[$role_key])) {
                 continue;
             }
 
             // requires_role_key: e.g. a "TMOD introduces Timer" line only
             // makes sense if Timer itself is selected.
             if (!empty($item['requires_role_key']) && !isset($selected[$item['requires_role_key']])) {
-                continue;
-            }
-
-            if ($is_repeating) {
-                // Speech-block rows (TMOD intro, Speaker's Speech, Evaluator's
-                // Evaluation) repeat once per speech slot. Role selection for
-                // 'speaker'/'evaluator' is implied by speech_slots > 0, not the
-                // roles checklist — but 'tmod' rows within the block still need
-                // TMOD to be selected.
-                if ($role_key === 'tmod' && !isset($selected['tmod'])) {
-                    continue;
-                }
-                if ($item['instance_group'] === 'speech_block') {
-                    for ($i = 1; $i <= $speech_slots; $i++) {
-                        $expanded[] = self::build_expanded_agenda_item($item, $i, $speech_slots, $durs);
-                    }
-                } elseif ($item['instance_group'] === 'adhoc_block') {
-                    if ($role_key === 'tmod' && $adhoc_slots < 1) continue;
-                    for ($i = 1; $i <= $adhoc_slots; $i++) {
-                        $expanded[] = self::build_expanded_agenda_item($item, $i, $adhoc_slots, $durs);
-                    }
-                } elseif ($item['instance_group'] === 'fun_block') {
-                    if ($role_key === 'tmod' && $fun_slots < 1) continue;
-                    for ($i = 1; $i <= $fun_slots; $i++) {
-                        $expanded[] = self::build_expanded_agenda_item($item, $i, $fun_slots, $durs);
-                    }
-                }
                 continue;
             }
 
