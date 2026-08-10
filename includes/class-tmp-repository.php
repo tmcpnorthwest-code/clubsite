@@ -1174,11 +1174,11 @@ class TMP_Repository {
 
         $segment_label = $item['segment_label'];
         // Multi-instance segment labels get the instance number folded in
-        // for TMOD lines that reference "Evaluator N and Speaker N" etc.
+        // for TMOD lines that need it spelled out in the text itself (the
+        // speech-block's own Evaluator/Speaker rows get their number via
+        // instance_number + synthesize_role_name() instead, no text edit needed).
         if ($instance !== null) {
-            if ($role_key === 'tmod' && $item['instance_group'] === 'speech_block' && $segment_label === 'Introduces Evaluator and Speaker') {
-                $segment_label = "Introduces Evaluator {$instance} and Speaker {$instance}";
-            } elseif ($role_key === 'tmod' && $item['instance_group'] === 'adhoc_block') {
+            if ($role_key === 'tmod' && $item['instance_group'] === 'adhoc_block') {
                 $segment_label = "Introduces Ad Hoc Speaker {$instance}";
             } elseif ($role_key === 'tmod' && $item['instance_group'] === 'fun_block') {
                 $label = $instance_total > 1 ? "Fun Session {$instance}" : 'Fun Session';
