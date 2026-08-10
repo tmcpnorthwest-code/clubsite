@@ -1044,235 +1044,271 @@ class TMP_Repository {
     // -------------------------------------------------------------------------
 
     /**
+     * Loads the default (is_default=1) agenda template's items, joined with
+     * their role_catalog row, ordered by sort_order. This is the single
+     * source of truth both rebuild_meeting_agenda() and save_meeting()'s
+     * create-path read from — replaces the two independently-hardcoded
+     * $agenda[]/$role_intro_map arrays that used to drift from each other.
+     */
+    private static function get_default_agenda_template_items() {
+        global $wpdb;
+        $template_id = $wpdb->get_var(
+            "SELECT id FROM " . self::agenda_template_table() . " WHERE is_default = 1 AND is_active = 1 LIMIT 1"
+        );
+        if (!$template_id) return [];
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT ti.*, rc.role_key, rc.display_name AS role_display_name
+             FROM " . self::agenda_template_items_table() . " ti
+             JOIN " . self::role_catalog_table() . " rc ON rc.id = ti.role_id
+             WHERE ti.template_id = %d
+             ORDER BY ti.sort_order",
+            (int) $template_id
+        ), ARRAY_A);
+    }
+
+    /**
+     * Expands the default agenda template into a flat, ordered list of
+     * concrete agenda lines for one meeting, given which roles the VPE
+     * selected (by role_key) and how many numbered slots of each repeating
+     * type are needed. Each returned item carries role_id (never a bare
+     * string) plus enough metadata for the caller to build/preserve
+     * role_assignments rows: role_id, role_key, segment_label,
+     * instance_number, instance_group, duration, timer_duration.
+     *
+     * @param string[] $selected_role_keys role_key values the VPE checked (e.g. ['saa','tmod',...])
+     * @param int $speech_slots
+     * @param int $adhoc_slots
+     * @param int $fun_slots
+     * @param array $duration_overrides ['speaker' => int, 'ttm' => int] per-meeting duration overrides
+     */
+    public static function expand_agenda_template($selected_role_keys, $speech_slots, $adhoc_slots, $fun_slots, $duration_overrides = []) {
+        $items = self::get_default_agenda_template_items();
+        $selected = array_flip($selected_role_keys);
+        $durs = array_merge(self::get_agenda_durations(), $duration_overrides);
+
+        $expanded = [];
+
+        foreach ($items as $item) {
+            $role_key = $item['role_key'];
+
+            // Optional segments only appear if the VPE selected that role
+            // (or the segment's own role is 'break', which is never optional-gated).
+            if ((int) $item['is_optional'] === 1 && !isset($selected[$role_key]) && $role_key !== 'break') {
+                continue;
+            }
+            // Non-optional segments still require their role to have been
+            // selected, UNLESS the role is inherently always-on (break) or
+            // a numbered/repeating role whose presence is governed by the
+            // slot counts below rather than the roles checklist.
+            $is_repeating = (int) $item['repeat_per_speech'] === 1;
+            if ((int) $item['is_optional'] === 0 && $role_key !== 'break' && !$is_repeating && !isset($selected[$role_key])) {
+                continue;
+            }
+
+            // requires_role_key: e.g. a "TMOD introduces Timer" line only
+            // makes sense if Timer itself is selected.
+            if (!empty($item['requires_role_key']) && !isset($selected[$item['requires_role_key']])) {
+                continue;
+            }
+
+            if ($is_repeating) {
+                // Speech-block rows (TMOD intro, Speaker's Speech, Evaluator's
+                // Evaluation) repeat once per speech slot. Role selection for
+                // 'speaker'/'evaluator' is implied by speech_slots > 0, not the
+                // roles checklist — but 'tmod' rows within the block still need
+                // TMOD to be selected.
+                if ($role_key === 'tmod' && !isset($selected['tmod'])) {
+                    continue;
+                }
+                if ($item['instance_group'] === 'speech_block') {
+                    for ($i = 1; $i <= $speech_slots; $i++) {
+                        $expanded[] = self::build_expanded_agenda_item($item, $i, $speech_slots, $durs);
+                    }
+                } elseif ($item['instance_group'] === 'adhoc_block') {
+                    if ($role_key === 'tmod' && $adhoc_slots < 1) continue;
+                    for ($i = 1; $i <= $adhoc_slots; $i++) {
+                        $expanded[] = self::build_expanded_agenda_item($item, $i, $adhoc_slots, $durs);
+                    }
+                } elseif ($item['instance_group'] === 'fun_block') {
+                    if ($role_key === 'tmod' && $fun_slots < 1) continue;
+                    for ($i = 1; $i <= $fun_slots; $i++) {
+                        $expanded[] = self::build_expanded_agenda_item($item, $i, $fun_slots, $durs);
+                    }
+                }
+                continue;
+            }
+
+            // "Evaluation" and its surrounding TMOD/Timer lines are only
+            // relevant when there's at least one speech to evaluate.
+            if (in_array($item['segment_label'], ['Introduces Evaluation Session'], true) && $speech_slots < 1) {
+                continue;
+            }
+
+            $expanded[] = self::build_expanded_agenda_item($item, null, null, $durs);
+        }
+
+        return $expanded;
+    }
+
+    private static function build_expanded_agenda_item($item, $instance, $instance_total, $durs) {
+        $role_key = $item['role_key'];
+        $duration = (int) ($item['default_duration_minutes'] ?? 0);
+        $timer_duration = null;
+
+        // Duration overrides for roles the club tunes via settings.
+        if ($role_key === 'speaker' && $item['instance_group'] === 'speech_block' && $item['segment_label'] === 'Speech') {
+            $duration = (int) ($durs['speaker'] ?? $duration);
+            $timer_duration = max(1, $duration - 1);
+        } elseif ($role_key === 'ad_hoc_speaker') {
+            $duration = (int) ($durs['speaker'] ?? $duration);
+        } elseif ($role_key === 'table_topics_master') {
+            $duration = (int) ($durs['ttm'] ?? $duration);
+        }
+
+        $segment_label = $item['segment_label'];
+        // Multi-instance segment labels get the instance number folded in
+        // for TMOD lines that reference "Evaluator N and Speaker N" etc.
+        if ($instance !== null) {
+            if ($role_key === 'tmod' && $item['instance_group'] === 'speech_block' && $segment_label === 'Introduces Evaluator and Speaker') {
+                $segment_label = "Introduces Evaluator {$instance} and Speaker {$instance}";
+            } elseif ($role_key === 'tmod' && $item['instance_group'] === 'adhoc_block') {
+                $segment_label = "Introduces Ad Hoc Speaker {$instance}";
+            } elseif ($role_key === 'tmod' && $item['instance_group'] === 'fun_block') {
+                $label = $instance_total > 1 ? "Fun Session {$instance}" : 'Fun Session';
+                $segment_label = "Introduces {$label}";
+            }
+        }
+
+        return [
+            'role_id'          => (int) $item['role_id'],
+            'role_key'         => $role_key,
+            'role_display_name'=> $item['role_display_name'],
+            'segment_label'    => $segment_label,
+            'instance_number'  => ($instance !== null && $item['role_key'] !== 'tmod') ? $instance : null,
+            'instance_group'   => $item['instance_group'],
+            'template_item_id' => (int) $item['id'],
+            'requires_role_key'=> $item['requires_role_key'] ?? null,
+            'duration'         => $duration,
+            'timer_duration'   => $timer_duration,
+        ];
+    }
+
+    /**
+     * Builds the composite role_name string for dual-write compatibility
+     * with every read path not yet migrated off the string column —
+     * "Speaker 2 (Speech)", "Sergeant at Arms (Starts meeting)", etc.
+     */
+    private static function synthesize_role_name($expanded_item) {
+        $label = $expanded_item['role_display_name'];
+        if ($expanded_item['instance_number']) {
+            $label .= ' ' . $expanded_item['instance_number'];
+        }
+        if (!empty($expanded_item['segment_label'])) {
+            $label .= " ({$expanded_item['segment_label']})";
+        }
+        return $label;
+    }
+
+    /**
      * Deletes and recreates all role_assignment rows for a meeting in the
      * canonical prescribed order, preserving existing member assignments
-     * (member_id, speech_title, presentation_series, status) by base role name.
+     * (member_id, speech_title, presentation_series, status) by role_id +
+     * instance_number (falling back to base role_name matching for legacy
+     * rows that predate the role_id backfill).
      */
     public static function rebuild_meeting_agenda($meeting_id) {
         global $wpdb;
         $meeting_id = absint($meeting_id);
         $atbl       = self::assignment_table();
 
-        // Step 1: Snapshot member assignments keyed by base role.
-        // Member assignments, speech titles, and per-slot durations (Speaker, TTM) are preserved.
-        // Other role durations reset to template defaults.
+        // Step 1: Snapshot member assignments keyed by role_id + instance_number
+        // (role_id IS NULL rows — legacy, never backfilled — fall back to
+        // base role_name matching so nothing is silently dropped on rebuild).
         $existing = $wpdb->get_results($wpdb->prepare(
-            "SELECT role_name, member_id, guest_name, speech_title, presentation_series, status, duration, timer_duration
+            "SELECT role_name, role_id, instance_number, member_id, guest_name, speech_title, presentation_series, status, duration, timer_duration
              FROM {$atbl} WHERE meeting_id = %d ORDER BY sort_order",
             $meeting_id
         ), ARRAY_A);
 
-        $saved        = []; // base_role → {member_id, guest_name, speech_title, presentation_series, status, duration, timer_duration}
-        $speaker_nums = [];   // actual slot numbers that exist in the DB
-        $adhoc_nums   = [];   // actual Ad Hoc Speaker slot numbers that exist in the DB
-        $fun_nums     = [];   // actual Fun Session slot numbers that exist in the DB
-        $role_set     = [];
+        $saved       = []; // "{role_id}:{instance_number|0}" → {member_id, guest_name, speech_title, presentation_series, status, duration, timer_duration}
+        $legacy_saved = []; // base_role_name (fallback for role_id IS NULL rows) → same shape
+        $selected_role_ids = [];
+        $speech_count = 0;
+        $adhoc_count  = 0;
+        $fun_count    = 0;
+
+        $cache = self::role_catalog_cache();
 
         foreach ($existing as $row) {
-            $base = self::get_base_role_name($row['role_name']);
+            $entry = [
+                'member_id'           => $row['member_id'] ? absint($row['member_id']) : null,
+                'guest_name'          => $row['guest_name'] ?? null,
+                'speech_title'        => $row['speech_title'] ?? null,
+                'presentation_series' => $row['presentation_series'] ?? null,
+                'status'              => $row['status'] ?? 'Planned',
+                'duration'            => $row['duration'] ?? null,
+                'timer_duration'      => $row['timer_duration'] ?? null,
+            ];
 
-            if (preg_match('/^Speaker\s+(\d+)$/i', $base, $m)) {
-                $speaker_nums[(int) $m[1]] = true;
-            }
-            if (preg_match('/^Ad Hoc Speaker\s+(\d+)$/i', $base, $m)) {
-                $adhoc_nums[(int) $m[1]] = true;
-            }
-            if (preg_match('/^Fun Session(?:\s+(\d+))?$/i', $base, $m)) {
-                $fun_nums[isset($m[1]) && $m[1] !== '' ? (int) $m[1] : 1] = true;
-            }
-
-            if (array_key_exists($base, self::get_standard_roles())) {
-                $role_set[$base] = true;
-            }
-
-            // Prefer the first row that has a member_id; always keep the first duration seen.
-            if (!isset($saved[$base]) || (!$saved[$base]['member_id'] && $row['member_id'])) {
-                $prev_dur       = $saved[$base]['duration']       ?? null;
-                $prev_timer_dur = $saved[$base]['timer_duration'] ?? null;
-                $saved[$base] = [
-                    'member_id'           => $row['member_id'] ? absint($row['member_id']) : null,
-                    'guest_name'          => $row['guest_name'] ?? null,
-                    'speech_title'        => $row['speech_title'] ?? null,
-                    'presentation_series' => $row['presentation_series'] ?? null,
-                    'status'              => $row['status'] ?? 'Planned',
-                    'duration'            => $row['duration'] ?? $prev_dur,
-                    'timer_duration'      => $row['timer_duration'] ?? $prev_timer_dur,
-                ];
-            }
-        }
-
-        ksort($speaker_nums);
-        $speaker_nums = array_keys($speaker_nums);  // e.g. [1, 3] if Speaker 2 was removed
-
-        // Renumber to sequential: Speaker 3 → Speaker 2, carrying the saved member assignment
-        foreach ($speaker_nums as $new_zero_idx => $old_num) {
-            $new_num = $new_zero_idx + 1;
-            if ($old_num !== $new_num) {
-                foreach (['Speaker', 'Evaluator'] as $prefix) {
-                    if (isset($saved["{$prefix} {$old_num}"])) {
-                        $saved["{$prefix} {$new_num}"] = $saved["{$prefix} {$old_num}"];
-                        unset($saved["{$prefix} {$old_num}"]);
-                    }
+            if ($row['role_id']) {
+                $role_id = (int) $row['role_id'];
+                $selected_role_ids[$role_id] = true;
+                $instance = $row['instance_number'] ? (int) $row['instance_number'] : 0;
+                $key = "{$role_id}:{$instance}";
+                if (!isset($saved[$key]) || (!$saved[$key]['member_id'] && $entry['member_id'])) {
+                    $saved[$key] = $entry;
+                }
+                $role_row = $cache['by_id'][$role_id] ?? null;
+                if ($role_row) {
+                    if ($role_row['role_key'] === 'speaker')        $speech_count = max($speech_count, $instance);
+                    if ($role_row['role_key'] === 'ad_hoc_speaker') $adhoc_count  = max($adhoc_count, $instance);
+                    if ($role_row['role_key'] === 'fun_session')    $fun_count    = max($fun_count, max($instance, 1));
+                }
+            } else {
+                // Legacy fallback for rows never backfilled with role_id.
+                $base = self::get_base_role_name($row['role_name']);
+                if (!isset($legacy_saved[$base]) || (!$legacy_saved[$base]['member_id'] && $entry['member_id'])) {
+                    $legacy_saved[$base] = $entry;
                 }
             }
         }
-        $total_speeches = count($speaker_nums);
 
-        ksort($adhoc_nums);
-        $adhoc_nums = array_keys($adhoc_nums);
-        foreach ($adhoc_nums as $new_zero_idx => $old_num) {
-            $new_num = $new_zero_idx + 1;
-            if ($old_num !== $new_num && isset($saved["Ad Hoc Speaker {$old_num}"])) {
-                $saved["Ad Hoc Speaker {$new_num}"] = $saved["Ad Hoc Speaker {$old_num}"];
-                unset($saved["Ad Hoc Speaker {$old_num}"]);
-            }
-        }
-        $total_adhoc = count($adhoc_nums);
-
-        ksort($fun_nums);
-        $fun_nums = array_keys($fun_nums);
-        $total_fun = count($fun_nums);
-        // Re-key single-slot "Fun Session" (no number) to "Fun Session 1" so the
-        // loop below (which always uses numbered labels when total_fun > 1) can find it.
-        if ($total_fun === 1 && isset($saved['Fun Session']) && !isset($saved['Fun Session 1'])) {
-            $saved['Fun Session 1'] = $saved['Fun Session'];
-        }
-
-        $selected_roles = array_keys($role_set);
+        $selected_role_keys = array_map(function ($id) use ($cache) {
+            return $cache['by_id'][$id]['role_key'] ?? null;
+        }, array_keys($selected_role_ids));
+        $selected_role_keys = array_values(array_filter($selected_role_keys));
 
         // Step 2: Delete all existing assignment rows for this meeting
         $wpdb->delete($atbl, ['meeting_id' => $meeting_id]);
 
-        // Step 3: Prescribed agenda — durations reset to configured template values on rebuild.
-        $durs  = self::get_agenda_durations();
-        $agenda = [];
+        // Step 3: Expand the default template for this meeting's selected
+        // roles and slot counts (durations reset to template defaults on
+        // rebuild, matching prior behavior for non-preserved slots).
+        $expanded = self::expand_agenda_template($selected_role_keys, $speech_count, $adhoc_count, $fun_count);
 
-        // ── Opening ──────────────────────────────────────────────────────────────
-        if (in_array('Sergeant at Arms', $selected_roles))
-            $agenda[] = ['role' => 'Sergeant at Arms',       'note' => 'Starts meeting',              'dur' => 2];
-        if (in_array('Presiding Officer', $selected_roles))
-            $agenda[] = ['role' => 'Presiding Officer',      'note' => 'Address and Guest Introduction', 'dur' => 5];
-        if (in_array('Toastmaster of the Day', $selected_roles)) {
-            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces the theme',        'dur' => 2];
-            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces the segments',     'dur' => 2];
-        }
-
-        // TMOD introduces each functional role, then role player explains
-        $role_intro_map = [
-            'Timer'             => ['explain' => 'Explains role',             'dur' => 2],
-            'Ah-Counter'        => ['explain' => 'Explains role',             'dur' => 2],
-            'Grammarian'        => ['explain' => 'Explains role and WOD/POD', 'dur' => 3],
-            'General Evaluator' => ['explain' => 'Explains role',             'dur' => 2],
-        ];
-        foreach ($role_intro_map as $r => $meta) {
-            if (!in_array($r, $selected_roles)) continue;
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces {$r}", 'dur' => 1];
-            $agenda[]     = ['role' => $r, 'note' => $meta['explain'], 'dur' => $meta['dur']];
-        }
-        if (in_array('Table Topics Evaluator', $selected_roles))
-            $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'Introduction of role',        'dur' => 2];
-
-        // ── Educational Presentation ──────────────────────────────────────────
-        if (in_array('Educational Presentation', $selected_roles)) {
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Educational Presentation', 'dur' => 1];
-            $agenda[]     = ['role' => 'Educational Presentation', 'note' => 'Presentation', 'dur' => 5];
-        }
-
-        // ── Break ─────────────────────────────────────────────────────────────
-        $agenda[] = ['role' => 'Break', 'note' => 'Networking', 'dur' => 5];
-
-        // ── Prepared Speeches ─────────────────────────────────────────────────
-        for ($i = 1; $i <= $total_speeches; $i++) {
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Evaluator {$i} and Speaker {$i}", 'dur' => 1];
-            $spk_dur   = isset($saved["Speaker $i"]['duration']) && $saved["Speaker $i"]['duration'] > 0
-                         ? (int) $saved["Speaker $i"]['duration'] : $durs['speaker'];
-            $spk_timer = $saved["Speaker $i"]['timer_duration'] ?? null;
-            $agenda[]     = ['role' => "Speaker $i", 'note' => 'Speech', 'dur' => $spk_dur, 'timer_dur' => $spk_timer];
-            $agenda[]     = ['role' => 'Toastmaster of the Day', 'note' => 'Feedback',  'dur' => 1];
-        }
-        if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme interlude', 'dur' => 2];
-        if (in_array('Timer', $selected_roles))
-            $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
-
-        // ── Table Topics ──────────────────────────────────────────────────────
-        if (in_array('Table Topics Master', $selected_roles)) {
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Table Topics Master', 'dur' => 1];
-            $ttm_dur  = isset($saved['Table Topics Master']['duration']) && $saved['Table Topics Master']['duration'] > 0
-                        ? (int) $saved['Table Topics Master']['duration'] : $durs['ttm'];
-            $agenda[]     = ['role' => 'Table Topics Master', 'note' => 'Table Topics Session', 'dur' => $ttm_dur];
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme interlude', 'dur' => 2];
-        }
-        if (in_array('Table Topics Evaluator', $selected_roles))
-            $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'TT Session Evaluation', 'dur' => 3];
-
-        // ── Evaluation Session (only when there are speeches to evaluate) ──────
-        if ($total_speeches > 0) {
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Evaluation Session', 'dur' => 1];
-            for ($i = 1; $i <= $total_speeches; $i++) {
-                $agenda[]     = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
-            }
-            if (in_array('Timer', $selected_roles))
-                $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
-        }
-
-        // ── Ad Hoc Speakers (guests — keynote, opening/closing remarks, etc.) ──
-        for ($i = 1; $i <= $total_adhoc; $i++) {
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Ad Hoc Speaker {$i}", 'dur' => 1];
-            $ah_dur = isset($saved["Ad Hoc Speaker $i"]['duration']) && $saved["Ad Hoc Speaker $i"]['duration'] > 0
-                      ? (int) $saved["Ad Hoc Speaker $i"]['duration'] : $durs['speaker'];
-            $agenda[]     = ['role' => "Ad Hoc Speaker $i", 'note' => 'Guest Speech', 'dur' => $ah_dur];
-        }
-
-        // ── Fun Session ──────────────────────────────────────────────────────
-        for ($i = 1; $i <= $total_fun; $i++) {
-            $label = $total_fun > 1 ? "Fun Session $i" : 'Fun Session';
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces {$label}", 'dur' => 1];
-            $fun_dur = isset($saved["Fun Session $i"]['duration']) && $saved["Fun Session $i"]['duration'] > 0
-                       ? (int) $saved["Fun Session $i"]['duration'] : 10;
-            $agenda[]     = ['role' => $label, 'note' => 'Organizes fun session', 'dur' => $fun_dur];
-        }
-
-        // ── Role-player Reports ───────────────────────────────────────────────
-        if (in_array('Grammarian', $selected_roles))
-            $agenda[] = ['role' => 'Grammarian',       'note' => 'Report', 'dur' => 4];
-        if (in_array('Ah-Counter', $selected_roles))
-            $agenda[] = ['role' => 'Ah-Counter',       'note' => 'Report', 'dur' => 3];
-        if (in_array('Active Listener', $selected_roles))
-            $agenda[] = ['role' => 'Active Listener',  'note' => 'Report', 'dur' => 3];
-        if (in_array('General Evaluator', $selected_roles))
-            $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 9];
-
-        // ── Theme Closure + Conclusion ────────────────────────────────────────
-        if (in_array('Toastmaster of the Day', $selected_roles))
-            $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme Closure', 'dur' => 2];
-        if (in_array('Presiding Officer', $selected_roles)) {
-            $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Address and Guest Feedback',        'dur' => 5];
-            $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Guest Feedback and Announcements',  'dur' => 5];
-            $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Concludes the meeting',             'dur' => 1];
-        }
-
-        // Step 4: Insert rows in prescribed order, re-applying saved assignments
+        // Step 4: Insert rows in prescribed order, re-applying saved assignments.
         $order = 10;
-        foreach ($agenda as $item) {
-            $full_name = sanitize_text_field($item['role'] . " ({$item['note']})");
-            $base      = self::get_base_role_name($full_name);
-            $s         = $saved[$base] ?? null;
-            $dur       = $item['dur'];
-            $timer_dur = $item['timer_dur'] ?? null;
-            [$tg, $ty, $tr] = self::get_timing_for_role($full_name, $dur, $timer_dur);
+        foreach ($expanded as $item) {
+            $instance_key = "{$item['role_id']}:" . ($item['instance_number'] ?: 0);
+            $s = $saved[$instance_key] ?? null;
+
+            $full_name = self::synthesize_role_name($item);
+            if (!$s) {
+                $s = $legacy_saved[self::get_base_role_name($full_name)] ?? null;
+            }
+
+            $dur       = ($s && $s['duration'] > 0) ? (int) $s['duration'] : $item['duration'];
+            $timer_dur = $s['timer_duration'] ?? $item['timer_duration'];
+            [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $dur, $timer_dur);
 
             self::save_assignment([
                 'meeting_id'          => $meeting_id,
                 'role_name'           => $full_name,
+                'role_id'             => $item['role_id'],
+                'segment_label'       => $item['segment_label'],
+                'instance_number'     => $item['instance_number'],
+                'template_item_id'    => $item['template_item_id'],
                 'duration'            => $dur,
                 'timer_duration'      => $timer_dur,
                 'status'              => ($s && ($s['member_id'] || $s['guest_name'])) ? ($s['status'] ?: 'Confirmed') : 'Planned',
@@ -1288,7 +1324,7 @@ class TMP_Repository {
             $order += 10;
         }
 
-        return ['rebuilt' => count($agenda), 'speech_slots' => $total_speeches, 'adhoc_slots' => $total_adhoc, 'fun_slots' => $total_fun];
+        return ['rebuilt' => count($expanded), 'speech_slots' => $speech_count, 'adhoc_slots' => $adhoc_count, 'fun_slots' => $fun_count];
     }
 
     // -------------------------------------------------------------------------
@@ -3012,72 +3048,127 @@ class TMP_Repository {
             return new WP_Error('tmp_invalid_meeting', 'Meeting date and theme are required.', array('status' => 400));
         }
 
+        // Frontend sends selected roles as display-name strings (e.g.
+        // "Sergeant at Arms") — translate to role_key against the catalog,
+        // the canonical identifier the template generator consumes.
+        $cache = self::role_catalog_cache();
+        $selected_role_names = is_array($data['roles'] ?? null) ? array_map('sanitize_text_field', $data['roles']) : [];
+        $selected_role_keys  = array_values(array_filter(array_map(
+            fn($name) => $cache['by_display_name'][strtolower($name)]['role_key'] ?? null,
+            $selected_role_names
+        )));
+
         if (!empty($data['id'])) {
             $wpdb->update($table, $record, array('id' => absint($data['id'])));
             $id = absint($data['id']);
 
-            // Add any missing role slots the user checked in edit mode
-            $selected_roles = is_array($data['roles'] ?? null) ? array_map('sanitize_text_field', $data['roles']) : [];
-            $new_slot_count = isset($data['speech_slots']) ? absint($data['speech_slots']) : 0;
+            $new_slot_count  = isset($data['speech_slots']) ? absint($data['speech_slots']) : 0;
             $new_adhoc_count = isset($data['adhoc_slots']) ? absint($data['adhoc_slots']) : 0;
             $new_fun_count   = isset($data['fun_slots']) ? absint($data['fun_slots']) : 0;
 
-            if (!empty($selected_roles) || $new_slot_count > 0 || $new_adhoc_count > 0 || $new_fun_count > 0) {
+            if (!empty($selected_role_keys) || $new_slot_count > 0 || $new_adhoc_count > 0 || $new_fun_count > 0) {
                 $atbl = self::assignment_table();
-                $existing_names = $wpdb->get_col($wpdb->prepare(
-                    "SELECT role_name FROM {$atbl} WHERE meeting_id = %d ORDER BY sort_order", $id
-                ));
-                $existing_bases = array_map([self::class, 'get_base_role_name'], $existing_names);
+
+                $existing_rows = $wpdb->get_results($wpdb->prepare(
+                    "SELECT role_id, instance_number FROM {$atbl} WHERE meeting_id = %d", $id
+                ), ARRAY_A);
+                $existing_role_ids = [];
+                $current_speakers = 0;
+                $current_adhoc    = 0;
+                $current_fun      = 0;
+                foreach ($existing_rows as $row) {
+                    if (!$row['role_id']) continue;
+                    $existing_role_ids[(int) $row['role_id']] = true;
+                    $role_row = $cache['by_id'][(int) $row['role_id']] ?? null;
+                    $instance = (int) $row['instance_number'];
+                    if (!$role_row) continue;
+                    if ($role_row['role_key'] === 'speaker')        $current_speakers = max($current_speakers, $instance);
+                    if ($role_row['role_key'] === 'ad_hoc_speaker') $current_adhoc    = max($current_adhoc, $instance);
+                    if ($role_row['role_key'] === 'fun_session')    $current_fun      = max($current_fun, max($instance, 1));
+                }
 
                 $max_order = (int) ($wpdb->get_var($wpdb->prepare(
                     "SELECT MAX(sort_order) FROM {$atbl} WHERE meeting_id = %d", $id
                 )) ?? 0);
                 $order = $max_order + 10;
 
-                foreach ($selected_roles as $role) {
-                    if (!in_array($role, $existing_bases, true)) {
-                        [$tg, $ty, $tr] = self::get_timing_for_role($role, 5);
+                // Add any newly-selected singular (non-numbered) roles that
+                // don't already have a row — matches prior "add missing role
+                // slots checked in edit mode" behavior, now driven by the
+                // template's own segment definitions for that role instead
+                // of inserting one bare, note-less row per role.
+                $existing_role_keys = array_map(
+                    fn($rid) => $cache['by_id'][$rid]['role_key'] ?? '', array_keys($existing_role_ids)
+                );
+                $newly_selected_keys = array_diff($selected_role_keys, $existing_role_keys);
+                if (!empty($newly_selected_keys)) {
+                    // Include 'tmod' so its "Introduces X" companion lines expand
+                    // too, but filter the result down to just: (a) rows belonging
+                    // to a newly-selected role, or (b) a 'tmod' row whose
+                    // requires_role_key is one of the newly-selected roles. This
+                    // avoids re-inserting every other TMOD line already present.
+                    $new_items = self::expand_agenda_template(
+                        array_unique(array_merge($newly_selected_keys, ['tmod'])), 0, 0, 0
+                    );
+                    foreach ($new_items as $item) {
+                        $is_target_role = in_array($item['role_key'], $newly_selected_keys, true);
+                        $is_tmod_intro_for_target = $item['role_key'] === 'tmod'
+                            && !empty($item['requires_role_key'] ?? null)
+                            && in_array($item['requires_role_key'], $newly_selected_keys, true);
+                        if (!$is_target_role && !$is_tmod_intro_for_target) continue;
+                        [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $item['duration'], $item['timer_duration']);
                         self::save_assignment([
-                            'meeting_id' => $id, 'role_name' => $role,
-                            'duration'   => 5,   'status'    => 'Planned',
-                            'sort_order' => $order,
-                            'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr,
+                            'meeting_id'       => $id,
+                            'role_name'        => self::synthesize_role_name($item),
+                            'role_id'          => $item['role_id'],
+                            'segment_label'    => $item['segment_label'],
+                            'instance_number'  => $item['instance_number'],
+                            'template_item_id' => $item['template_item_id'],
+                            'duration'         => $item['duration'],
+                            'timer_duration'   => $item['timer_duration'],
+                            'status'           => 'Planned',
+                            'sort_order'       => $order,
+                            'time_green'       => $tg, 'time_yellow' => $ty, 'time_red' => $tr,
                         ]);
                         $order += 10;
                     }
                 }
 
-                if ($new_slot_count > 0) {
-                    $current_speakers = count(array_filter($existing_bases, fn($b) => (bool) preg_match('/^Speaker\s+\d+$/i', $b)));
-                    for ($i = $current_speakers + 1; $i <= $new_slot_count; $i++) {
-                        [$tg, $ty, $tr] = self::get_timing_for_role("Evaluator $i (Introduces speaker)", 2);
-                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Evaluator $i (Introduces speaker)", 'duration' => 2, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
-                        $order += 10;
-                        [$tg, $ty, $tr] = self::get_timing_for_role("Speaker $i (Speech)", 8, 7);
-                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Speaker $i (Speech)", 'duration' => 8, 'timer_duration' => 7, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
-                        $order += 10;
-                        [$tg, $ty, $tr] = self::get_timing_for_role("Evaluator $i (Evaluation)", 3);
-                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Evaluator $i (Evaluation)", 'duration' => 3, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
-                        $order += 10;
-                    }
-                }
+                if ($new_slot_count > $current_speakers || $new_adhoc_count > $current_adhoc || $new_fun_count > $current_fun) {
+                    // Expand only the incremental numbered slots by asking for
+                    // the full target count and inserting instances beyond what
+                    // already exists — expand_agenda_template is deterministic
+                    // per instance number, so slot N's shape doesn't depend on
+                    // how many slots came before it.
+                    $incremental_role_keys = array_unique(array_merge($selected_role_keys, ['speaker', 'evaluator', 'ad_hoc_speaker', 'fun_session', 'tmod']));
+                    $all_items = self::expand_agenda_template(
+                        array_intersect($incremental_role_keys, array_merge($selected_role_keys, array_map(fn($rid) => $cache['by_id'][$rid]['role_key'] ?? '', array_keys($existing_role_ids)))),
+                        max($new_slot_count, $current_speakers),
+                        max($new_adhoc_count, $current_adhoc),
+                        max($new_fun_count, $current_fun)
+                    );
+                    foreach ($all_items as $item) {
+                        $group = $item['instance_group'];
+                        $inst  = $item['instance_number'];
+                        $is_new_speaker = $group === 'speech_block' && $inst > $current_speakers;
+                        $is_new_adhoc   = $group === 'adhoc_block'  && $inst > $current_adhoc;
+                        $is_new_fun     = $group === 'fun_block'    && $inst > $current_fun;
+                        if (!$is_new_speaker && !$is_new_adhoc && !$is_new_fun) continue;
 
-                if ($new_adhoc_count > 0) {
-                    $current_adhoc = count(array_filter($existing_bases, fn($b) => (bool) preg_match('/^Ad Hoc Speaker\s+\d+$/i', $b)));
-                    $durs = self::get_agenda_durations();
-                    for ($i = $current_adhoc + 1; $i <= $new_adhoc_count; $i++) {
-                        [$tg, $ty, $tr] = self::get_timing_for_role("Ad Hoc Speaker $i (Guest Speech)", $durs['speaker']);
-                        self::save_assignment(['meeting_id' => $id, 'role_name' => "Ad Hoc Speaker $i (Guest Speech)", 'duration' => $durs['speaker'], 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
-                        $order += 10;
-                    }
-                }
-
-                if ($new_fun_count > 0) {
-                    $current_fun = count(array_filter($existing_bases, fn($b) => (bool) preg_match('/^Fun Session(\s+\d+)?$/i', $b)));
-                    for ($i = $current_fun + 1; $i <= $new_fun_count; $i++) {
-                        $label = $new_fun_count > 1 || $current_fun > 0 ? "Fun Session $i" : 'Fun Session';
-                        [$tg, $ty, $tr] = self::get_timing_for_role("{$label} (Organizes fun session)", 10);
-                        self::save_assignment(['meeting_id' => $id, 'role_name' => "{$label} (Organizes fun session)", 'duration' => 10, 'status' => 'Planned', 'sort_order' => $order, 'time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr]);
+                        [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $item['duration'], $item['timer_duration']);
+                        self::save_assignment([
+                            'meeting_id'       => $id,
+                            'role_name'        => self::synthesize_role_name($item),
+                            'role_id'          => $item['role_id'],
+                            'segment_label'    => $item['segment_label'],
+                            'instance_number'  => $item['instance_number'],
+                            'template_item_id' => $item['template_item_id'],
+                            'duration'         => $item['duration'],
+                            'timer_duration'   => $item['timer_duration'],
+                            'status'           => 'Planned',
+                            'sort_order'       => $order,
+                            'time_green'       => $tg, 'time_yellow' => $ty, 'time_red' => $tr,
+                        ]);
                         $order += 10;
                     }
                 }
@@ -3087,125 +3178,29 @@ class TMP_Repository {
             $wpdb->insert($table, $record);
             $id = (int) $wpdb->insert_id;
 
-            $selected_roles = $data['roles'] ?? [];
-            $durs  = self::get_agenda_durations();
-            $agenda = [];
-
-            // ── Opening ──────────────────────────────────────────────────────────
-            if (in_array('Sergeant at Arms', $selected_roles))
-                $agenda[] = ['role' => 'Sergeant at Arms',       'note' => 'Starts meeting',               'dur' => 2];
-            if (in_array('Presiding Officer', $selected_roles))
-                $agenda[] = ['role' => 'Presiding Officer',      'note' => 'Address and Guest Introduction', 'dur' => 5];
-            if (in_array('Toastmaster of the Day', $selected_roles)) {
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces the theme',         'dur' => 2];
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces the segments',      'dur' => 2];
-            }
-
-            // TMOD introduces each functional role, then role player explains
-            $role_intro_map = [
-                'Timer'             => ['explain' => 'Explains role',             'dur' => 2],
-                'Ah-Counter'        => ['explain' => 'Explains role',             'dur' => 2],
-                'Grammarian'        => ['explain' => 'Explains role and WOD/POD', 'dur' => 3],
-                'General Evaluator' => ['explain' => 'Explains role',             'dur' => 2],
-            ];
-            foreach ($role_intro_map as $r => $meta) {
-                if (!in_array($r, $selected_roles)) continue;
-                if (in_array('Toastmaster of the Day', $selected_roles))
-                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces {$r}", 'dur' => 1];
-                $agenda[]     = ['role' => $r, 'note' => $meta['explain'], 'dur' => $meta['dur']];
-            }
-            if (in_array('Table Topics Evaluator', $selected_roles))
-                $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'Introduction of role', 'dur' => 2];
-
-            // ── Break ─────────────────────────────────────────────────────────
-            $agenda[] = ['role' => 'Break', 'note' => 'Networking', 'dur' => 5];
-
-            // ── Prepared Speeches ─────────────────────────────────────────────
             $speech_slots = absint($data['speech_slots'] ?? 0);
-            for ($i = 1; $i <= $speech_slots; $i++) {
-                if (in_array('Toastmaster of the Day', $selected_roles))
-                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Evaluator {$i} and Speaker {$i}", 'dur' => 1];
-                $agenda[]     = ['role' => "Speaker $i",             'note' => 'Speech',   'dur' => $durs['speaker']];
-                $agenda[]     = ['role' => 'Toastmaster of the Day', 'note' => 'Feedback', 'dur' => 1];
-            }
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme interlude', 'dur' => 2];
-            if (in_array('Timer', $selected_roles))
-                $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
+            $adhoc_slots  = absint($data['adhoc_slots'] ?? 0);
+            $fun_slots    = absint($data['fun_slots'] ?? 0);
 
-            // ── Table Topics ──────────────────────────────────────────────────
-            if (in_array('Table Topics Master', $selected_roles)) {
-                if (in_array('Toastmaster of the Day', $selected_roles))
-                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Table Topics Master', 'dur' => 1];
-                $agenda[]     = ['role' => 'Table Topics Master',    'note' => 'Table Topics Session',           'dur' => $durs['ttm']];
-                if (in_array('Toastmaster of the Day', $selected_roles))
-                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme interlude', 'dur' => 2];
-            }
-            if (in_array('Table Topics Evaluator', $selected_roles))
-                $agenda[] = ['role' => 'Table Topics Evaluator', 'note' => 'TT Session Evaluation', 'dur' => 3];
-
-            // ── Evaluation Session (only when there are speeches to evaluate) ──
-            if ($speech_slots > 0) {
-                if (in_array('Toastmaster of the Day', $selected_roles))
-                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Introduces Evaluation Session', 'dur' => 1];
-                for ($i = 1; $i <= $speech_slots; $i++) {
-                    $agenda[]     = ['role' => "Evaluator $i", 'note' => 'Evaluation', 'dur' => 3];
-                }
-                if (in_array('Timer', $selected_roles))
-                    $agenda[] = ['role' => 'Timer', 'note' => 'Report', 'dur' => 1];
-            }
-
-            // ── Ad Hoc Speakers (guests — keynote, opening/closing remarks, etc.) ──
-            $adhoc_slots = absint($data['adhoc_slots'] ?? 0);
-            for ($i = 1; $i <= $adhoc_slots; $i++) {
-                if (in_array('Toastmaster of the Day', $selected_roles))
-                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces Ad Hoc Speaker {$i}", 'dur' => 1];
-                $agenda[]     = ['role' => "Ad Hoc Speaker $i", 'note' => 'Guest Speech', 'dur' => $durs['speaker']];
-            }
-
-            // ── Fun Session ──────────────────────────────────────────────────
-            $fun_slots = absint($data['fun_slots'] ?? 0);
-            for ($i = 1; $i <= $fun_slots; $i++) {
-                $label = $fun_slots > 1 ? "Fun Session $i" : 'Fun Session';
-                if (in_array('Toastmaster of the Day', $selected_roles))
-                    $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => "Introduces {$label}", 'dur' => 1];
-                $agenda[]     = ['role' => $label, 'note' => 'Organizes fun session', 'dur' => 10];
-            }
-
-            // ── Role-player Reports ───────────────────────────────────────────
-            if (in_array('Grammarian', $selected_roles))
-                $agenda[] = ['role' => 'Grammarian',       'note' => 'Report', 'dur' => 4];
-            if (in_array('Ah-Counter', $selected_roles))
-                $agenda[] = ['role' => 'Ah-Counter',       'note' => 'Report', 'dur' => 3];
-            if (in_array('Active Listener', $selected_roles))
-                $agenda[] = ['role' => 'Active Listener',  'note' => 'Report', 'dur' => 3];
-            if (in_array('General Evaluator', $selected_roles))
-                $agenda[] = ['role' => 'General Evaluator', 'note' => 'Final Report', 'dur' => 9];
-
-            // ── Theme Closure + Conclusion ────────────────────────────────────
-            if (in_array('Toastmaster of the Day', $selected_roles))
-                $agenda[] = ['role' => 'Toastmaster of the Day', 'note' => 'Theme Closure', 'dur' => 2];
-            if (in_array('Presiding Officer', $selected_roles)) {
-                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Address and Guest Feedback',       'dur' => 5];
-                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Guest Feedback and Announcements', 'dur' => 5];
-                $agenda[] = ['role' => 'Presiding Officer', 'note' => 'Concludes the meeting',            'dur' => 1];
-            }
+            $expanded = self::expand_agenda_template($selected_role_keys, $speech_slots, $adhoc_slots, $fun_slots);
 
             $order = 10;
-            foreach ($agenda as $item) {
-                $full_role_name = sanitize_text_field($item['role'] . ($item['note'] ? " ({$item['note']})" : ""));
-                $timer_dur      = $item['timer_dur'] ?? null;
-                [$tg, $ty, $tr] = self::get_timing_for_role($full_role_name, $item['dur'], $timer_dur);
+            foreach ($expanded as $item) {
+                [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $item['duration'], $item['timer_duration']);
                 self::save_assignment([
-                    'meeting_id'     => $id,
-                    'role_name'      => $full_role_name,
-                    'duration'       => $item['dur'],
-                    'timer_duration' => $timer_dur,
-                    'status'         => 'Planned',
-                    'sort_order'     => $order,
-                    'time_green'     => $tg,
-                    'time_yellow'    => $ty,
-                    'time_red'       => $tr,
+                    'meeting_id'       => $id,
+                    'role_name'        => self::synthesize_role_name($item),
+                    'role_id'          => $item['role_id'],
+                    'segment_label'    => $item['segment_label'],
+                    'instance_number'  => $item['instance_number'],
+                    'template_item_id' => $item['template_item_id'],
+                    'duration'         => $item['duration'],
+                    'timer_duration'   => $item['timer_duration'],
+                    'status'           => 'Planned',
+                    'sort_order'       => $order,
+                    'time_green'       => $tg,
+                    'time_yellow'      => $ty,
+                    'time_red'         => $tr,
                 ]);
                 $order += 10;
             }
@@ -3250,12 +3245,47 @@ class TMP_Repository {
     }
 
     /**
-     * Formula-based timer defaults.
+     * role_key => [green, yellow, red] in seconds. NULL means "use the
+     * duration-based formula". Table Topics Master's TI-mandated 10/15/20
+     * lives here (default_time_* on its role_catalog row); Timer's Report
+     * segment is the one true segment-level override (Timer's own default
+     * is the 60/90/120 role-intro timing) — special-cased by segment_label
+     * below rather than adding a template-item timing column, per the
+     * phase-1 plan's open decision.
+     */
+    private static function role_catalog_cache() {
+        static $cache = null;
+        if ($cache === null) {
+            global $wpdb;
+            $rows = $wpdb->get_results("SELECT * FROM " . self::role_catalog_table(), ARRAY_A);
+            $cache = ['by_id' => [], 'by_key' => [], 'by_display_name' => []];
+            foreach ($rows as $row) {
+                $cache['by_id'][(int) $row['id']] = $row;
+                $cache['by_key'][$row['role_key']] = $row;
+                $cache['by_display_name'][strtolower($row['display_name'])] = $row;
+            }
+        }
+        return $cache;
+    }
+
+    public static function get_role_catalog_row($role_id) {
+        $cache = self::role_catalog_cache();
+        return $cache['by_id'][(int) $role_id] ?? null;
+    }
+
+    public static function get_role_catalog_row_by_key($role_key) {
+        $cache = self::role_catalog_cache();
+        return $cache['by_key'][$role_key] ?? null;
+    }
+
+    /**
+     * Formula-based timer defaults, keyed by role_id.
      * $timer_duration overrides $duration as the effective timed duration (e.g. 7-min speech in an 8-min agenda slot).
      *
-     * Special cases (role-name driven, not formula):
-     *   - Timer (Report) → 0:30 / 0:45 / 1:00  (TI sub-minute reporting standard)
-     *   - Table Topics Master → 10:00 / 15:00 / 20:00  (TI-mandated session limits)
+     * Special cases (role catalog / segment driven, not formula):
+     *   - Timer + segment_label "Report" → 0:30 / 0:45 / 1:00 (TI sub-minute reporting standard)
+     *   - Any role with catalog default_time_* set (e.g. Table Topics Master → 10:00/15:00/20:00) uses that
+     *   - role_key 'break' → no timer
      *
      * Formula for everything else:
      *   X ≤ 3 min  → green = (X−1) min, so 3-min slots give 2:00 / 2:30 / 3:00
@@ -3263,19 +3293,19 @@ class TMP_Repository {
      *   yellow = midpoint of green and red in both cases
      *   X ≤ 1 min or Break → null (no timer)
      */
-    public static function get_timing_for_role($role_name, $duration = 0, $timer_duration = null) {
-        $lower     = strtolower($role_name);
+    public static function get_timing_for_role_id($role_id, $segment_label = null, $duration = 0, $timer_duration = null) {
+        $role      = self::get_role_catalog_row($role_id);
         $effective = (int) ($timer_duration ?? $duration);
-        $base_lower = strtolower(self::get_base_role_name($role_name));
 
-        if (str_contains($lower, 'break')) return [null, null, null];
+        if (!$role || $role['role_key'] === 'break') return [null, null, null];
 
-        // Timer Report: sub-minute TI standard regardless of slot duration
-        if (preg_match('/\btimer\b/i', $role_name) && str_contains($lower, 'report')) return [30, 45, 60];
+        if ($role['role_key'] === 'timer' && strtolower(trim((string) $segment_label)) === 'report') {
+            return [30, 45, 60];
+        }
 
-        // Table Topics Master session: TI-mandated 10/15/20 (only the actual TTM slot,
-        // not a TMOD intro line that merely mentions "Table Topics Master")
-        if ($base_lower === 'table topics master') return [600, 900, 1200];
+        if ($role['default_time_green'] !== null) {
+            return [(int) $role['default_time_green'], (int) $role['default_time_yellow'], (int) $role['default_time_red']];
+        }
 
         if ($effective <= 1) return [null, null, null];
 
@@ -3283,6 +3313,21 @@ class TMP_Repository {
         $red    = $effective * 60;
         $yellow = intdiv($green + $red, 2);
         return [$green, $yellow, $red];
+    }
+
+    /**
+     * String-based compatibility shim for callers not yet migrated to pass
+     * role_id/segment_label directly (assembles a role_name-style string
+     * and resolves it to a role_id via backfill_classify_role_name()'s
+     * classifier). Prefer get_timing_for_role_id() in new code.
+     */
+    public static function get_timing_for_role($role_name, $duration = 0, $timer_duration = null) {
+        $cache = self::role_catalog_cache();
+        $classified = self::backfill_classify_role_name($role_name, $cache['by_display_name']);
+        if ($classified['status'] !== 'matched') {
+            return [null, null, null];
+        }
+        return self::get_timing_for_role_id($classified['role_id'], $classified['segment_label'], $duration, $timer_duration);
     }
 
     // -------------------------------------------------------------------------
@@ -3316,6 +3361,10 @@ class TMP_Repository {
         if (array_key_exists('member_id', $data))    $record['member_id']          = !empty($data['member_id']) ? absint($data['member_id']) : null;
         if (array_key_exists('guest_name', $data))   $record['guest_name']         = !empty($data['guest_name']) ? sanitize_text_field($data['guest_name']) : null;
         if (isset($data['role_name']))           $record['role_name']          = sanitize_text_field($data['role_name']);
+        if (array_key_exists('role_id', $data))       $record['role_id']            = !empty($data['role_id']) ? absint($data['role_id']) : null;
+        if (array_key_exists('segment_label', $data)) $record['segment_label']      = $data['segment_label'] !== null ? sanitize_text_field($data['segment_label']) : null;
+        if (array_key_exists('instance_number', $data)) $record['instance_number']  = !empty($data['instance_number']) ? absint($data['instance_number']) : null;
+        if (array_key_exists('template_item_id', $data)) $record['template_item_id'] = !empty($data['template_item_id']) ? absint($data['template_item_id']) : null;
         if (isset($data['speech_title']))        $record['speech_title']       = sanitize_text_field($data['speech_title']);
         if (isset($data['duration']))            $record['duration']           = absint($data['duration']);
         if (isset($data['status']))              $record['status']             = sanitize_text_field($data['status']);
