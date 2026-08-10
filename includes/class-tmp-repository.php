@@ -49,6 +49,21 @@ class TMP_Repository {
         return $wpdb->prefix . 'tmp_req_overrides';
     }
 
+    public static function role_catalog_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_role_catalog';
+    }
+
+    public static function agenda_template_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_agenda_template';
+    }
+
+    public static function agenda_template_items_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'tmp_agenda_template_items';
+    }
+
     /**
      * Ordered map of role name substrings → minimum level required.
      * Order matters: 'general evaluator' must precede 'evaluator', 'speaker' must precede nothing.
@@ -472,6 +487,179 @@ class TMP_Repository {
     }
 
     // -------------------------------------------------------------------------
+    // role_id backfill (phase 1 of the agenda data-model migration)
+    //
+    // Classifies existing role_name strings against the new role_catalog and,
+    // when not in dry-run mode, writes the resolved role_id (and, for
+    // role_assignments, segment_label/instance_number) onto matched rows.
+    // Unmatched/ambiguous rows are left alone and reported for manual review —
+    // this never guesses. Idempotent/resumable via "WHERE role_id IS NULL".
+    // -------------------------------------------------------------------------
+
+    private static function backfill_numbered_role_pattern() {
+        // Mirrors the numbered role_key rows seeded in
+        // TMP_Activator::migrate_v250_seed_role_catalog().
+        return '/^(Speaker|Evaluator|Ad Hoc Speaker|Fun Session)\s+(\d+)$/i';
+    }
+
+    /**
+     * Classifies a single role_name string against the role catalog.
+     *
+     * @param string $role_name       Raw role_name value from the source row.
+     * @param array  $catalog_by_name Lowercased display_name => catalog row (from role_catalog table).
+     * @return array{
+     *   status: 'matched'|'unmatched'|'ambiguous',
+     *   role_id: int|null,
+     *   role_key: string|null,
+     *   segment_label: string|null,
+     *   instance_number: int|null,
+     * }
+     */
+    private static function backfill_classify_role_name($role_name, array $catalog_by_name) {
+        $result = ['status' => 'unmatched', 'role_id' => null, 'role_key' => null, 'segment_label' => null, 'instance_number' => null];
+
+        if ($role_name === null || trim((string) $role_name) === '') {
+            return $result;
+        }
+
+        // Segment label: trailing parenthetical, e.g. "Evaluator 2 (Evaluation)" -> "Evaluation".
+        if (preg_match('/\(([^()]*)\)\s*$/', $role_name, $pm)) {
+            $result['segment_label'] = trim($pm[1]);
+        }
+
+        $base = self::get_base_role_name($role_name);
+
+        // Numbered roles: "Speaker 2", "Ad Hoc Speaker 1", etc.
+        if (preg_match(self::backfill_numbered_role_pattern(), $base, $nm)) {
+            $prefix_lower = strtolower($nm[1]);
+            $instance     = (int) $nm[2];
+            $matches = array_filter($catalog_by_name, function ($row) use ($prefix_lower) {
+                return strtolower($row['display_name']) === $prefix_lower;
+            });
+            if (count($matches) === 1) {
+                $row = array_values($matches)[0];
+                $result['status']           = 'matched';
+                $result['role_id']          = (int) $row['id'];
+                $result['role_key']         = $row['role_key'];
+                $result['instance_number']  = $instance;
+                return $result;
+            }
+            if (count($matches) > 1) {
+                $result['status'] = 'ambiguous';
+                return $result;
+            }
+            // fall through — not found by exact prefix match, try direct lookup below
+        }
+
+        // Non-numbered / exact base-name match (case-insensitive).
+        $base_lower = strtolower($base);
+        if (isset($catalog_by_name[$base_lower])) {
+            $row = $catalog_by_name[$base_lower];
+            $result['status']   = 'matched';
+            $result['role_id']  = (int) $row['id'];
+            $result['role_key'] = $row['role_key'];
+            return $result;
+        }
+
+        // "Break", "Break (Networking)", etc.
+        if (stripos($base, 'break') === 0 && isset($catalog_by_name['break'])) {
+            $row = $catalog_by_name['break'];
+            $result['status']   = 'matched';
+            $result['role_id']  = (int) $row['id'];
+            $result['role_key'] = $row['role_key'];
+            return $result;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Backfills role_id (and, for role_assignments, segment_label/instance_number)
+     * on rows whose role_id is still NULL, by classifying their existing role_name
+     * string against role_catalog.
+     *
+     * @param string[] $tables  Any of: 'role_assignments', 'member_requests', 'participation_history'.
+     * @param bool     $dry_run When true (default), classifies but writes nothing.
+     * @return array Per-table report: total/matched/unmatched/ambiguous counts, per-role
+     *               breakdown, and samples of unmatched/ambiguous rows for manual review.
+     */
+    public static function backfill_role_ids(array $tables, $dry_run = true) {
+        global $wpdb;
+
+        $table_map = [
+            'role_assignments'      => self::assignment_table(),
+            'member_requests'       => self::request_table(),
+            'participation_history' => self::participation_history_table(),
+        ];
+
+        $catalog_rows = $wpdb->get_results(
+            "SELECT id, role_key, display_name FROM " . self::role_catalog_table(),
+            ARRAY_A
+        );
+        $catalog_by_name = [];
+        foreach ($catalog_rows as $row) {
+            $catalog_by_name[strtolower($row['display_name'])] = $row;
+        }
+
+        $report = [];
+
+        foreach ($tables as $table_key) {
+            if (!isset($table_map[$table_key])) {
+                continue;
+            }
+            $table = $table_map[$table_key];
+
+            $rows = $wpdb->get_results(
+                "SELECT id, role_name FROM {$table} WHERE role_id IS NULL",
+                ARRAY_A
+            );
+
+            $summary = [
+                'total'              => count($rows),
+                'matched'            => 0,
+                'unmatched'          => 0,
+                'ambiguous'          => 0,
+                'matched_by_role'    => [],
+                'unmatched_samples'  => [],
+                'ambiguous_samples'  => [],
+            ];
+
+            foreach ($rows as $row) {
+                $classified = self::backfill_classify_role_name($row['role_name'], $catalog_by_name);
+
+                if ($classified['status'] === 'matched') {
+                    $summary['matched']++;
+                    $key = $classified['role_key'];
+                    $summary['matched_by_role'][$key] = ($summary['matched_by_role'][$key] ?? 0) + 1;
+
+                    if (!$dry_run) {
+                        $update = ['role_id' => $classified['role_id']];
+                        if ($table_key === 'role_assignments') {
+                            $update['segment_label']   = $classified['segment_label'];
+                            $update['instance_number'] = $classified['instance_number'];
+                        }
+                        $wpdb->update($table, $update, ['id' => (int) $row['id']]);
+                    }
+                } elseif ($classified['status'] === 'ambiguous') {
+                    $summary['ambiguous']++;
+                    if (count($summary['ambiguous_samples']) < 20) {
+                        $summary['ambiguous_samples'][] = ['id' => (int) $row['id'], 'role_name' => $row['role_name']];
+                    }
+                } else {
+                    $summary['unmatched']++;
+                    if (count($summary['unmatched_samples']) < 20) {
+                        $summary['unmatched_samples'][] = ['id' => (int) $row['id'], 'role_name' => $row['role_name']];
+                    }
+                }
+            }
+
+            $report[$table_key] = $summary;
+        }
+
+        return $report;
+    }
+
+    // -------------------------------------------------------------------------
     // Save / delete members
     // -------------------------------------------------------------------------
 
@@ -528,8 +716,10 @@ class TMP_Repository {
         }
 
         if (!empty($data['id'])) {
-            $old_level = isset($existing['level']) ? (int) $existing['level'] : null;
-            $new_level = (int) $record['level'];
+            $old_level           = isset($existing['level']) ? (int) $existing['level'] : null;
+            $new_level           = (int) $record['level'];
+            $old_level_completed = isset($existing['level_completed']) ? (int) $existing['level_completed'] : null;
+            $new_level_completed = (int) $record['level_completed'];
             $wpdb->update($table, $record, array('id' => absint($data['id'])));
             if ($old_level !== null && $new_level > $old_level) {
                 self::record_level_up(
@@ -539,6 +729,21 @@ class TMP_Repository {
                     $old_level,
                     $new_level
                 );
+
+                // A level-up just got credited (e.g. via TI CSV import). If any
+                // participation_history rows for this member are already stamped
+                // at the newly-completed level, they must actually be from work
+                // done *before* TI credited the level — a wrap-up saved after this
+                // same import bump would have stamped them using the member's
+                // already-advanced level. Roll those rows back to the level the
+                // member was actually working on when the role/speech happened.
+                if ($new_level_completed !== $old_level_completed) {
+                    $wpdb->update(
+                        self::participation_history_table(),
+                        array('level_at_completion' => $new_level_completed - 1),
+                        array('member_id' => absint($data['id']), 'level_at_completion' => $new_level_completed)
+                    );
+                }
             }
             return self::get_member(absint($data['id']));
         }
@@ -3374,6 +3579,16 @@ class TMP_Repository {
                 return new WP_Error(
                     'tmp_service_role_required',
                     "You must complete a service role (e.g. Evaluator, Timer, Grammarian) since your last speech on {$last_speech_date} before requesting another speech.",
+                    ['status' => 403]
+                );
+            }
+
+            $base_role = self::get_base_role_name($role_name);
+            if (self::is_in_cooloff_now($member_id, $base_role)) {
+                $eligible_date = self::get_cooloff_eligible_date($member_id, $base_role);
+                return new WP_Error(
+                    'tmp_cooloff',
+                    "You are in cooloff for {$base_role} until {$eligible_date}. Available again after that date.",
                     ['status' => 403]
                 );
             }

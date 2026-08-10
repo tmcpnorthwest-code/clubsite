@@ -21,6 +21,10 @@ class TMP_Activator {
         self::migrate_v150_timer_duration();
         self::migrate_v160_speech_feedback();
         self::migrate_v170_request_role_name();
+        self::migrate_v250_role_catalog_tables();
+        self::migrate_v250_role_catalog_columns();
+        self::migrate_v250_seed_role_catalog();
+        self::migrate_v250_seed_agenda_template();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -70,6 +74,10 @@ class TMP_Activator {
         self::migrate_v190_ex_com_role();
         self::migrate_v200_guest_name();
         self::migrate_v210_club_position();
+        self::migrate_v250_role_catalog_tables();
+        self::migrate_v250_role_catalog_columns();
+        self::migrate_v250_seed_role_catalog();
+        self::migrate_v250_seed_agenda_template();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -730,6 +738,299 @@ class TMP_Activator {
         $cols = $wpdb->get_col("DESCRIBE {$members}");
         if (!in_array('club_position', $cols, true)) {
             $wpdb->query("ALTER TABLE {$members} ADD COLUMN club_position VARCHAR(190) NULL AFTER officer_notes");
+        }
+    }
+
+    /**
+     * v0.25.0 (phase 1 — additive only): role_catalog / agenda_template /
+     * agenda_template_items tables. These replace role_name string-parsing
+     * (get_base_role_name(), assorted regexes) with a proper role registry
+     * and an admin-editable default agenda. Nothing here touches existing
+     * role_name data — role_id columns are added but left NULL until the
+     * explicit, dry-run-first backfill action is run (see
+     * TMP_Repository::backfill_role_ids()).
+     */
+    private static function migrate_v250_role_catalog_tables() {
+        global $wpdb;
+        $charset = $wpdb->get_charset_collate();
+
+        $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}tmp_role_catalog (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            role_key VARCHAR(60) NOT NULL,
+            display_name VARCHAR(120) NOT NULL,
+            short_label VARCHAR(40) NULL,
+            is_numbered TINYINT(1) NOT NULL DEFAULT 0,
+            is_service_role TINYINT(1) NOT NULL DEFAULT 0,
+            is_cooloff_eligible TINYINT(1) NOT NULL DEFAULT 0,
+            is_speech_role TINYINT(1) NOT NULL DEFAULT 0,
+            default_gate_level TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            vote_category VARCHAR(20) NULL,
+            default_time_green SMALLINT UNSIGNED NULL,
+            default_time_yellow SMALLINT UNSIGNED NULL,
+            default_time_red SMALLINT UNSIGNED NULL,
+            default_duration_minutes SMALLINT UNSIGNED NULL,
+            ti_level_requirement_keys VARCHAR(255) NULL,
+            sort_priority SMALLINT NOT NULL DEFAULT 50,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY role_key (role_key),
+            KEY is_active (is_active)
+        ) {$charset}");
+
+        $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}tmp_agenda_template (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            name VARCHAR(120) NOT NULL,
+            description VARCHAR(255) NULL,
+            is_default TINYINT(1) NOT NULL DEFAULT 0,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY is_default (is_default)
+        ) {$charset}");
+
+        $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}tmp_agenda_template_items (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            template_id BIGINT UNSIGNED NOT NULL,
+            role_id BIGINT UNSIGNED NOT NULL,
+            segment_label VARCHAR(120) NOT NULL,
+            instance_group VARCHAR(40) NULL,
+            sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+            is_optional TINYINT(1) NOT NULL DEFAULT 0,
+            requires_role_key VARCHAR(60) NULL,
+            default_duration_minutes SMALLINT UNSIGNED NULL,
+            default_timer_minutes SMALLINT UNSIGNED NULL,
+            repeat_per_speech TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY template_id (template_id),
+            KEY role_id (role_id)
+        ) {$charset}");
+    }
+
+    /**
+     * v0.25.0 (phase 1 — additive only): role_id / segment_label /
+     * instance_number / template_item_id on role_assignments, and role_id
+     * on the four other tables that carry their own role_name column.
+     * All nullable; existing role_name columns are untouched.
+     */
+    private static function migrate_v250_role_catalog_columns() {
+        global $wpdb;
+
+        $assignments = $wpdb->prefix . 'tmp_role_assignments';
+        $acols = $wpdb->get_col("DESCRIBE {$assignments}");
+        if (!in_array('role_id', $acols, true)) {
+            $wpdb->query("ALTER TABLE {$assignments} ADD COLUMN role_id BIGINT UNSIGNED NULL AFTER role_name");
+            $wpdb->query("ALTER TABLE {$assignments} ADD KEY role_id (role_id)");
+        }
+        if (!in_array('segment_label', $acols, true)) {
+            $wpdb->query("ALTER TABLE {$assignments} ADD COLUMN segment_label VARCHAR(120) NULL AFTER role_id");
+        }
+        if (!in_array('instance_number', $acols, true)) {
+            $wpdb->query("ALTER TABLE {$assignments} ADD COLUMN instance_number SMALLINT UNSIGNED NULL AFTER segment_label");
+        }
+        if (!in_array('template_item_id', $acols, true)) {
+            $wpdb->query("ALTER TABLE {$assignments} ADD COLUMN template_item_id BIGINT UNSIGNED NULL AFTER instance_number");
+        }
+
+        $role_id_tables = [
+            $wpdb->prefix . 'tmp_member_requests',
+            $wpdb->prefix . 'tmp_participation_history',
+            $wpdb->prefix . 'tmp_vote_nominees',
+            $wpdb->prefix . 'tmp_win_history',
+        ];
+        foreach ($role_id_tables as $table) {
+            $cols = $wpdb->get_col("DESCRIBE {$table}");
+            if (!in_array('role_id', $cols, true)) {
+                $wpdb->query("ALTER TABLE {$table} ADD COLUMN role_id BIGINT UNSIGNED NULL AFTER role_name");
+                $wpdb->query("ALTER TABLE {$table} ADD KEY role_id (role_id)");
+            }
+        }
+    }
+
+    /**
+     * v0.25.0 (phase 1 — additive only): seed the canonical role catalog.
+     * Runs once (guarded by row count); safe to re-run.
+     *
+     * Evaluator / Table Topics Evaluator / General Evaluator are kept as
+     * separate rows deliberately — they already have distinct gate levels
+     * and vote categories in the current string-based code, so collapsing
+     * them would reintroduce the exact conflation this table replaces.
+     */
+    private static function migrate_v250_seed_role_catalog() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmp_role_catalog';
+
+        if ((int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}") > 0) {
+            return;
+        }
+
+        $now = current_time('mysql');
+
+        // [role_key, display_name, short_label, is_numbered, is_service_role,
+        //  is_cooloff_eligible, is_speech_role, default_gate_level, vote_category,
+        //  green, yellow, red, duration_minutes, ti_level_requirement_keys, sort_priority]
+        $roles = [
+            ['saa', 'Sergeant at Arms', 'SAA', 0, 1, 0, 0, 0, 'aux_role', 60, 90, 120, 2, 'Sergeant at Arms', 10],
+            ['presiding_officer', 'Presiding Officer', 'Presiding Officer', 0, 0, 0, 0, 1, null, 180, 240, 300, 5, null, 20],
+            ['tmod', 'Toastmaster of the Day', 'TMOD', 0, 1, 1, 0, 2, 'main_role', null, null, null, 1, 'Toastmaster of the Day', 30],
+            ['table_topics_master', 'Table Topics Master', 'Topics Master', 0, 1, 0, 0, 0, 'main_role', 600, 900, 1200, 10, 'Table Topics Master', 40],
+            ['table_topics_evaluator', 'Table Topics Evaluator', 'TT Evaluator', 0, 0, 0, 0, 1, null, 120, 180, 240, 2, null, 50],
+            ['table_topics_speaker', 'Table Topics Speaker', 'TT Speaker', 0, 0, 0, 0, 0, null, null, null, null, null, 'Table Topics Speaker', 60],
+            ['general_evaluator', 'General Evaluator', 'GE', 0, 1, 1, 0, 2, 'main_role', 180, 240, 300, 3, 'General Evaluator', 70],
+            ['evaluator', 'Evaluator', 'Evaluator', 1, 1, 0, 0, 1, 'evaluator', 180, 240, 300, 3, 'Evaluator', 80],
+            ['speaker', 'Speaker', 'Speaker', 1, 0, 1, 1, 0, 'speaker', 300, 360, 420, 6, null, 90],
+            ['ad_hoc_speaker', 'Ad Hoc Speaker', 'Ad Hoc Speaker', 1, 0, 0, 1, 0, 'speaker', 300, 360, 420, 5, null, 100],
+            ['fun_session', 'Fun Session', 'Fun Session', 1, 0, 0, 0, 0, null, null, null, null, 10, null, 110],
+            ['timer', 'Timer', 'Timer', 0, 1, 0, 0, 0, 'aux_role', 60, 90, 120, 2, 'Timer', 120],
+            ['ah_counter', 'Ah-Counter', 'Ah-Counter', 0, 1, 0, 0, 0, 'aux_role', 60, 120, 180, 2, 'Ah-Counter', 130],
+            ['grammarian', 'Grammarian', 'Grammarian', 0, 1, 0, 0, 0, 'aux_role', 60, 120, 180, 3, 'Grammarian', 140],
+            ['educational_presentation', 'Educational Presentation', 'Edu Presentation', 0, 1, 0, 0, 0, null, null, null, null, 5, null, 150],
+            ['active_listener', 'Active Listener', 'Active Listener', 0, 1, 0, 0, 0, 'aux_role', null, null, null, 3, 'Active Listener', 160],
+            ['break', 'Break', 'Break', 0, 0, 0, 0, 0, null, null, null, null, 5, null, 999],
+        ];
+
+        foreach ($roles as $r) {
+            [$role_key, $display_name, $short_label, $is_numbered, $is_service, $is_cooloff,
+             $is_speech, $gate_level, $vote_cat, $green, $yellow, $red, $duration, $ti_keys, $priority] = $r;
+
+            $wpdb->insert($table, [
+                'role_key'                  => $role_key,
+                'display_name'               => $display_name,
+                'short_label'                => $short_label,
+                'is_numbered'                => $is_numbered,
+                'is_service_role'            => $is_service,
+                'is_cooloff_eligible'        => $is_cooloff,
+                'is_speech_role'             => $is_speech,
+                'default_gate_level'         => $gate_level,
+                'vote_category'              => $vote_cat,
+                'default_time_green'         => $green,
+                'default_time_yellow'        => $yellow,
+                'default_time_red'           => $red,
+                'default_duration_minutes'   => $duration,
+                'ti_level_requirement_keys'  => $ti_keys,
+                'sort_priority'              => $priority,
+                'is_active'                  => 1,
+                'created_at'                 => $now,
+                'updated_at'                 => $now,
+            ]);
+        }
+    }
+
+    /**
+     * v0.25.0 (phase 1 — additive only): seed the default weekly-meeting
+     * agenda template. Runs once (guarded by row count); safe to re-run.
+     * Requires migrate_v250_seed_role_catalog() to have run first.
+     *
+     * Matches the club's standard flow: SAA opens -> Presiding Officer ->
+     * TMOD introduces role players -> optional Educational Presentation ->
+     * Break -> per-speech loop (TMOD intro, Speech) -> Timer's Report ->
+     * Table Topics round -> Evaluation segment -> Timer's Report ->
+     * role players' reports -> Presiding Officer closes.
+     */
+    private static function migrate_v250_seed_agenda_template() {
+        global $wpdb;
+        $template_table = $wpdb->prefix . 'tmp_agenda_template';
+        $items_table    = $wpdb->prefix . 'tmp_agenda_template_items';
+        $catalog_table  = $wpdb->prefix . 'tmp_role_catalog';
+
+        if ((int) $wpdb->get_var("SELECT COUNT(*) FROM {$template_table}") > 0) {
+            return;
+        }
+
+        // Catalog must exist first — if it doesn't yet (unexpected ordering),
+        // bail out silently; this method is re-run on every upgrade check
+        // via maybe_upgrade(), so it will succeed once the catalog is seeded.
+        if ((int) $wpdb->get_var("SELECT COUNT(*) FROM {$catalog_table}") === 0) {
+            return;
+        }
+
+        $now = current_time('mysql');
+
+        $wpdb->insert($template_table, [
+            'name'        => 'Default Weekly Meeting',
+            'description' => 'Standard club meeting agenda',
+            'is_default'  => 1,
+            'is_active'   => 1,
+            'created_at'  => $now,
+            'updated_at'  => $now,
+        ]);
+        $template_id = (int) $wpdb->insert_id;
+
+        // [role_key, segment_label, is_optional, requires_role_key,
+        //  repeat_per_speech, instance_group, default_duration_minutes]
+        $items = [
+            ['saa', 'Starts meeting', 0, null, 0, null, 2],
+            ['presiding_officer', 'Address and Guest Introduction', 0, null, 0, null, 5],
+            ['tmod', 'Introduces the theme', 0, null, 0, null, 2],
+            ['tmod', 'Introduces the segments', 0, null, 0, null, 2],
+            ['tmod', 'Introduces Timer', 0, 'timer', 0, null, 1],
+            ['timer', 'Explains role', 0, null, 0, null, 2],
+            ['tmod', 'Introduces Ah-Counter', 0, 'ah_counter', 0, null, 1],
+            ['ah_counter', 'Explains role', 0, null, 0, null, 2],
+            ['tmod', 'Introduces Grammarian', 0, 'grammarian', 0, null, 1],
+            ['grammarian', 'Explains role and Word/Phrase of the Day', 0, null, 0, null, 3],
+            ['tmod', 'Introduces General Evaluator', 0, 'general_evaluator', 0, null, 1],
+            ['general_evaluator', 'Explains role', 0, null, 0, null, 2],
+            ['table_topics_evaluator', 'Introduction of role', 1, null, 0, null, 2],
+            ['tmod', 'Introduces Educational Presentation', 1, 'educational_presentation', 0, null, 1],
+            ['educational_presentation', 'Presentation', 1, null, 0, null, 5],
+            ['break', 'Networking', 0, null, 0, null, 5],
+            ['tmod', 'Introduces Evaluator and Speaker', 0, null, 1, 'speech_block', 1],
+            ['speaker', 'Speech', 0, null, 1, 'speech_block', 6],
+            ['tmod', 'Theme interlude', 0, null, 0, null, 2],
+            ['timer', 'Report', 0, null, 0, null, 1],
+            ['tmod', 'Introduces Table Topics Master', 1, 'table_topics_master', 0, null, 1],
+            ['table_topics_master', 'Table Topics Session', 1, null, 0, null, 10],
+            ['tmod', 'Theme interlude', 1, 'table_topics_master', 0, null, 2],
+            ['table_topics_evaluator', 'Table Topics Session Evaluation', 1, null, 0, null, 3],
+            ['tmod', 'Introduces Evaluation Session', 0, null, 0, null, 1],
+            ['evaluator', 'Evaluation', 0, null, 1, 'speech_block', 3],
+            ['timer', 'Report', 0, null, 0, null, 1],
+            ['tmod', 'Introduces Ad Hoc Speaker', 1, null, 1, 'adhoc_block', 1],
+            ['ad_hoc_speaker', 'Guest Speech', 1, null, 1, 'adhoc_block', 5],
+            ['tmod', 'Introduces Fun Session', 1, null, 1, 'fun_block', 1],
+            ['fun_session', 'Organizes fun session', 1, null, 1, 'fun_block', 10],
+            ['grammarian', 'Report', 0, null, 0, null, 4],
+            ['ah_counter', 'Report', 0, null, 0, null, 3],
+            ['active_listener', 'Report', 1, null, 0, null, 3],
+            ['general_evaluator', 'Final Report', 0, null, 0, null, 9],
+            ['tmod', 'Theme Closure', 0, null, 0, null, 2],
+            ['presiding_officer', 'Address and Guest Feedback', 0, null, 0, null, 5],
+            ['presiding_officer', 'Guest Feedback and Announcements', 0, null, 0, null, 5],
+            ['presiding_officer', 'Concludes the meeting', 0, null, 0, null, 1],
+        ];
+
+        $sort_order = 10;
+        foreach ($items as $item) {
+            [$role_key, $segment_label, $is_optional, $requires_role_key,
+             $repeat_per_speech, $instance_group, $duration] = $item;
+
+            $role_id = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$catalog_table} WHERE role_key = %s", $role_key
+            ));
+            if (!$role_id) {
+                continue; // catalog row missing — skip rather than insert an orphaned FK
+            }
+
+            $wpdb->insert($items_table, [
+                'template_id'               => $template_id,
+                'role_id'                   => (int) $role_id,
+                'segment_label'              => $segment_label,
+                'instance_group'             => $instance_group,
+                'sort_order'                 => $sort_order,
+                'is_optional'                => $is_optional,
+                'requires_role_key'          => $requires_role_key,
+                'default_duration_minutes'   => $duration,
+                'default_timer_minutes'      => null,
+                'repeat_per_speech'          => $repeat_per_speech,
+                'created_at'                 => $now,
+                'updated_at'                 => $now,
+            ]);
+            $sort_order += 10;
         }
     }
 

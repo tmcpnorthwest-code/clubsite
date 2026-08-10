@@ -324,6 +324,15 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
 
+        // ── role_id backfill (phase 1 of the agenda data-model migration) ──────
+        // Admin-triggered only, dry_run defaults to true — see
+        // TMP_Repository::backfill_role_ids() for the classify-then-write logic.
+        register_rest_route('toastmasters/v1', '/admin/backfill-role-ids', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'backfill_role_ids'],
+            'permission_callback' => [__CLASS__, 'can_manage_meetings'],
+        ]);
+
         // ── Role gate settings ─────────────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/settings/role-gates', [
             [
@@ -1649,6 +1658,42 @@ class TMP_REST_API {
             update_option('tmp_whatsapp_group_url', esc_url_raw($body['whatsapp_group_url']));
         }
         return rest_ensure_response(['success' => true]);
+    }
+
+    /**
+     * Classifies existing role_name strings against role_catalog and, unless
+     * dry_run is explicitly false, writes nothing — just returns a report.
+     * Requires an explicit confirm:true alongside dry_run:false before any
+     * row is written, given this runs against live production data.
+     */
+    public static function backfill_role_ids(WP_REST_Request $request) {
+        $body    = $request->get_json_params() ?: [];
+        $dry_run = !isset($body['dry_run']) || (bool) $body['dry_run'];
+        $confirm = !empty($body['confirm']);
+
+        $allowed = ['role_assignments', 'member_requests', 'participation_history'];
+        $tables  = isset($body['tables']) && is_array($body['tables'])
+            ? array_values(array_intersect($allowed, $body['tables']))
+            : $allowed;
+
+        if (empty($tables)) {
+            return new WP_Error('invalid_tables', 'No valid tables specified', ['status' => 400]);
+        }
+
+        if (!$dry_run && !$confirm) {
+            return new WP_Error(
+                'confirm_required',
+                'Set confirm:true alongside dry_run:false to write role_id backfill changes to production data.',
+                ['status' => 400]
+            );
+        }
+
+        $report = TMP_Repository::backfill_role_ids($tables, $dry_run);
+
+        return rest_ensure_response([
+            'dry_run' => $dry_run,
+            'tables'  => $report,
+        ]);
     }
 
     public static function get_timing_rules() {
