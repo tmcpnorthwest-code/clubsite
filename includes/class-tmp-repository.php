@@ -4486,6 +4486,36 @@ class TMP_Repository {
     // Notify all assigned members for a meeting
     // -------------------------------------------------------------------------
 
+    /**
+     * Official Toastmasters International role-description links, keyed by
+     * role_catalog.role_key. Verified against toastmasters.org/membership/
+     * club-meeting-roles (2026-08-10) — TI doesn't publish a page for every
+     * role (no Sergeant at Arms, Table Topics Evaluator, or Active Listener
+     * page exists there), so those fall back to the general roles index
+     * rather than guessing a URL.
+     */
+    public static function role_reference_links() {
+        $general = 'https://www.toastmasters.org/membership/club-meeting-roles';
+        return [
+            'ah_counter'              => 'https://www.toastmasters.org/membership/club-meeting-roles/ah-counter',
+            'grammarian'              => 'https://www.toastmasters.org/membership/club-meeting-roles/grammarian',
+            'timer'                   => 'https://www.toastmasters.org/membership/club-meeting-roles/timer',
+            'tmod'                    => 'https://www.toastmasters.org/membership/club-meeting-roles/toastmaster',
+            'table_topics_master'     => 'https://www.toastmasters.org/membership/club-meeting-roles/topicsmaster',
+            'speaker'                 => 'https://www.toastmasters.org/membership/club-meeting-roles/meeting-speaker',
+            'ad_hoc_speaker'          => 'https://www.toastmasters.org/membership/club-meeting-roles/meeting-speaker',
+            'table_topics_speaker'    => 'https://www.toastmasters.org/membership/club-meeting-roles/table-topics-speaker',
+            'evaluator'               => 'https://www.toastmasters.org/membership/club-meeting-roles/evaluator',
+            'general_evaluator'       => 'https://www.toastmasters.org/membership/club-meeting-roles/general-evaluator',
+            'saa'                     => $general,
+            'presiding_officer'       => $general,
+            'table_topics_evaluator'  => $general,
+            'active_listener'         => $general,
+            'educational_presentation'=> $general,
+            'fun_session'             => $general,
+        ];
+    }
+
     public static function notify_assigned_members(int $meeting_id, ?string $test_email = null) {
         global $wpdb;
 
@@ -4533,12 +4563,20 @@ class TMP_Repository {
                     'name'  => $row['full_name'],
                     'email' => $row['email'],
                     'roles' => [],
+                    'role_links' => [],
                     'pairing_notes' => [],
                 ];
             }
             // Avoid listing the same base role twice (e.g. TMOD appears in multiple sub-slots)
             if (!in_array($base, $by_member[$mid]['roles'], true)) {
                 $by_member[$mid]['roles'][] = $base;
+                $link_role_row = !empty($row['role_id']) ? self::get_role_catalog_row($row['role_id']) : null;
+                if ($link_role_row) {
+                    $links = self::role_reference_links();
+                    if (!empty($links[$link_role_row['role_key']])) {
+                        $by_member[$mid]['role_links'][$base] = $links[$link_role_row['role_key']];
+                    }
+                }
             }
 
             // Paired-role cross-reference: Speaker N is told their Evaluator's
@@ -4600,7 +4638,11 @@ class TMP_Repository {
             $failed_emails = [];
             foreach ($by_member as $member) {
                 if (empty($member['email'])) continue;
-                $role_list    = implode("\n  • ", $member['roles']);
+                $role_lines = array_map(function ($role) use ($member) {
+                    $link = $member['role_links'][$role] ?? null;
+                    return $link ? "{$role} — {$link}" : $role;
+                }, $member['roles']);
+                $role_list    = implode("\n  • ", $role_lines);
                 $pairing_block = !empty($member['pairing_notes'])
                     ? implode("\n  • ", $member['pairing_notes']) . "\n\n"
                     : '';
