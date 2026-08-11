@@ -97,6 +97,17 @@ class TMP_Repository {
     }
 
     /**
+     * Cooloff duration (weeks) for a member: shorter 3-week cooloff while
+     * they haven't completed a level yet ("L0" — level_completed === 0),
+     * standard admin-configured cooloff (default 4 weeks) once they have.
+     */
+    private static function get_cooloff_weeks_for_member($member_id) {
+        $member = self::get_member($member_id);
+        $is_l0  = $member && (int) ($member['level_completed'] ?? 0) === 0;
+        return $is_l0 ? 3 : (int) get_option('tmp_role_cooloff_weeks', 4);
+    }
+
+    /**
      * Resolves the minimum gate level for a role_id, preferring an admin
      * override (still stored in the legacy tmp_role_gate_levels option, but
      * looked up by role_key now instead of a substring pattern match) over
@@ -1865,7 +1876,8 @@ class TMP_Repository {
         // cooloff that will have expired by the meeting date shouldn't block
         // the request just because it hasn't expired yet today.
         $target_meeting_date = $open_slots[0]['meeting_date'] ?? current_time('Y-m-d');
-        $cooloff_weeks  = (int) get_option('tmp_role_cooloff_weeks', 4);
+        // L0 members (level_completed === 0) get a shorter 3-week cooloff.
+        $cooloff_weeks  = $member_level_completed === 0 ? 3 : (int) get_option('tmp_role_cooloff_weeks', 4);
         $cooloff_since  = date('Y-m-d', strtotime("-{$cooloff_weeks} weeks", strtotime($target_meeting_date)));
         $cooloff_info_by_role_id = [];
         $cooloff_info_by_name    = [];
@@ -2390,7 +2402,7 @@ class TMP_Repository {
 
         global $wpdb;
         $history = self::participation_history_table();
-        $cooloff_weeks = (int) get_option('tmp_role_cooloff_weeks', 4);
+        $cooloff_weeks = self::get_cooloff_weeks_for_member($member_id);
 
         $last_date = $wpdb->get_var($wpdb->prepare(
             "SELECT MAX(meeting_date) FROM {$history}
@@ -2415,7 +2427,7 @@ class TMP_Repository {
 
         global $wpdb;
         $history = self::participation_history_table();
-        $cooloff_weeks = (int) get_option('tmp_role_cooloff_weeks', 4);
+        $cooloff_weeks = self::get_cooloff_weeks_for_member($member_id);
 
         $last_date = $wpdb->get_var($wpdb->prepare(
             "SELECT MAX(meeting_date) FROM {$history} WHERE member_id = %d AND role_id = %d",
@@ -2564,7 +2576,7 @@ class TMP_Repository {
     private static function get_cooloff_eligible_date($member_id, $base_role) {
         global $wpdb;
         $history = self::participation_history_table();
-        $cooloff_weeks = (int) get_option('tmp_role_cooloff_weeks', 4);
+        $cooloff_weeks = self::get_cooloff_weeks_for_member($member_id);
 
         $last_date = $wpdb->get_var($wpdb->prepare(
             "SELECT MAX(meeting_date) FROM {$history}
@@ -2584,7 +2596,7 @@ class TMP_Repository {
     public static function get_cooloff_eligible_date_role_id($member_id, $role_id) {
         global $wpdb;
         $history = self::participation_history_table();
-        $cooloff_weeks = (int) get_option('tmp_role_cooloff_weeks', 4);
+        $cooloff_weeks = self::get_cooloff_weeks_for_member($member_id);
 
         $last_date = $wpdb->get_var($wpdb->prepare(
             "SELECT MAX(meeting_date) FROM {$history} WHERE member_id = %d AND role_id = %d",
@@ -3079,8 +3091,11 @@ class TMP_Repository {
         // Pre-compute: cooloff map [member_id][base_role] = last_date (if within
         // cooloff window), plus a parallel role_id-keyed map for rows that have
         // one — both populated from the same query so either lookup style works.
-        $cooloff_weeks    = (int) get_option('tmp_role_cooloff_weeks', 4);
-        $cooloff_boundary = date('Y-m-d', strtotime("-{$cooloff_weeks} weeks", current_time('timestamp')));
+        // SQL pre-filter uses the longer (default) window so no relevant row is
+        // missed; each member's exact boundary (3wk for L0, else the default) is
+        // then applied when the map is consulted below.
+        $cooloff_weeks_default = (int) get_option('tmp_role_cooloff_weeks', 4);
+        $cooloff_boundary = date('Y-m-d', strtotime("-{$cooloff_weeks_default} weeks", current_time('timestamp')));
         $recent_roles     = $wpdb->get_results($wpdb->prepare(
             "SELECT member_id, role_name, role_id, MAX(meeting_date) as last_date
              FROM {$history_table}
@@ -3096,6 +3111,7 @@ class TMP_Repository {
                 $cooloff_map_by_role_id[(int) $r['member_id']][(int) $r['role_id']] = $r['last_date'];
             }
         }
+        $member_level_completed_map = array_column($all_members, 'level_completed', 'id');
 
         // Pre-compute: presentation series counts per member per level
         $all_pres = $wpdb->get_results(
@@ -3220,8 +3236,13 @@ class TMP_Repository {
                             ? ($cooloff_map_by_role_id[$m_id][$slot_role_id] ?? null)
                             : ($cooloff_map[$m_id][$base_role] ?? null);
                         if ($last_cooloff_date) {
-                            $trace[] = "Cooloff skip: {$member['full_name']} for $base_role (last: {$last_cooloff_date})";
-                            continue;
+                            $is_l0 = (int) ($member_level_completed_map[$m_id] ?? 0) === 0;
+                            $member_cooloff_weeks = $is_l0 ? 3 : $cooloff_weeks_default;
+                            $eligible_ts = strtotime($last_cooloff_date) + ($member_cooloff_weeks * 7 * 86400);
+                            if (current_time('timestamp') < $eligible_ts) {
+                                $trace[] = "Cooloff skip: {$member['full_name']} for $base_role (last: {$last_cooloff_date})";
+                                continue;
+                            }
                         }
                     }
 
