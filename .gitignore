@@ -22,3 +22,6 @@ debug.log
 
 # Stray editor/backup files
 *_orig
+
+# Local secrets — never commit DB credentials
+.env

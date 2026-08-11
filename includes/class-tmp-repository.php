@@ -1860,8 +1860,13 @@ class TMP_Repository {
 
         // Build per-role cooloff map for this member, keyed by role_id (falls
         // back to base role_name string for any history row without role_id).
+        // Eligibility is evaluated as of the target meeting's date, not today
+        // — members request roles for upcoming meetings in advance, so a
+        // cooloff that will have expired by the meeting date shouldn't block
+        // the request just because it hasn't expired yet today.
+        $target_meeting_date = $open_slots[0]['meeting_date'] ?? current_time('Y-m-d');
         $cooloff_weeks  = (int) get_option('tmp_role_cooloff_weeks', 4);
-        $cooloff_since  = date('Y-m-d', strtotime("-{$cooloff_weeks} weeks", current_time('timestamp')));
+        $cooloff_since  = date('Y-m-d', strtotime("-{$cooloff_weeks} weeks", strtotime($target_meeting_date)));
         $cooloff_info_by_role_id = [];
         $cooloff_info_by_name    = [];
 
@@ -1875,6 +1880,9 @@ class TMP_Repository {
             ), ARRAY_A);
             foreach ($recent as $r) {
                 $eligible_ts = strtotime($r['last_date']) + ($cooloff_weeks * 7 * 86400);
+                if (strtotime($target_meeting_date) >= $eligible_ts) {
+                    continue; // eligible again by the target meeting's date
+                }
                 $entry = [
                     'in_cooloff'     => true,
                     'last_performed' => $r['last_date'],
@@ -2315,9 +2323,9 @@ class TMP_Repository {
         $days_since = self::get_days_since_last_role($member_id);
         $score += min(20, (int) floor($days_since / 7));
 
-        // Cooloff penalty: -100 if in cooloff
+        // Cooloff penalty: -100 if in cooloff as of the target meeting's date
         $base_role = self::get_base_role_name($role_name);
-        if (self::is_in_cooloff_now($member_id, $base_role)) {
+        if (self::is_in_cooloff_now($member_id, $base_role, $request['meeting_date'] ?? null)) {
             $score -= 100;
         }
 
@@ -2369,9 +2377,13 @@ class TMP_Repository {
     }
 
     /**
-     * Check if member is currently in cooloff for a role
+     * Check if member is in cooloff for a role as of a given date (defaults
+     * to today). Pass the target meeting's date when checking eligibility
+     * for a specific upcoming meeting — a member requesting a role for a
+     * meeting beyond their cooloff window is eligible even if their cooloff
+     * hasn't expired yet relative to today.
      */
-    private static function is_in_cooloff_now($member_id, $base_role) {
+    private static function is_in_cooloff_now($member_id, $base_role, $as_of_date = null) {
         if (!self::is_cooloff_role($base_role)) {
             return false;
         }
@@ -2392,10 +2404,11 @@ class TMP_Repository {
         }
 
         $eligible_ts = strtotime($last_date) + ($cooloff_weeks * 7 * 86400);
-        return current_time('timestamp') < $eligible_ts;
+        $as_of_ts    = $as_of_date ? strtotime($as_of_date) : current_time('timestamp');
+        return $as_of_ts < $eligible_ts;
     }
 
-    public static function is_in_cooloff_now_role_id($member_id, $role_id) {
+    public static function is_in_cooloff_now_role_id($member_id, $role_id, $as_of_date = null) {
         if (!self::is_cooloff_role_id($role_id)) {
             return false;
         }
@@ -2414,7 +2427,8 @@ class TMP_Repository {
         }
 
         $eligible_ts = strtotime($last_date) + ($cooloff_weeks * 7 * 86400);
-        return current_time('timestamp') < $eligible_ts;
+        $as_of_ts    = $as_of_date ? strtotime($as_of_date) : current_time('timestamp');
+        return $as_of_ts < $eligible_ts;
     }
 
     /**
@@ -2525,10 +2539,10 @@ class TMP_Repository {
             }
         }
 
-        // Reason 3: In cooloff
+        // Reason 3: In cooloff (as of the target meeting's date)
         $in_cooloff = $role_row
-            ? self::is_in_cooloff_now_role_id($request['member_id'] ?? 0, $role_id)
-            : self::is_in_cooloff_now($request['member_id'] ?? 0, $base_role);
+            ? self::is_in_cooloff_now_role_id($request['member_id'] ?? 0, $role_id, $request['meeting_date'] ?? null)
+            : self::is_in_cooloff_now($request['member_id'] ?? 0, $base_role, $request['meeting_date'] ?? null);
         if ($in_cooloff) {
             $eligible_date = $role_row
                 ? self::get_cooloff_eligible_date_role_id($request['member_id'] ?? 0, $role_id)
@@ -2697,7 +2711,7 @@ class TMP_Repository {
         $role_id   = !empty($request['role_id']) ? (int) $request['role_id'] : null;
 
         // Re-validate eligibility
-        $validation = self::validate_request_eligibility($member_id, $base_role, $role_id);
+        $validation = self::validate_request_eligibility($member_id, $base_role, $role_id, $meeting_id);
         if (!$validation['eligible']) {
             return new WP_Error('tmp_ineligible', $validation['reason'], ['status' => 400]);
         }
@@ -2851,10 +2865,19 @@ class TMP_Repository {
      * Validate if a member can be approved for a role type at approval time.
      * Takes the base role name (e.g. "Speaker") — no assignment_id needed.
      */
-    private static function validate_request_eligibility($member_id, $role_name, $role_id = null) {
+    private static function validate_request_eligibility($member_id, $role_name, $role_id = null, $meeting_id = null) {
         $member = self::get_member($member_id);
         if (!$member) {
             return ['eligible' => false, 'reason' => 'Member not found'];
+        }
+
+        $meeting_date = null;
+        if ($meeting_id) {
+            global $wpdb;
+            $meeting_date = $wpdb->get_var($wpdb->prepare(
+                "SELECT meeting_date FROM " . self::meeting_table() . " WHERE id = %d",
+                $meeting_id
+            ));
         }
 
         $member_level = (int) $member['level'];
@@ -2886,10 +2909,10 @@ class TMP_Repository {
             }
         }
 
-        // Check cooloff (re-validate)
+        // Check cooloff (re-validate), as of the target meeting's date
         $in_cooloff = $role_row
-            ? self::is_in_cooloff_now_role_id($member_id, $role_id)
-            : self::is_in_cooloff_now($member_id, $base_role);
+            ? self::is_in_cooloff_now_role_id($member_id, $role_id, $meeting_date)
+            : self::is_in_cooloff_now($member_id, $base_role, $meeting_date);
         if ($in_cooloff) {
             $eligible_date = $role_row
                 ? self::get_cooloff_eligible_date_role_id($member_id, $role_id)
@@ -3908,6 +3931,10 @@ class TMP_Repository {
         $gate_levels  = self::get_current_gate_levels();
         $assignments  = self::assignment_table();
         $catalog_cache = self::role_catalog_cache();
+        $meeting_date  = $wpdb->get_var($wpdb->prepare(
+            "SELECT meeting_date FROM " . self::meeting_table() . " WHERE id = %d",
+            $meeting_id
+        ));
 
         // Resolve each requested role_name to a role_id up front (frontend
         // sends catalog display names, e.g. "Speaker", "Evaluator").
@@ -3958,8 +3985,8 @@ class TMP_Repository {
 
             $base_role = self::get_base_role_name($role_name);
             $in_cooloff = $role_row
-                ? self::is_in_cooloff_now_role_id($member_id, $role_id)
-                : self::is_in_cooloff_now($member_id, $base_role);
+                ? self::is_in_cooloff_now_role_id($member_id, $role_id, $meeting_date)
+                : self::is_in_cooloff_now($member_id, $base_role, $meeting_date);
             if ($in_cooloff) {
                 $eligible_date = $role_row
                     ? self::get_cooloff_eligible_date_role_id($member_id, $role_id)
