@@ -902,7 +902,7 @@ class TMP_Repository {
         if ($existing_id) {
             // Preserve fields that CSV import must never overwrite
             $preserved = $wpdb->get_row($wpdb->prepare(
-                "SELECT mentor_id, orientation_date, officer_notes FROM {$table} WHERE id = %d",
+                "SELECT mentor_id, orientation_date, officer_notes, pathway FROM {$table} WHERE id = %d",
                 $existing_id
             ), ARRAY_A);
             if ($preserved) {
@@ -910,6 +910,19 @@ class TMP_Repository {
                     if (!array_key_exists($field, $data)) {
                         $data[$field] = $preserved[$field];
                     }
+                }
+
+                // A real pathway (one of the 6 in pathways_project_catalog(), set either
+                // by TI's own CSV credential code or manually by an officer for a member
+                // TI hasn't reported a pathway for yet — see get_open_slots()/role-card UI)
+                // must not be reverted back to the 'Enrolled'/'No pathway registered'
+                // placeholder just because THIS import still can't determine a real one.
+                // If a later import DOES find a real credential code, that's more
+                // authoritative than a manual guess and is allowed to overwrite it.
+                $incoming_is_placeholder = in_array($data['pathway'] ?? '', ['Enrolled', 'No pathway registered'], true);
+                $existing_is_real        = array_key_exists($preserved['pathway'] ?? '', self::pathways_project_catalog());
+                if ($incoming_is_placeholder && $existing_is_real) {
+                    $data['pathway'] = $preserved['pathway'];
                 }
             }
             $data['id'] = $existing_id;

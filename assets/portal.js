@@ -2278,7 +2278,7 @@
             pathwaySel.disabled = true;
             try {
               await api("/members", { method: "POST", body: JSON.stringify({ id: memberId, pathway }) });
-              const cached = (root._allMembers || []).find((m) => m.id === memberId);
+              const cached = (root._allMembers || []).find((m) => String(m.id) === String(memberId));
               if (cached) cached.pathway = pathway;
               await renderMeetings(meetingSelect.value);
             } catch (err) {
