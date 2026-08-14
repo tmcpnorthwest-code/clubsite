@@ -1305,6 +1305,110 @@
   margin-left: auto;
 }
 
+/* Selected-but-not-yet-submitted state — distinct from the locked/already-voted
+   teal state above. Burgundy signals "your pick, not final until you submit." */
+.tmp-vote-radio {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--tmp-line);
+  position: relative;
+  transition: border-color 0.15s;
+}
+
+.tmp-vote-btn--selected {
+  border-color: var(--tmp-burgundy);
+  background: #fbeef1;
+}
+
+.tmp-vote-btn--selected .tmp-vote-radio {
+  border-color: var(--tmp-burgundy);
+}
+
+.tmp-vote-btn--selected .tmp-vote-radio::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--tmp-burgundy);
+}
+
+.tmp-vote-btn--selected .tmp-vote-check {
+  color: var(--tmp-burgundy);
+}
+
+.tmp-vote-submit-bar {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  border-top: 1px solid var(--tmp-line);
+  padding: 14px 0 4px;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tmp-vote-progress {
+  font-size: 0.82rem;
+  color: var(--tmp-muted);
+}
+
+.tmp-vote-submit-btn {
+  background: var(--tmp-burgundy);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 11px 22px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tmp-vote-submit-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tmp-vote-confirm {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.tmp-vote-confirm-icon {
+  font-size: 2.4rem;
+  margin: 0 0 12px;
+}
+
+.tmp-vote-confirm-list {
+  margin: 24px auto 0;
+  max-width: 380px;
+  text-align: left;
+  border-top: 1px solid var(--tmp-line);
+  padding-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.tmp-vote-confirm-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85rem;
+}
+
+.tmp-vote-confirm-row .tmp-vote-confirm-cat {
+  color: var(--tmp-muted);
+}
+
+.tmp-vote-confirm-row .tmp-vote-confirm-who {
+  font-weight: 700;
+  text-align: right;
+}
+
 /* Role diversity leaderboard */
 .tmp-diversity-list {
   list-style: none;

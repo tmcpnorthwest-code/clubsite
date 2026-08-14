@@ -5065,7 +5065,9 @@
     const activeMeetingId = parseInt(page.dataset.tmpMeetingId, 10) || null;
     if (!activeMeetingId) return;
 
-    const voted = {};
+    const voted = {};      // category -> nominee id already recorded server-side (locked)
+    const selected = {};   // category -> nominee id picked locally, not yet submitted
+    let submitting = false;
 
     const CAT_LABELS = {
       main_role: 'Best Main Role', aux_role: 'Best Auxiliary Role',
@@ -5073,6 +5075,7 @@
     };
 
     function checkPoll() {
+      if (submitting) return; // don't let the 15s refresh clobber an in-flight submit
       api('/voting/nominees/' + activeMeetingId).then(data => {
         if (!data.poll_open) {
           body.innerHTML = '<div style="text-align:center;padding:40px 20px;"><p style="color:var(--tmp-muted);font-size:1rem;">The poll is not open yet.</p><p style="color:var(--tmp-muted);font-size:0.88rem;">This page checks automatically — no need to refresh.</p></div>';
@@ -5085,47 +5088,126 @@
       });
     }
 
-    function renderVoteForm(nominees) {
-      const rows = Object.entries(CAT_LABELS).map(([cat, catLabel]) => {
-        const items = nominees[cat] || [];
-        if (!items.length) return '';
-        const hasVoted = !!voted[cat];
-        return `<div class="tmp-vote-cat" style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--tmp-line);">
-          <p class="tmp-eyebrow" style="margin:0 0 10px;">${catLabel}</p>
-          <div class="tmp-vote-nominees">
-            ${items.map(n => `
-              <button type="button" class="tmp-vote-btn${voted[cat] === n.id ? ' tmp-vote-btn--voted' : ''}"
-                data-nominee="${n.id}" data-cat="${cat}"
-                ${hasVoted ? 'disabled' : ''}>
-                <span class="tmp-vote-btn-name">${esc(n.display_name)}</span>
-                <span class="tmp-vote-btn-role">${esc(n.role_name)}</span>
-                ${voted[cat] === n.id ? '<span class="tmp-vote-check">✓ Your vote</span>' : ''}
-              </button>`).join('')}
-          </div>
-        </div>`;
-      }).filter(Boolean);
-      if (!rows.length) { body.innerHTML = '<p style="color:var(--tmp-muted);">No nominees found for this meeting.</p>'; return; }
-      body.innerHTML = rows.join('');
-      body.querySelectorAll('.tmp-vote-btn:not([disabled])').forEach(btn => {
-        btn.addEventListener('click', () => castVote(parseInt(btn.dataset.nominee), btn.dataset.cat));
-      });
+    function activeCategories(nominees) {
+      return Object.keys(CAT_LABELS).filter((cat) => (nominees[cat] || []).length > 0);
     }
 
-    function castVote(nomineeId, category) {
-      if (!activeMeetingId) return;
-      api('/voting/vote', {
-        method: 'POST',
-        body: JSON.stringify({ meeting_id: activeMeetingId, nominee_id: nomineeId, voter_token: voterToken }),
-      }).then(() => {
-        voted[category] = String(nomineeId);
-        statusEl.textContent = '';
-        checkPoll();
-      }).catch(err => {
-        if (err.code === 'already_voted') {
-          voted[category] = String(nomineeId); checkPoll();
-        } else {
-          statusEl.textContent = 'Could not record vote — ' + (err.message || 'please try again');
+    function renderVoteForm(nominees) {
+      const cats = activeCategories(nominees);
+      if (!cats.length) { body.innerHTML = '<p style="color:var(--tmp-muted);">No nominees found for this meeting.</p>'; return; }
+
+      const remaining = cats.filter((cat) => !voted[cat]);
+
+      // Everything already voted (from a prior visit/session) — nothing left to submit.
+      if (!remaining.length) {
+        renderConfirmScreen(nominees, cats);
+        return;
+      }
+
+      const rows = cats.map((cat) => {
+        const catLabel = CAT_LABELS[cat];
+        const items = nominees[cat] || [];
+        const isLocked = !!voted[cat];
+        return `<div class="tmp-vote-cat" style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--tmp-line);">
+          <p class="tmp-eyebrow" style="margin:0 0 10px;">${catLabel}${isLocked ? ' <span style="color:var(--tmp-teal);font-weight:600;">— already voted</span>' : ''}</p>
+          <div class="tmp-vote-nominees">
+            ${items.map(n => {
+              const pickedId = isLocked ? voted[cat] : selected[cat];
+              const isPicked = String(pickedId) === String(n.id);
+              const stateClass = isLocked ? (isPicked ? ' tmp-vote-btn--voted' : '') : (isPicked ? ' tmp-vote-btn--selected' : '');
+              const radioOrCheck = isLocked
+                ? (isPicked ? '<span class="tmp-vote-check">✓ Your vote</span>' : '')
+                : '<span class="tmp-vote-radio"></span>';
+              return `
+              <button type="button" class="tmp-vote-btn${stateClass}"
+                data-nominee="${n.id}" data-cat="${cat}"
+                ${isLocked ? 'disabled' : ''}>
+                ${!isLocked ? radioOrCheck : ''}
+                <span class="tmp-vote-btn-name">${esc(n.display_name)}</span>
+                <span class="tmp-vote-btn-role">${esc(n.role_name)}</span>
+                ${isLocked ? radioOrCheck : ''}
+              </button>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }).join('');
+
+      const filledCount = remaining.filter((cat) => selected[cat]).length;
+      const allFilled = filledCount === remaining.length;
+
+      body.innerHTML = rows + `
+        <div class="tmp-vote-submit-bar">
+          <span class="tmp-vote-progress" data-tmp-vote-progress><strong>${filledCount}</strong> of ${remaining.length} remaining categories selected</span>
+          <button type="button" class="tmp-vote-submit-btn" data-tmp-vote-submit ${allFilled ? '' : 'disabled'}>Submit My Votes</button>
+        </div>`;
+
+      body.querySelectorAll('.tmp-vote-btn:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const cat = btn.dataset.cat;
+          const id  = btn.dataset.nominee;
+          selected[cat] = selected[cat] === id ? undefined : id;
+          if (selected[cat] === undefined) delete selected[cat];
+          renderVoteForm(nominees);
+        });
+      });
+
+      const submitBtn = qs('[data-tmp-vote-submit]', body);
+      if (submitBtn) {
+        submitBtn.addEventListener('click', () => submitVotes(nominees, cats, remaining));
+      }
+    }
+
+    function renderConfirmScreen(nominees, cats) {
+      const rowsHtml = cats.map((cat) => {
+        const pickedId = voted[cat];
+        const items = nominees[cat] || [];
+        const picked = pickedId ? items.find((n) => String(n.id) === String(pickedId)) : null;
+        return `<div class="tmp-vote-confirm-row">
+          <span class="tmp-vote-confirm-cat">${CAT_LABELS[cat]}</span>
+          <span class="tmp-vote-confirm-who">${picked ? esc(picked.display_name) : '—'}</span>
+        </div>`;
+      }).join('');
+
+      body.innerHTML = `
+        <div class="tmp-vote-confirm">
+          <div class="tmp-vote-confirm-icon">🏆</div>
+          <h2 style="margin:0 0 8px;">Votes submitted</h2>
+          <p style="color:var(--tmp-muted);font-size:0.9rem;margin:0;">Thanks for taking part in tonight&rsquo;s Moment of Glory voting.</p>
+          <div class="tmp-vote-confirm-list">${rowsHtml}</div>
+        </div>`;
+    }
+
+    function submitVotes(nominees, allCats, remainingCats) {
+      submitting = true;
+      statusEl.textContent = '';
+      const submitBtn = qs('[data-tmp-vote-submit]', body);
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting…'; }
+
+      const votesToCast = remainingCats.map((cat) => ({ cat, nomineeId: parseInt(selected[cat], 10) }));
+
+      Promise.all(votesToCast.map(({ cat, nomineeId }) =>
+        api('/voting/vote', {
+          method: 'POST',
+          body: JSON.stringify({ meeting_id: activeMeetingId, nominee_id: nomineeId, voter_token: voterToken }),
+        }).then(() => ({ cat, nomineeId, ok: true }))
+          .catch((err) => ({ cat, nomineeId, ok: false, alreadyVoted: err.code === 'already_voted', message: err.message }))
+      )).then((results) => {
+        submitting = false;
+        let hasHardFailure = false;
+        results.forEach(({ cat, nomineeId, ok, alreadyVoted }) => {
+          if (ok || alreadyVoted) {
+            voted[cat] = String(nomineeId);
+            delete selected[cat];
+          } else {
+            hasHardFailure = true;
+          }
+        });
+        if (hasHardFailure) {
+          statusEl.textContent = 'Some votes could not be recorded — please try again.';
           statusEl.style.color = 'var(--tmp-burgundy)';
+          renderVoteForm(nominees);
+        } else {
+          renderConfirmScreen(nominees, allCats);
         }
       });
     }
