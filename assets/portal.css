@@ -1973,6 +1973,24 @@
   font-size: 0.8rem;
   font-style: italic;
 }
+.tmp-role-pathway-note {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: var(--tmp-muted);
+}
+.tmp-role-pathway-select,
+.tmp-role-project-select {
+  margin-top: 6px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--tmp-line);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+.tmp-role-project-select:disabled {
+  color: var(--tmp-muted);
+  font-style: italic;
+}
 
 /* ── Pending Role Requests (Setup) ───────────────────────────────────────── */
 .tmp-role-group { margin-bottom: 14px; }

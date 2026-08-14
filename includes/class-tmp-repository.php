@@ -148,7 +148,47 @@ class TMP_Repository {
      * type = 'role_or'      → at least one of the listed roles must be completed
      * type = 'presentation' → an Educational Presentation of the given series (min times)
      */
-    public static function get_level_requirements() {
+    /**
+     * @param string|null $pathway  Member's pathway. When it's one of the 6
+     *                              pathways covered by pathways_project_catalog(),
+     *                              levels 3-5 get real per-pathway project
+     *                              requirements instead of the legacy fake
+     *                              "presentation series" categories. Any other
+     *                              pathway (including null/unset) keeps the
+     *                              legacy behavior unchanged — see class doc
+     *                              on pathways_project_catalog() for why.
+     */
+    public static function get_level_requirements($pathway = null) {
+        $legacy_presentations = [
+            3 => [
+                ['type' => 'presentation', 'series' => 'Successful Club Series', 'min' => 1, 'label' => 'Educational Presentation (Successful Club Series)'],
+            ],
+            4 => [
+                ['type' => 'presentation', 'series' => 'Successful Club Series', 'min' => 1, 'label' => 'Educational Presentation (Successful Club Series)'],
+                ['type' => 'presentation', 'series' => 'Better Speaker Series',  'min' => 1, 'label' => 'Educational Presentation (Better Speaker Series)'],
+            ],
+            5 => [
+                ['type' => 'presentation', 'series' => 'Successful Club Series',      'min' => 1, 'label' => 'Educational Presentation (Successful Club Series)'],
+                ['type' => 'presentation', 'series' => 'Leadership Excellence Series','min' => 1, 'label' => 'Educational Presentation (Leadership Excellence Series)'],
+            ],
+        ];
+
+        $catalog = self::pathways_project_catalog();
+        $level_35_entries = [];
+        if ($pathway !== null && array_key_exists($pathway, $catalog)) {
+            foreach ([3, 4, 5] as $lvl) {
+                $spec = $catalog[$pathway][$lvl];
+                $level_35_entries[$lvl] = [
+                    ['type' => 'project_required', 'project' => $spec['required'][0], 'min' => 1,
+                     'label' => 'Required Project: ' . $spec['required'][0]],
+                    ['type' => 'project_elective', 'pool' => $spec['electives'], 'choose' => $spec['choose'],
+                     'label' => 'Elective Project (choose ' . $spec['choose'] . ')'],
+                ];
+            }
+        } else {
+            $level_35_entries = $legacy_presentations;
+        }
+
         return [
             1 => [
                 // TT Speaker must precede Ice Breaker (enforced separately)
@@ -162,27 +202,31 @@ class TMP_Repository {
                 ['type' => 'role',    'roles' => ['Evaluator'],            'min' => 1, 'label' => 'Evaluator'],
                 ['type' => 'role_or', 'roles' => ['Toastmaster of the Day', 'Timer', 'Ah-Counter'], 'min' => 1, 'label' => 'TMOD, Timer, or Ah-Counter'],
             ],
-            3 => [
-                ['type' => 'role',    'roles' => ['Toastmaster of the Day'], 'min' => 1, 'label' => 'Toastmaster of the Day'],
-                ['type' => 'role',    'roles' => ['Evaluator'],              'min' => 1, 'label' => 'Evaluator'],
-                ['type' => 'role_or', 'roles' => ['Table Topics Master', 'Table Topics Speaker', 'Introductory Mentor'], 'min' => 1, 'label' => 'TTM, TT Speaker, or Introductory Mentor'],
-                ['type' => 'presentation', 'series' => 'Successful Club Series', 'min' => 1, 'label' => 'Educational Presentation (Successful Club Series)'],
-            ],
-            4 => [
-                ['type' => 'role',    'roles' => ['Toastmaster of the Day'], 'min' => 1, 'label' => 'Toastmaster of the Day'],
-                ['type' => 'role',    'roles' => ['General Evaluator'],      'min' => 1, 'label' => 'General Evaluator'],
-                ['type' => 'role',    'roles' => ['Evaluator'],              'min' => 1, 'label' => 'Evaluator'],
-                ['type' => 'role_or', 'roles' => ['Table Topics Speaker', 'Table Topics Master', 'Specialized Role'], 'min' => 1, 'label' => 'TT Speaker, TTM, or Specialized Role'],
-                ['type' => 'presentation', 'series' => 'Successful Club Series', 'min' => 1, 'label' => 'Educational Presentation (Successful Club Series)'],
-                ['type' => 'presentation', 'series' => 'Better Speaker Series',  'min' => 1, 'label' => 'Educational Presentation (Better Speaker Series)'],
-            ],
-            5 => [
-                ['type' => 'role', 'roles' => ['Toastmaster of the Day'], 'min' => 2, 'label' => 'Toastmaster of the Day (×2)'],
-                ['type' => 'role', 'roles' => ['General Evaluator'],      'min' => 2, 'label' => 'General Evaluator (×2)'],
-                ['type' => 'role', 'roles' => ['Evaluator'],              'min' => 2, 'label' => 'Evaluator (×2)'],
-                ['type' => 'presentation', 'series' => 'Successful Club Series',      'min' => 1, 'label' => 'Educational Presentation (Successful Club Series)'],
-                ['type' => 'presentation', 'series' => 'Leadership Excellence Series','min' => 1, 'label' => 'Educational Presentation (Leadership Excellence Series)'],
-            ],
+            3 => array_merge(
+                [
+                    ['type' => 'role',    'roles' => ['Toastmaster of the Day'], 'min' => 1, 'label' => 'Toastmaster of the Day'],
+                    ['type' => 'role',    'roles' => ['Evaluator'],              'min' => 1, 'label' => 'Evaluator'],
+                    ['type' => 'role_or', 'roles' => ['Table Topics Master', 'Table Topics Speaker', 'Introductory Mentor'], 'min' => 1, 'label' => 'TTM, TT Speaker, or Introductory Mentor'],
+                ],
+                $level_35_entries[3]
+            ),
+            4 => array_merge(
+                [
+                    ['type' => 'role',    'roles' => ['Toastmaster of the Day'], 'min' => 1, 'label' => 'Toastmaster of the Day'],
+                    ['type' => 'role',    'roles' => ['General Evaluator'],      'min' => 1, 'label' => 'General Evaluator'],
+                    ['type' => 'role',    'roles' => ['Evaluator'],              'min' => 1, 'label' => 'Evaluator'],
+                    ['type' => 'role_or', 'roles' => ['Table Topics Speaker', 'Table Topics Master', 'Specialized Role'], 'min' => 1, 'label' => 'TT Speaker, TTM, or Specialized Role'],
+                ],
+                $level_35_entries[4]
+            ),
+            5 => array_merge(
+                [
+                    ['type' => 'role', 'roles' => ['Toastmaster of the Day'], 'min' => 2, 'label' => 'Toastmaster of the Day (×2)'],
+                    ['type' => 'role', 'roles' => ['General Evaluator'],      'min' => 2, 'label' => 'General Evaluator (×2)'],
+                    ['type' => 'role', 'roles' => ['Evaluator'],              'min' => 2, 'label' => 'Evaluator (×2)'],
+                ],
+                $level_35_entries[5]
+            ),
         ];
     }
 
@@ -190,13 +234,19 @@ class TMP_Repository {
      * Returns the gap status for each requirement at the given level for a member.
      * Uses pre-fetched counts to avoid extra queries when called inside a loop.
      *
-     * @param int   $member_id
-     * @param int   $level
-     * @param array $role_counts  [role_name => count]  (optional, fetched if null)
-     * @param array $pres_counts  [series => count]     (optional, fetched if null)
-     * @return array[]  Each item: {type, label, roles/series, needed, done, met}
+     * @param int    $member_id
+     * @param int    $level
+     * @param array  $role_counts     [role_name => count]  (optional, fetched if null)
+     * @param array  $pres_counts     [series => count] — legacy fake-series counts,
+     *                                only used when the member's pathway isn't one of
+     *                                the 6 in pathways_project_catalog() (optional,
+     *                                fetched if null)
+     * @param string|null $member_pathway  Optional — pass when already loaded by the
+     *                                caller to avoid a redundant get_member() query.
+     *                                Falls back to loading it internally if omitted.
+     * @return array[]  Each item: {type, label, needed, done, met, ...type-specific}
      */
-    public static function get_member_level_gaps($member_id, $level, $role_counts = null, $pres_counts = null) {
+    public static function get_member_level_gaps($member_id, $level, $role_counts = null, $pres_counts = null, $member_pathway = null) {
         global $wpdb;
         $history = self::participation_history_table();
 
@@ -211,7 +261,24 @@ class TMP_Repository {
             }
         }
 
-        if ($pres_counts === null) {
+        if ($member_pathway === null) {
+            $member = self::get_member($member_id);
+            $member_pathway = $member['pathway'] ?? null;
+        }
+        $pathway_supported = $member_pathway !== null && array_key_exists($member_pathway, self::pathways_project_catalog());
+
+        $project_counts = [];
+        if ($pathway_supported) {
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT project_name, COUNT(*) as cnt FROM {$history}
+                 WHERE member_id = %d AND level_at_completion = %d AND project_name IS NOT NULL AND project_name != ''
+                 GROUP BY project_name",
+                $member_id, $level
+            ), ARRAY_A);
+            foreach ($rows as $r) {
+                $project_counts[$r['project_name']] = (int) $r['cnt'];
+            }
+        } elseif ($pres_counts === null) {
             $rows = $wpdb->get_results($wpdb->prepare(
                 "SELECT presentation_series, COUNT(*) as cnt FROM {$history}
                  WHERE member_id = %d AND level_at_completion = %d AND presentation_series IS NOT NULL AND presentation_series != ''
@@ -224,7 +291,7 @@ class TMP_Repository {
             }
         }
 
-        $requirements = self::get_level_requirements();
+        $requirements = self::get_level_requirements($pathway_supported ? $member_pathway : null);
         $level_reqs   = $requirements[$level] ?? [];
         $gaps = [];
 
@@ -261,6 +328,27 @@ class TMP_Repository {
                     'needed' => $req['min'],
                     'done'   => $done,
                     'met'    => $done >= $req['min'],
+                ];
+            } elseif ($req['type'] === 'project_required') {
+                $done = $project_counts[$req['project']] ?? 0;
+                $gaps[] = [
+                    'type'    => 'project_required',
+                    'label'   => $req['label'],
+                    'project' => $req['project'],
+                    'needed'  => $req['min'],
+                    'done'    => $done,
+                    'met'     => $done >= $req['min'],
+                ];
+            } elseif ($req['type'] === 'project_elective') {
+                $distinct_done = count(array_intersect(array_keys($project_counts), $req['pool']));
+                $gaps[] = [
+                    'type'               => 'project_elective',
+                    'label'              => $req['label'],
+                    'pool'               => $req['pool'],
+                    'needed'             => $req['choose'],
+                    'done'               => min($distinct_done, $req['choose']),
+                    'met'                => $distinct_done >= $req['choose'],
+                    'completed_projects' => array_values(array_intersect(array_keys($project_counts), $req['pool'])),
                 ];
             }
         }
@@ -316,6 +404,12 @@ class TMP_Repository {
     private static function make_req_key($gap) {
         if ($gap['type'] === 'presentation') {
             return $gap['series'];
+        }
+        if ($gap['type'] === 'project_required') {
+            return $gap['project'];
+        }
+        if ($gap['type'] === 'project_elective') {
+            return 'elective:' . implode(',', $gap['pool']);
         }
         return implode('|', $gap['roles']);
     }
@@ -1265,12 +1359,12 @@ class TMP_Repository {
         // (role_id IS NULL rows — legacy, never backfilled — fall back to
         // base role_name matching so nothing is silently dropped on rebuild).
         $existing = $wpdb->get_results($wpdb->prepare(
-            "SELECT role_name, role_id, instance_number, member_id, guest_name, speech_title, presentation_series, status, duration, timer_duration
+            "SELECT role_name, role_id, instance_number, member_id, guest_name, speech_title, project_name, presentation_series, status, duration, timer_duration
              FROM {$atbl} WHERE meeting_id = %d ORDER BY sort_order",
             $meeting_id
         ), ARRAY_A);
 
-        $saved       = []; // "{role_id}:{instance_number|0}" → {member_id, guest_name, speech_title, presentation_series, status, duration, timer_duration}
+        $saved       = []; // "{role_id}:{instance_number|0}" → {member_id, guest_name, speech_title, project_name, presentation_series, status, duration, timer_duration}
         $legacy_saved = []; // base_role_name (fallback for role_id IS NULL rows) → same shape
         $selected_role_ids = [];
         $speech_count = 0;
@@ -1284,6 +1378,7 @@ class TMP_Repository {
                 'member_id'           => $row['member_id'] ? absint($row['member_id']) : null,
                 'guest_name'          => $row['guest_name'] ?? null,
                 'speech_title'        => $row['speech_title'] ?? null,
+                'project_name'        => $row['project_name'] ?? null,
                 'presentation_series' => $row['presentation_series'] ?? null,
                 'status'              => $row['status'] ?? 'Planned',
                 'duration'            => $row['duration'] ?? null,
@@ -1358,6 +1453,7 @@ class TMP_Repository {
                 'member_id'           => $s['member_id'] ?? null,
                 'guest_name'          => $s['guest_name'] ?? null,
                 'speech_title'        => $s['speech_title'] ?? null,
+                'project_name'        => $s['project_name'] ?? null,
                 'presentation_series' => $s['presentation_series'] ?? null,
             ]);
             $order += 10;
@@ -1407,7 +1503,7 @@ class TMP_Repository {
             $m['is_new_member']                 = !empty($m['created_at']) && strtotime($m['created_at']) > strtotime('-14 days');
             $m['is_at_risk']                    = $m['recent_participation_count'] == 0 && count($last_3_ids) > 0 && !$m['is_new_member'];
             $m['milestones']                    = self::calculate_milestones($m);
-            $m['level_gaps']                    = self::get_member_level_gaps($m['id'], (int) $m['level']);
+            $m['level_gaps']                    = self::get_member_level_gaps($m['id'], (int) $m['level'], null, null, $m['pathway'] ?? null);
             $m['mentorship_stage']              = self::compute_mentorship_stage((int) $m['id'], $m);
             $m['next_action']                   = self::compute_next_action((int) $m['id'], $m);
             $m['mentor_next_action']            = self::compute_mentor_next_action($m['full_name'], $m['mentorship_stage']);
@@ -1786,7 +1882,7 @@ class TMP_Repository {
         }
 
         // 6 & 7. Level gaps (all levels)
-        $gaps  = self::get_member_level_gaps($member_id, $level);
+        $gaps  = self::get_member_level_gaps($member_id, $level, null, null, $pathway ?: null);
         $unmet = array_filter($gaps, fn($g) => !$g['met']);
         if (!empty($unmet)) {
             $first = reset($unmet);
@@ -2075,7 +2171,7 @@ class TMP_Repository {
             // A member with level_completed 0 gets the shorter 3-week cooloff.
             $is_l0 = (int) ($m['level_completed'] ?? 0) === 0;
             $level_counts = $all_counts[$m_id][$level] ?? [];
-            $gaps = self::get_member_level_gaps($m_id, $level, $level_counts, []);
+            $gaps = self::get_member_level_gaps($m_id, $level, $level_counts, [], $m['pathway'] ?? null);
 
             $speech_progress = self::get_member_level_speech_progress($m_id, $level);
             $speeches_needed = $speech_progress ? max(0, $speech_progress['needed'] - $speech_progress['done']) : 0;
@@ -2084,7 +2180,7 @@ class TMP_Repository {
                 'member'          => $m,
                 'level'           => $level,
                 'is_l0'           => $is_l0,
-                'role_gaps'       => array_values(array_filter($gaps, fn($g) => !$g['met'] && $g['type'] !== 'presentation')),
+                'role_gaps'       => array_values(array_filter($gaps, fn($g) => !$g['met'] && in_array($g['type'], ['role', 'role_or'], true))),
                 'speeches_needed' => $speeches_needed,
                 'last_speech'     => self::get_last_speech_date($m_id),
                 'last_role_date'  => [], // [base_role => date] simulated within this run
@@ -3264,7 +3360,7 @@ class TMP_Repository {
                     // +40 if this role fills an unmet TI requirement for their level
                     $level_counts = $all_counts[$m_id][$level] ?? [];
                     $pres_counts  = $pres_map[$m_id][$level] ?? [];
-                    $gaps = self::get_member_level_gaps($m_id, $level, $level_counts, $pres_counts);
+                    $gaps = self::get_member_level_gaps($m_id, $level, $level_counts, $pres_counts, $member['pathway'] ?? null);
                     foreach ($gaps as $gap) {
                         if ($gap['met']) {
                             continue;
@@ -3690,6 +3786,7 @@ class TMP_Repository {
         if (array_key_exists('instance_number', $data)) $record['instance_number']  = !empty($data['instance_number']) ? absint($data['instance_number']) : null;
         if (array_key_exists('template_item_id', $data)) $record['template_item_id'] = !empty($data['template_item_id']) ? absint($data['template_item_id']) : null;
         if (isset($data['speech_title']))        $record['speech_title']       = sanitize_text_field($data['speech_title']);
+        if (isset($data['project_name']))        $record['project_name']       = sanitize_text_field($data['project_name']);
         if (isset($data['duration']))            $record['duration']           = absint($data['duration']);
         if (isset($data['status']))              $record['status']             = sanitize_text_field($data['status']);
         if (isset($data['sort_order']))          $record['sort_order']         = absint($data['sort_order']);
@@ -3718,13 +3815,30 @@ class TMP_Repository {
 
         if (!empty($data['id'])) {
             $old = $wpdb->get_row($wpdb->prepare(
-                "SELECT status, member_id, role_name, role_id, segment_label, meeting_id, presentation_series, duration, timer_duration FROM {$table} WHERE id = %d",
+                "SELECT status, member_id, role_name, role_id, segment_label, meeting_id, presentation_series, project_name, duration, timer_duration FROM {$table} WHERE id = %d",
                 $data['id']
             ), ARRAY_A);
 
             $new_status    = $data['status'] ?? ($old['status'] ?? '');
             $is_final      = $new_status === 'Completed'; // Only record when meeting is truly completed
             $was_not_final = $old && $old['status'] !== 'Completed';
+
+            // Sync wp_tmp_members.current_project as soon as a project is picked for a
+            // speech-type slot — not gated on meeting completion — so the agenda badge
+            // (format_speaker_pathway_label) shows the right project even for upcoming/
+            // planned meetings, not just ones that have already happened.
+            $role_name_for_sync = $old['role_name'] ?? ($record['role_name'] ?? '');
+            $base_for_sync      = self::get_base_role_name($role_name_for_sync);
+            $is_speech_role_for_sync = (bool) preg_match('/^speaker(\s+\d+)?$/i', $base_for_sync) || strtolower($base_for_sync) === 'ice breaker';
+            $project_for_sync = $data['project_name'] ?? null;
+            $sync_member_id   = $data['member_id'] ?? $old['member_id'] ?? null;
+            if ($is_speech_role_for_sync && !empty($project_for_sync) && !empty($sync_member_id)) {
+                $wpdb->update(
+                    self::member_table(),
+                    ['current_project' => sanitize_text_field($project_for_sync), 'updated_at' => $now],
+                    ['id' => absint($sync_member_id)]
+                );
+            }
 
             if ($was_not_final && $is_final && !empty($data['member_id'])) {
                 $role_name   = $old['role_name'] ?? ($record['role_name'] ?? '');
@@ -3740,7 +3854,8 @@ class TMP_Repository {
                     "SELECT meeting_date FROM " . self::meeting_table() . " WHERE id = %d",
                     $meeting_id
                 ));
-                $series = $data['presentation_series'] ?? $old['presentation_series'] ?? null;
+                $series  = $data['presentation_series'] ?? $old['presentation_series'] ?? null;
+                $project = $data['project_name'] ?? $old['project_name'] ?? null;
 
                 if (strtolower($base_for_history) === 'break') {
                     // Skip history recording for Break rows
@@ -3753,6 +3868,7 @@ class TMP_Repository {
                     'meeting_date'        => $meeting_date,
                     'level_at_completion' => max(1, (int) self::get_member(absint($data['member_id']))['level']),
                     'presentation_series' => $series ? sanitize_text_field($series) : null,
+                    'project_name'        => $project ? sanitize_text_field($project) : null,
                     'created_at'          => $now,
                 ]);
                 } // end else (not break)
@@ -3880,7 +3996,7 @@ class TMP_Repository {
         $history_table = self::participation_history_table();
 
         $results = $wpdb->get_results($wpdb->prepare(
-            "SELECT role_name, COUNT(*) as count, MAX(meeting_date) as last_completed_date, level_at_completion, presentation_series
+            "SELECT role_name, COUNT(*) as count, MAX(meeting_date) as last_completed_date, level_at_completion, presentation_series, project_name
              FROM {$history_table}
              WHERE member_id = %d
              GROUP BY level_at_completion, role_name
@@ -3897,6 +4013,7 @@ class TMP_Repository {
                 'count'               => (int) $row['count'],
                 'last_completed_date' => $row['last_completed_date'],
                 'presentation_series' => $row['presentation_series'],
+                'project_name'        => $row['project_name'],
             ];
         }
 
@@ -4864,6 +4981,120 @@ class TMP_Repository {
     }
 
     /**
+     * Real TI Pathways project catalog, for the 6 pathways this club
+     * currently has members enrolled in. Levels 1-2 are fixed required
+     * project lists (L1 identical across all pathways); levels 3-5 are one
+     * pathway-specific required project plus a shared elective pool (choose
+     * 2 at L3, 1 at L4, 1 at L5), each pathway's own required project
+     * excluded from its own elective choices. This replaces the old
+     * 3-fake-series ('Successful Club Series' etc.) system — a leftover
+     * from the pre-Pathways Competent Communication program that never
+     * matched any real Pathway — for these 6 pathways only. Other pathways
+     * (Effective Coaching, Innovative Planning, Strategic Relationships,
+     * Team Collaboration, DTM, or the 'Enrolled'/'No pathway registered'
+     * placeholders CSV import uses before a member completes Level 1) fall
+     * back to the old fake-series behavior — see get_level_requirements()
+     * and get_member_level_gaps().
+     */
+    public static function pathways_project_catalog() {
+        static $catalog = null;
+        if ($catalog !== null) {
+            return $catalog;
+        }
+
+        $level_1 = [
+            'Ice Breaker',
+            'Writing a Speech with Purpose',
+            'Introduction to Vocal Variety and Body Language',
+            'Evaluation and Feedback',
+        ];
+
+        $l3_pool = [
+            'Active Listening', 'Connect with Storytelling', 'Connect with Your Audience',
+            'Creating Effective Visual Aids', 'Deliver Social Speeches', 'Effective Body Language',
+            'Focus on the Positive', 'Inspire Your Audience', 'Know Your Sense of Humor',
+            'Make Connections Through Networking', 'Prepare for an Interview',
+            'Understanding Vocal Variety', 'Using Descriptive Language',
+            'Using Presentation Software', 'Researching and Presenting',
+        ];
+        $l4_pool = [
+            'Building a Social Media Presence', 'Create a Podcast', 'Manage Online Meetings',
+            'Manage Projects Successfully', 'Managing a Difficult Audience',
+            'Public Relations Strategies', 'Question-and-Answer Session',
+            'Write a Compelling Blog',
+        ];
+        $l5_pool = [
+            'Ethical Leadership', 'High Performance Leadership', 'Leading in Your Volunteer Organization',
+            'Lessons Learned', 'Moderate a Panel Discussion', 'Prepare to Speak Professionally',
+        ];
+
+        $pathways = [
+            'Dynamic Leadership' => [
+                'l2' => ['Understanding Your Leadership Style', 'Understanding Your Communication Style', 'Introduction to Toastmasters Mentoring'],
+                'l3' => 'Negotiate the Best Outcome',
+                'l4' => 'Manage Change',
+                'l5' => 'Lead in Any Situation',
+            ],
+            'Engaging Humor' => [
+                'l2' => ['Know Your Sense of Humor', 'Connect with Your Audience', 'Introduction to Toastmasters Mentoring'],
+                'l3' => 'Engage Your Audience With Humor',
+                'l4' => 'The Power of Humor in an Impromptu Speech',
+                'l5' => 'Deliver Your Message With Humor',
+            ],
+            'Motivational Strategies' => [
+                'l2' => ['Understanding Your Communication Style', 'Active Listening', 'Introduction to Toastmasters Mentoring'],
+                'l3' => 'Understanding Emotional Intelligence',
+                'l4' => 'Motivate Others',
+                'l5' => 'Team Building',
+            ],
+            'Persuasive Influence' => [
+                'l2' => ['Understanding Your Leadership Style', 'Active Listening', 'Introduction to Toastmasters Mentoring'],
+                'l3' => 'Understanding Conflict Resolution',
+                'l4' => 'Leading in Difficult Situations',
+                'l5' => 'High Performance Leadership',
+            ],
+            'Presentation Mastery' => [
+                'l2' => ['Understanding Your Communication Style', 'Effective Body Language', 'Introduction to Toastmasters Mentoring'],
+                'l3' => 'Persuasive Speaking',
+                'l4' => 'Managing a Difficult Audience',
+                'l5' => 'Prepare to Speak Professionally',
+            ],
+            'Visionary Communication' => [
+                'l2' => ['Understanding Your Leadership Style', 'Understanding Your Communication Style', 'Introduction to Toastmasters Mentoring'],
+                'l3' => 'Develop a Communication Plan',
+                'l4' => 'Communicate Change',
+                'l5' => 'Develop Your Vision',
+            ],
+        ];
+
+        $catalog = [];
+        foreach ($pathways as $name => $def) {
+            $catalog[$name] = [
+                1 => ['required' => $level_1, 'electives' => [], 'choose' => 0],
+                2 => ['required' => $def['l2'], 'electives' => [], 'choose' => 0],
+                3 => [
+                    'required' => [$def['l3']],
+                    'electives' => array_values(array_diff($l3_pool, [$def['l3']], $def['l2'])),
+                    'choose' => 2,
+                ],
+                4 => [
+                    'required' => [$def['l4']],
+                    'electives' => array_values(array_diff($l4_pool, [$def['l4']])),
+                    'choose' => 1,
+                ],
+                5 => [
+                    'required' => [$def['l5']],
+                    'electives' => array_values(array_diff($l5_pool, [$def['l5']])),
+                    'choose' => 1,
+                ],
+                'completion' => ['Reflect on Your Path'],
+            ];
+        }
+
+        return $catalog;
+    }
+
+    /**
      * Builds the compact "PM | L2 | Persuasive speaking" label for a
      * Speaker/Ad Hoc Speaker agenda row with an assigned member — read-side
      * only, sourced from the member's own profile fields (pathway is a
@@ -5659,7 +5890,7 @@ class TMP_Repository {
 
             $member   = self::get_member($mid);
             $role_row = $wpdb->get_row($wpdb->prepare(
-                "SELECT role_name, presentation_series FROM {$assignments_tbl} WHERE id = %d",
+                "SELECT role_name, presentation_series, project_name FROM {$assignments_tbl} WHERE id = %d",
                 $aid
             ), ARRAY_A);
             if (!$role_row) continue;
@@ -5676,6 +5907,8 @@ class TMP_Repository {
                 'level_at_completion' => max(1, (int) ($member['level'] ?? 1)),
                 'presentation_series' => !empty($role_row['presentation_series'])
                     ? sanitize_text_field($role_row['presentation_series']) : null,
+                'project_name'        => !empty($role_row['project_name'])
+                    ? sanitize_text_field($role_row['project_name']) : null,
                 'created_at'          => $now,
             ]);
         }
@@ -5815,7 +6048,7 @@ class TMP_Repository {
         $level  = max(1, (int)($member['level'] ?? 1));
 
         $speech_progress = self::get_member_level_speech_progress($member_id, $level);
-        $role_gaps       = self::get_member_level_gaps($member_id, $level);
+        $role_gaps       = self::get_member_level_gaps($member_id, $level, null, null, $member['pathway'] ?? null);
 
         $all_roles_met = empty(array_filter($role_gaps, fn($g) => !$g['met']));
 

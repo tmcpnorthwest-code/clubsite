@@ -149,6 +149,12 @@ class TMP_REST_API {
             'permission_callback' => [__CLASS__, 'can_manage_members'],
         ]);
 
+        register_rest_route('toastmasters/v1', '/pathways-project-catalog', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => fn() => rest_ensure_response(TMP_Repository::pathways_project_catalog()),
+            'permission_callback' => 'is_user_logged_in',
+        ]);
+
         register_rest_route('toastmasters/v1', '/members/due-for-roles', [
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => fn() => rest_ensure_response(TMP_Repository::get_members_due_for_roles()),

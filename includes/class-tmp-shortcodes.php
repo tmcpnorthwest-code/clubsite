@@ -751,12 +751,6 @@ class TMP_Shortcodes {
                     <input type="hidden" name="role_name" />
                     <input type="hidden" name="meeting_id" />
                     <input type="text" name="speech_title" placeholder="Speech title (optional)" data-tmp-speech-title-wrapper style="display:none;width:100%;margin-bottom:6px;" />
-                    <select name="presentation_series" data-tmp-pres-series-wrapper style="display:none;">
-                        <option value="">Not applicable</option>
-                        <option value="Successful Club Series">Successful Club Series</option>
-                        <option value="Better Speaker Series">Better Speaker Series</option>
-                        <option value="Leadership Excellence Series">Leadership Excellence Series</option>
-                    </select>
                     <input type="text" name="time_green" style="display:none;" />
                     <input type="text" name="time_yellow" style="display:none;" />
                     <input type="text" name="time_red" style="display:none;" />

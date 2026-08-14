@@ -25,6 +25,7 @@ class TMP_Activator {
         self::migrate_v250_role_catalog_columns();
         self::migrate_v250_seed_role_catalog();
         self::migrate_v250_seed_agenda_template();
+        self::migrate_v260_pathways_project_column();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -78,6 +79,7 @@ class TMP_Activator {
         self::migrate_v250_role_catalog_columns();
         self::migrate_v250_seed_role_catalog();
         self::migrate_v250_seed_agenda_template();
+        self::migrate_v260_pathways_project_column();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -1023,6 +1025,27 @@ class TMP_Activator {
                 'updated_at'                 => $now,
             ]);
             $sort_order += 10;
+        }
+    }
+
+    /**
+     * v0.26.0: adds project_name to assignments/participation_history so
+     * officers can record a speaker's real Pathways project per-instance,
+     * alongside (not replacing) the legacy presentation_series column.
+     */
+    private static function migrate_v260_pathways_project_column() {
+        global $wpdb;
+
+        $assignments = $wpdb->prefix . 'tmp_role_assignments';
+        $acols = $wpdb->get_col("DESCRIBE {$assignments}");
+        if (!in_array('project_name', $acols, true)) {
+            $wpdb->query("ALTER TABLE {$assignments} ADD COLUMN project_name VARCHAR(190) NULL AFTER speech_title");
+        }
+
+        $history = $wpdb->prefix . 'tmp_participation_history';
+        $hcols = $wpdb->get_col("DESCRIBE {$history}");
+        if (!in_array('project_name', $hcols, true)) {
+            $wpdb->query("ALTER TABLE {$history} ADD COLUMN project_name VARCHAR(190) NULL AFTER presentation_series");
         }
     }
 

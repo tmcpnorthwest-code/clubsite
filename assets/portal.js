@@ -500,7 +500,10 @@
           <div style="margin-bottom:14px;">
             <p style="font-weight:600;font-size:0.88rem;margin:0 0 6px;">Club Roles at Level ${lvl}</p>
             ${gaps.map((g) => {
-              const reqKey = g.type === "presentation" ? g.series : (g.roles || []).join("|");
+              const reqKey = g.type === "presentation" ? g.series
+                : g.type === "project_required" ? g.project
+                : g.type === "project_elective" ? "elective:" + (g.pool || []).join(",")
+                : (g.roles || []).join("|");
               let actionHtml = "";
               if (g.manual_override) {
                 actionHtml = `<button class="tmp-small-button" style="font-size:0.75rem;padding:3px 8px;" data-undo-override="${esc(g.override_id)}">Undo</button>`;
@@ -713,7 +716,7 @@
           roleHistoryHtml += `<div style="margin-bottom:20px;"><div style="font-weight:600;font-size:0.88rem;margin-bottom:10px;">Level ${esc(lvl)}</div>${roleHistory[lvl].map((r) =>
             `<div class="tmp-history-row">
               <div>
-                <div style="font-weight:600;">${esc(r.role_name)}${r.presentation_series ? `<div style="font-size:0.75rem;color:var(--tmp-muted);margin-top:2px;">${esc(r.presentation_series)}</div>` : ""}</div>
+                <div style="font-weight:600;">${esc(r.role_name)}${(r.project_name || r.presentation_series) ? `<div style="font-size:0.75rem;color:var(--tmp-muted);margin-top:2px;">${esc(r.project_name || r.presentation_series)}</div>` : ""}</div>
               </div>
               <div style="display:flex;gap:16px;font-size:0.8rem;">
                 <div style="text-align:right;"><span style="color:var(--tmp-muted);">Times:</span> <strong>${esc(r.count)}</strong></div>
@@ -2128,8 +2131,42 @@
         const timerMeta = isSpeakerSlot
           ? `<div class="tmp-role-meta"><span class="tmp-role-meta-label">Timer</span><input type="number" min="1" data-assign-timer-duration="${esc(primary.id)}" value="${esc(timerDurVal)}" placeholder="—" /></div>`
           : "";
+        const assignedMember = primary.member_id
+          ? (root._allMembers || []).find((m) => String(m.id) === String(primary.member_id))
+          : null;
+        const catalog = root._projectCatalog || {};
+        const memberPathway = assignedMember ? (assignedMember.pathway || "") : "";
+        const pathwaySupported = Object.prototype.hasOwnProperty.call(catalog, memberPathway);
+
+        let pathwayField = "";
+        let projectField = "";
+        if (isSpeakerSlot && assignedMember) {
+          if (pathwaySupported) {
+            pathwayField = `<div class="tmp-role-pathway-note">Pathway: ${esc(memberPathway)}</div>`;
+          } else {
+            const pathwayOpts = ['<option value="">Pick pathway…</option>']
+              .concat(Object.keys(catalog).sort().map((p) =>
+                `<option value="${esc(p)}">${esc(p)}</option>`))
+              .join("");
+            pathwayField = `<select class="tmp-role-pathway-select" data-assign-pathway-member="${esc(assignedMember.id)}">${pathwayOpts}</select>`;
+          }
+
+          const memberLevel = assignedMember.level_completed != null ? Math.max(1, Number(assignedMember.level_completed) + 1) : 1;
+          const levelSpec = pathwaySupported ? (catalog[memberPathway][memberLevel] || catalog[memberPathway][5]) : null;
+          if (levelSpec) {
+            const projOpts = ['<option value="">Select project…</option>']
+              .concat(levelSpec.required.map((p) => `<option value="${esc(p)}" ${primary.project_name === p ? "selected" : ""}>Required: ${esc(p)}</option>`))
+              .concat((levelSpec.electives || []).map((p) => `<option value="${esc(p)}" ${primary.project_name === p ? "selected" : ""}>Elective: ${esc(p)}</option>`))
+              .join("");
+            projectField = `<select class="tmp-role-project-select" data-assign-project="${esc(primary.id)}">${projOpts}</select>`;
+          } else {
+            projectField = `<select class="tmp-role-project-select" disabled title="Project catalog not available for this pathway — use the speech title field instead"><option>Project catalog not available</option></select>`;
+          }
+        }
         const speakerExtras = isSpeakerSlot
-          ? `<input type="text" class="tmp-role-speech-title" data-assign-speech-title="${esc(primary.id)}" value="${esc(primary.speech_title || '')}" placeholder="Speech title (optional)" />`
+          ? `<input type="text" class="tmp-role-speech-title" data-assign-speech-title="${esc(primary.id)}" value="${esc(primary.speech_title || '')}" placeholder="Speech title (optional)" />
+             ${pathwayField}
+             ${projectField}`
           : "";
         const memberField = isGuestSlot
           ? `<input type="text" data-assign-guest-name="${esc(primary.id)}" value="${esc(primary.guest_name || '')}" placeholder="Guest name (not a club member)" />`
@@ -2181,6 +2218,8 @@
           const sel           = e.target.closest("[data-assign-roles]");
           const durInput      = e.target.matches("[data-assign-duration]")       ? e.target : null;
           const timerDurInput = e.target.matches("[data-assign-timer-duration]") ? e.target : null;
+          const projectSel    = e.target.matches("[data-assign-project]")        ? e.target : null;
+          const pathwaySel    = e.target.matches("[data-assign-pathway-member]") ? e.target : null;
 
           if (sel) {
             const ids      = sel.dataset.assignRoles.split(",");
@@ -2219,6 +2258,33 @@
               alert("Failed to update timer duration: " + err.message);
             } finally {
               timerDurInput.disabled = false;
+            }
+          } else if (projectSel) {
+            const assignId = parseInt(projectSel.dataset.assignProject);
+            const project  = projectSel.value || null;
+            projectSel.disabled = true;
+            try {
+              await api("/assignments", { method: "POST", body: JSON.stringify({ id: assignId, project_name: project }) });
+              await renderMeetings(meetingSelect.value);
+            } catch (err) {
+              alert("Failed to save project: " + err.message);
+            } finally {
+              projectSel.disabled = false;
+            }
+          } else if (pathwaySel) {
+            const memberId = parseInt(pathwaySel.dataset.assignPathwayMember);
+            const pathway  = pathwaySel.value;
+            if (!pathway) return;
+            pathwaySel.disabled = true;
+            try {
+              await api("/members", { method: "POST", body: JSON.stringify({ id: memberId, pathway }) });
+              const cached = (root._allMembers || []).find((m) => m.id === memberId);
+              if (cached) cached.pathway = pathway;
+              await renderMeetings(meetingSelect.value);
+            } catch (err) {
+              alert("Failed to save pathway: " + err.message);
+            } finally {
+              pathwaySel.disabled = false;
             }
           }
         });
@@ -3528,6 +3594,7 @@
 
     try {
       root._dueForRoles = await api("/members/due-for-roles").catch(() => []);
+      root._projectCatalog = await api("/pathways-project-catalog").catch(() => ({}));
       const lsSummary   = await api("/vpe/members/level-summary").catch(() => []);
       root._levelSummaryMap = Object.fromEntries((lsSummary || []).map((s) => [String(s.member_id), s]));
       await Promise.all([
