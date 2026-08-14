@@ -5160,6 +5160,7 @@
             <strong>${esc(s.speaker_name)}</strong>
             <span style="color:var(--tmp-muted);font-size:0.85rem;"> · ${esc(s.role_name)}</span>
             ${s.speech_title ? `<br><span style="font-size:0.85rem;color:var(--tmp-muted);">"${esc(s.speech_title)}"</span>` : ''}
+            ${s.pathway_label ? `<br><span style="font-size:0.75rem;color:var(--tmp-muted);">[${esc(s.pathway_label)}]</span>` : ''}
           </div>
           ${s.feedback_url
             ? `<a class="tmp-button tmp-primary" href="${esc(s.feedback_url)}">Give Feedback</a>`

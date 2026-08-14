@@ -5806,6 +5806,7 @@ class TMP_Repository {
                 'role_name'     => $a['role_name'],
                 'speaker_name'  => $a['member_name'],
                 'speech_title'  => $a['speech_title'],
+                'pathway_label' => $a['pathway_label'] ?? '',
             ];
         }
 
