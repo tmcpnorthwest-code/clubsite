@@ -1681,7 +1681,9 @@ class TMP_Repository {
         if (!$meeting) return null;
 
         $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
-            "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name
+            "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name,
+                    m.pathway AS member_pathway, m.level_completed AS member_level_completed,
+                    m.current_project AS member_current_project
              FROM {$assignments} a
              LEFT JOIN {$members} m ON m.id = a.member_id
              WHERE a.meeting_id = %d
@@ -1698,6 +1700,14 @@ class TMP_Repository {
                 $assignment['time_yellow'] = $ty;
                 $assignment['time_red']    = $tr;
             }
+
+            $role_key = !empty($assignment['role_id']) ? (self::get_role_catalog_row($assignment['role_id'])['role_key'] ?? null) : null;
+            $is_speaker_row = $role_key
+                ? in_array($role_key, ['speaker', 'ad_hoc_speaker'], true)
+                : (bool) preg_match('/^(speaker|ad hoc speaker)(\s+\d+)?$/i', self::get_base_role_name($assignment['role_name']));
+            $assignment['pathway_label'] = ($is_speaker_row && !empty($assignment['member_id']))
+                ? self::format_speaker_pathway_label($assignment)
+                : '';
         }
 
         return $meeting;
