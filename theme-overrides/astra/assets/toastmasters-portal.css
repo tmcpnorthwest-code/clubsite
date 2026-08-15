@@ -76,6 +76,67 @@ a {
   text-decoration: none;
 }
 
+/* ── Nav dropdown ("Club Activity") ──────────────────────────────────────── */
+
+.nav-dropdown {
+  position: relative;
+}
+
+.nav-dropdown-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 650;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nav-dropdown-toggle svg {
+  transition: transform 0.15s;
+}
+
+.nav-dropdown.is-open .nav-dropdown-toggle svg {
+  transform: rotate(180deg);
+}
+
+.nav-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 190px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  box-shadow: var(--shadow);
+  flex-direction: column;
+  gap: 2px;
+  z-index: 30;
+}
+
+.nav-dropdown.is-open .nav-dropdown-menu {
+  display: flex;
+}
+
+.nav-dropdown-menu a {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.nav-dropdown-menu a:hover {
+  background: var(--paper);
+}
+
 .icon-button {
   display: none;
   width: 42px;
@@ -1438,6 +1499,29 @@ textarea {
 
   .nav.open {
     display: flex;
+  }
+
+  /* Flatten the Club Activity dropdown into plain stacked links — the mobile
+     nav is already a vertical dropdown card, so a nested one is redundant. */
+  .nav-dropdown-toggle svg {
+    display: none;
+  }
+
+  .nav-dropdown-menu {
+    display: flex;
+    position: static;
+    transform: none;
+    min-width: 0;
+    padding: 4px 0 4px 14px;
+    border: none;
+    box-shadow: none;
+    background: none;
+  }
+
+  .nav-dropdown-menu a {
+    padding: 6px 0;
+    font-weight: 500;
+    color: var(--muted);
   }
 
   .hero {

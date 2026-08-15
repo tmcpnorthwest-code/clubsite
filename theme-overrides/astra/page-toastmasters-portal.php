@@ -226,7 +226,18 @@ if ($next_meeting) {
     <div class="nav">
       <a href="#tmc-gallery">Gallery</a>
       <a href="#tmc-pathways">Pathways</a>
-      <a href="#tmc-lastmeeting">Our last Meeting</a>
+      <div class="nav-dropdown" data-nav-dropdown>
+        <button type="button" class="nav-dropdown-toggle" data-nav-dropdown-toggle>
+          Club Activity
+          <svg width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true"><path d="M1 1l4.5 4.5L10 1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="nav-dropdown-menu" data-nav-dropdown-menu>
+          <a href="#tmc-leaderboard">Leaderboard</a>
+          <a href="#tmc-recognition">Level-Ups</a>
+          <a href="#tmc-upcoming">Upcoming Agenda</a>
+          <a href="#tmc-lastmeeting">Last Meeting</a>
+        </div>
+      </div>
       <?php if ($meeting_hub_url) : ?>
         <a href="<?php echo esc_url($meeting_hub_url); ?>">Meeting Vote</a>
       <?php endif; ?>

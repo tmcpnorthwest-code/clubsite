@@ -7,6 +7,23 @@
   menuButton?.addEventListener('click', () => nav.classList.toggle('open'));
   nav?.addEventListener('click', (e) => { if (e.target.tagName === 'A') nav.classList.remove('open'); });
 
+  // ── "Club Activity" nav dropdown ────────────────────────────────────────────
+  document.querySelectorAll('[data-nav-dropdown]').forEach((dropdown) => {
+    const toggle = dropdown.querySelector('[data-nav-dropdown-toggle]');
+    toggle?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.classList.toggle('is-open');
+    });
+  });
+  document.addEventListener('click', () => {
+    document.querySelectorAll('[data-nav-dropdown].is-open').forEach((d) => d.classList.remove('is-open'));
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('[data-nav-dropdown].is-open').forEach((d) => d.classList.remove('is-open'));
+    }
+  });
+
   // ── Meeting-day voting card ───────────────────────────────────────────────────
   const voteSection = document.querySelector('[data-tmc-vote-meeting]');
   if (voteSection) {
