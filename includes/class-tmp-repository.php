@@ -1087,10 +1087,35 @@ class TMP_Repository {
             $guest_count = 0;
         }
 
-        $roles = $wpdb->get_col($wpdb->prepare(
-            "SELECT DISTINCT role_name FROM {$history} WHERE meeting_id = %d ORDER BY role_name",
+        $raw_roles = $wpdb->get_col($wpdb->prepare(
+            "SELECT role_name FROM {$history} WHERE meeting_id = %d ORDER BY role_name",
             $mid
         )) ?: [];
+
+        // Collapse numbered slots ("Speaker 1", "Speaker 2", "Evaluator 1"...)
+        // into a single count per base role ("3 Speeches", "3 Evaluators") —
+        // the number is a scheduling slot, not a distinct role worth listing
+        // separately in a public meeting summary.
+        $role_counts = [];
+        foreach ($raw_roles as $role_name) {
+            $base = trim(preg_replace('/\s+\d+$/', '', $role_name));
+            $role_counts[$base] = ($role_counts[$base] ?? 0) + 1;
+        }
+        $role_plurals = [
+            'Speaker'   => 'Speeches',
+            'Evaluator' => 'Evaluators',
+        ];
+        $roles = [];
+        foreach ($role_counts as $base => $cnt) {
+            if ($cnt > 1 && isset($role_plurals[$base])) {
+                $roles[] = "{$cnt} {$role_plurals[$base]}";
+            } elseif ($cnt > 1) {
+                $roles[] = "{$cnt}× {$base}";
+            } else {
+                $roles[] = $base;
+            }
+        }
+        sort($roles);
 
         $level_up_rows = $wpdb->get_results($wpdb->prepare(
             "SELECT member_name, pathway, old_level, new_level, leveled_up_at

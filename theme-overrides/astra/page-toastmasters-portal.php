@@ -421,9 +421,7 @@ if ($next_meeting) {
   
   <!-- ═══════════════════════════════════════════════════ MEETING PULSE -->
   <?php if ($meeting_summary) :
-    $dist       = $meeting_summary['level_distribution'] ?? [];
-    $dist_total = array_sum($dist);
-    $pulse_dt   = new DateTime($meeting_summary['meeting_date']);
+    $pulse_dt = new DateTime($meeting_summary['meeting_date']);
   ?>
   <section class="section meeting-pulse-section" id="tmc-lastmeeting" data-tmc-pulse data-tmc-pulse-meeting-id="<?php echo (int) ($meeting_summary['meeting_id'] ?? 0); ?>">
     <div class="pulse-header">
@@ -454,29 +452,6 @@ if ($next_meeting) {
         <p class="pulse-guests-line" data-tmc-pulse-guests style="font-size:0.82rem;color:var(--c-muted, #888);margin-top:4px;">
           <?php echo $guest_count ? $guest_count . ' guest' . ($guest_count !== 1 ? 's' : '') : 'No guests'; ?>
         </p>
-
-        <?php if ($dist_total) : ?>
-          <p class="eyebrow" style="margin-top:20px;margin-bottom:8px;">Club Level Distribution</p>
-          <div class="dist-bar">
-            <?php foreach ($dist as $lvl => $cnt) :
-              if (!$cnt) continue;
-              $pct = round(($cnt / $dist_total) * 100, 1);
-            ?>
-              <div class="dist-segment"
-                   style="width:<?php echo $pct; ?>%;background:<?php echo esc_attr($level_colors[$lvl] ?? '#ccc'); ?>;"
-                   title="L<?php echo (int)$lvl; ?>: <?php echo (int)$cnt; ?> member<?php echo $cnt !== 1 ? 's' : ''; ?>">
-                <span>L<?php echo (int)$lvl; ?> <?php echo (int)$cnt; ?></span>
-              </div>
-            <?php endforeach; ?>
-          </div>
-          <div class="dist-legend">
-            <?php foreach ($dist as $lvl => $cnt) : if (!$cnt) continue; ?>
-              <span style="color:<?php echo esc_attr($level_colors[$lvl] ?? '#999'); ?>">
-                &#9632; L<?php echo (int)$lvl; ?>: <?php echo (int)$cnt; ?>
-              </span>
-            <?php endforeach; ?>
-          </div>
-        <?php endif; ?>
       </div>
 
       <div class="pulse-card">
