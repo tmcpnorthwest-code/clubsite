@@ -82,16 +82,24 @@ a {
   position: relative;
 }
 
-.nav-dropdown-toggle {
+.nav .nav-dropdown-toggle {
+  appearance: none;
+  -webkit-appearance: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  width: auto;
+  margin: 0;
   border: none;
+  border-radius: 0;
   background: none;
   padding: 0;
   font: inherit;
+  font-size: 0.95rem;
   font-weight: 650;
-  color: inherit;
+  line-height: inherit;
+  color: var(--ink);
+  text-align: left;
   cursor: pointer;
 }
 
@@ -1501,14 +1509,11 @@ textarea {
     display: flex;
   }
 
-  /* Flatten the Club Activity dropdown into plain stacked links — the mobile
-     nav is already a vertical dropdown card, so a nested one is redundant. */
-  .nav-dropdown-toggle svg {
-    display: none;
-  }
-
+  /* On mobile, "Club Activity" behaves as a plain accordion row inside the
+     stacked nav card — tap to expand/collapse its sub-links in place. */
   .nav-dropdown-menu {
-    display: flex;
+    display: none;
+    flex-direction: column;
     position: static;
     transform: none;
     min-width: 0;
@@ -1516,6 +1521,10 @@ textarea {
     border: none;
     box-shadow: none;
     background: none;
+  }
+
+  .nav-dropdown.is-open .nav-dropdown-menu {
+    display: flex;
   }
 
   .nav-dropdown-menu a {
