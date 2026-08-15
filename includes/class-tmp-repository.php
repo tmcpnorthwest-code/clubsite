@@ -1140,22 +1140,56 @@ class TMP_Repository {
         $history = self::participation_history_table();
         $members = self::member_table();
 
-        return $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT m.full_name, m.pathway, m.level_completed,
-                        COUNT(DISTINCT h.role_name) AS distinct_roles,
-                        GROUP_CONCAT(DISTINCT h.role_name ORDER BY h.role_name SEPARATOR ', ') AS roles_played
-                 FROM {$members} m
-                 JOIN {$history} h ON h.member_id = m.id
-                 WHERE m.state = 'Active'
-                   AND h.role_name != 'Presiding Officer'
-                 GROUP BY m.id
-                 ORDER BY distinct_roles DESC, m.full_name ASC
-                 LIMIT %d",
-                absint($limit)
-            ),
+        // Fetch each member's raw role_name list, then normalize away numbered-instance
+        // suffixes (e.g. "Evaluator 1"/"Evaluator 2"/"Evaluator 3" -> "Evaluator") before
+        // counting — otherwise repeat instances of the same underlying role are counted
+        // as distinct roles, inflating the diversity score.
+        $rows = $wpdb->get_results(
+            "SELECT m.id, m.full_name, m.pathway, m.level_completed, h.role_name
+             FROM {$members} m
+             JOIN {$history} h ON h.member_id = m.id
+             WHERE m.state = 'Active'
+               AND h.role_name != 'Presiding Officer'",
             ARRAY_A
         ) ?: [];
+
+        $by_member = [];
+        foreach ($rows as $row) {
+            $mid = (int) $row['id'];
+            if (!isset($by_member[$mid])) {
+                $by_member[$mid] = [
+                    'full_name'       => $row['full_name'],
+                    'pathway'         => $row['pathway'],
+                    'level_completed' => $row['level_completed'],
+                    'roles'           => [],
+                ];
+            }
+            $base    = self::get_base_role_name($row['role_name']);
+            $generic = trim(preg_replace('/\s+\d+$/', '', $base));
+            $by_member[$mid]['roles'][$generic] = true;
+        }
+
+        $leaders = [];
+        foreach ($by_member as $m) {
+            $roles = array_keys($m['roles']);
+            sort($roles);
+            $leaders[] = [
+                'full_name'       => $m['full_name'],
+                'pathway'         => $m['pathway'],
+                'level_completed' => $m['level_completed'],
+                'distinct_roles'  => count($roles),
+                'roles_played'    => implode(', ', $roles),
+            ];
+        }
+
+        usort($leaders, function ($a, $b) {
+            if ($a['distinct_roles'] !== $b['distinct_roles']) {
+                return $b['distinct_roles'] - $a['distinct_roles'];
+            }
+            return strcmp($a['full_name'], $b['full_name']);
+        });
+
+        return array_slice($leaders, 0, absint($limit));
     }
 
     public static function delete_meeting($id) {
