@@ -27,8 +27,8 @@ define('TMC_YT_CHANNEL_ID_OVERRIDE', 'UCC-9rVEwrTuDV4oQpjTyybw');
 
 $template_dir = get_stylesheet_directory_uri();
 
-wp_enqueue_style('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.css', [], '2.1.2');
-wp_enqueue_script('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.js', [], '2.1.2', true);
+wp_enqueue_style('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.css', [], '2.2.0');
+wp_enqueue_script('toastmasters-portal', $template_dir . '/assets/toastmasters-portal.js', [], '2.2.0', true);
 wp_localize_script('toastmasters-portal', 'TMCPublic', [
     'restUrl' => esc_url_raw(rest_url('toastmasters/v1')),
 ]);
