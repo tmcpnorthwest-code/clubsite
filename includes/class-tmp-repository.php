@@ -6491,6 +6491,32 @@ class TMP_Repository {
         return $results;
     }
 
+    // ── Public leaderboard (TM of Month / Quarter) ──────────────────────────────
+
+    public static function get_public_leaderboard($period_type, $limit = 5) {
+        $today = gmdate('Y-m-d');
+        $year  = (int) gmdate('Y');
+
+        if ($period_type === 'quarter') {
+            $month       = (int) gmdate('n');
+            $q_start_mon = (int) (floor(($month - 1) / 3) * 3) + 1;
+            $period_start = sprintf('%04d-%02d-01', $year, $q_start_mon);
+            $period_end   = gmdate('Y-m-t', strtotime(sprintf('%04d-%02d-01', $year, $q_start_mon + 2)));
+        } else {
+            $period_start = gmdate('Y-m-01');
+            $period_end   = gmdate('Y-m-t');
+        }
+
+        $scores = self::compute_recognition_scores($period_start, min($period_end, $today));
+
+        return [
+            'period_type'  => $period_type,
+            'period_start' => $period_start,
+            'period_end'   => $period_end,
+            'leaders'      => array_slice($scores, 0, max(1, (int) $limit)),
+        ];
+    }
+
     // ── Mentor ratings ────────────────────────────────────────────────────────
 
     public static function save_mentor_rating($data) {

@@ -455,6 +455,12 @@ class TMP_REST_API {
             'permission_callback' => '__return_true',
         ]);
 
+        register_rest_route('toastmasters/v1', '/public/leaderboard', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_public_leaderboard'],
+            'permission_callback' => '__return_true',
+        ]);
+
         // ── Voting (public read, authenticated write) ───────────────────────────
         register_rest_route('toastmasters/v1', '/voting/nominees/(?P<meeting_id>\d+)', [
             'methods'             => WP_REST_Server::READABLE,
@@ -1243,6 +1249,13 @@ class TMP_REST_API {
         return rest_ensure_response([
             'leaders' => TMP_Repository::get_role_diversity_leaders($limit),
         ]);
+    }
+
+    public static function get_public_leaderboard(WP_REST_Request $request) {
+        $period = sanitize_text_field($request->get_param('period') ?: 'month');
+        $period = in_array($period, ['month', 'quarter'], true) ? $period : 'month';
+        $limit  = min(100, max(1, (int) ($request->get_param('limit') ?: 5)));
+        return rest_ensure_response(TMP_Repository::get_public_leaderboard($period, $limit));
     }
 
     // ── CSV helpers ───────────────────────────────────────────────────────────────

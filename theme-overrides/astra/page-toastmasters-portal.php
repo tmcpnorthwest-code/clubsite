@@ -373,6 +373,35 @@ if ($next_meeting) {
   </section>
   <?php endif; ?>
 
+  <!-- ══════════════════════════════════════════════ LEADERBOARD -->
+  <section class="section leaderboard-section" id="tmc-leaderboard" data-tmc-leaderboard>
+    <p class="eyebrow">Member Recognition</p>
+    <h2>Toastmaster of the Month &amp; Quarter — Leaderboard</h2>
+    <p class="section-sub">Live standings based on attendance, service roles, meeting wins, and level-ups.</p>
+
+    <div class="leaderboard-tabs" role="tablist">
+      <button type="button" class="leaderboard-tab is-active" data-lb-tab="month" role="tab" aria-selected="true">This Month</button>
+      <button type="button" class="leaderboard-tab" data-lb-tab="quarter" role="tab" aria-selected="false">This Quarter</button>
+    </div>
+
+    <div class="leaderboard-list" data-lb-list><p style="color:#999;">Loading...</p></div>
+
+    <button type="button" class="button tertiary" data-lb-view-all style="margin-top:16px;">View All Scores &rarr;</button>
+  </section>
+
+  <!-- Leaderboard "View All" modal -->
+  <div class="tmc-modal-overlay" data-lb-modal style="display:none;">
+    <div class="tmc-modal-card tmc-modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="tmc-lb-modal-title">
+      <button type="button" class="tmc-modal-close" data-lb-modal-close aria-label="Close">&times;</button>
+      <h3 id="tmc-lb-modal-title">Full Leaderboard</h3>
+      <div class="leaderboard-tabs" role="tablist">
+        <button type="button" class="leaderboard-tab is-active" data-lb-modal-tab="month" role="tab" aria-selected="true">This Month</button>
+        <button type="button" class="leaderboard-tab" data-lb-modal-tab="quarter" role="tab" aria-selected="false">This Quarter</button>
+      </div>
+      <div class="leaderboard-table-wrap" data-lb-modal-table><p style="color:#999;">Loading...</p></div>
+    </div>
+  </div>
+
   <!-- ═══════════════════════════════════════════ UPCOMING MEETING AGENDA -->
   <!-- Rendered by JS on page load from REST API — never server-cached -->
   <section class="section upcoming-agenda-section" id="tmc-upcoming" style="display:none" aria-live="polite"></section>

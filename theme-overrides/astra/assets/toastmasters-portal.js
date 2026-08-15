@@ -428,4 +428,135 @@
       if (!document.hidden) fetchPulse();
     }, 60000);
   }());
+
+  // ── Leaderboard (TM of Month / Quarter — public, live-scored) ────────────────
+  (function renderLeaderboard() {
+    var section = document.querySelector('[data-tmc-leaderboard]');
+    if (!section) return;
+
+    var cfg  = window.TMCPublic || {};
+    var REST = (cfg.restUrl || '').replace(/\/$/, '');
+
+    var listEl    = section.querySelector('[data-lb-list]');
+    var tabs      = section.querySelectorAll('[data-lb-tab]');
+    var viewAllBtn = section.querySelector('[data-lb-view-all]');
+
+    var modal      = document.querySelector('[data-lb-modal]');
+    var modalTabs  = modal ? modal.querySelectorAll('[data-lb-modal-tab]') : [];
+    var modalTable = modal ? modal.querySelector('[data-lb-modal-table]') : null;
+    var modalClose = modal ? modal.querySelector('[data-lb-modal-close]') : null;
+
+    var cache = {}; // period -> response
+
+    function esc(v) {
+      var d = document.createElement('div');
+      d.textContent = String(v == null ? '' : v);
+      return d.innerHTML;
+    }
+
+    function fetchPeriod(period) {
+      if (cache[period]) return Promise.resolve(cache[period]);
+      return fetch(REST + '/public/leaderboard?period=' + period + '&limit=100')
+        .then(function (r) { return r.json(); })
+        .then(function (data) { cache[period] = data; return data; })
+        .catch(function () { return { leaders: [] }; });
+    }
+
+    function renderBoard(period) {
+      listEl.innerHTML = '<p style="color:#999;">Loading...</p>';
+      fetchPeriod(period).then(function (data) {
+        var leaders = (data.leaders || []).slice(0, 5);
+        if (!leaders.length) {
+          listEl.innerHTML = '<p style="color:#999;">No scores yet for this period.</p>';
+          return;
+        }
+        listEl.innerHTML = leaders.map(function (m, i) {
+          return '<div class="leaderboard-row">' +
+            '<span class="leaderboard-rank">' + (i + 1) + '</span>' +
+            '<div class="leaderboard-info">' +
+              '<strong>' + esc(m.member_name) + '</strong>' +
+              '<small>' + esc(m.pathway || '') + '</small>' +
+            '</div>' +
+            '<span class="leaderboard-score">' + esc(m.score) + ' <small>pts</small></span>' +
+          '</div>';
+        }).join('');
+      });
+    }
+
+    function renderModalTable(period) {
+      modalTable.innerHTML = '<p style="color:#999;">Loading...</p>';
+      fetchPeriod(period).then(function (data) {
+        var leaders = data.leaders || [];
+        if (!leaders.length) {
+          modalTable.innerHTML = '<p style="color:#999;">No scores yet for this period.</p>';
+          return;
+        }
+        var rows = leaders.map(function (m, i) {
+          var b = m.breakdown || {};
+          return '<tr>' +
+            '<td>' + (i + 1) + '</td>' +
+            '<td>' + esc(m.member_name) + '</td>' +
+            '<td>' + esc(b.attendance_score) + '</td>' +
+            '<td>' + esc(b.service_score) + '</td>' +
+            '<td>' + esc(b.win_score) + '</td>' +
+            '<td>' + (b.leveled_up ? esc(b.level_up_score) : '&mdash;') + '</td>' +
+            '<td>' + (b.mentor_avg_rating != null ? esc(b.mentor_score) : '&mdash;') + '</td>' +
+            '<td><strong>' + esc(m.score) + '</strong></td>' +
+          '</tr>';
+        }).join('');
+        modalTable.innerHTML =
+          '<table class="leaderboard-table">' +
+            '<thead><tr>' +
+              '<th>#</th><th>Name</th><th>Attendance</th><th>Service Roles</th>' +
+              '<th>Wins</th><th>Level-Up</th><th>Mentor</th><th>Total</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rows + '</tbody>' +
+          '</table>';
+      });
+    }
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        tabs.forEach(function (t) { t.classList.remove('is-active'); t.setAttribute('aria-selected', 'false'); });
+        tab.classList.add('is-active');
+        tab.setAttribute('aria-selected', 'true');
+        renderBoard(tab.dataset.lbTab);
+      });
+    });
+
+    if (modal) {
+      modalTabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          modalTabs.forEach(function (t) { t.classList.remove('is-active'); t.setAttribute('aria-selected', 'false'); });
+          tab.classList.add('is-active');
+          tab.setAttribute('aria-selected', 'true');
+          renderModalTable(tab.dataset.lbModalTab);
+        });
+      });
+
+      viewAllBtn?.addEventListener('click', function () {
+        var activeTab = section.querySelector('[data-lb-tab].is-active');
+        var period = activeTab ? activeTab.dataset.lbTab : 'month';
+        modalTabs.forEach(function (t) {
+          var isMatch = t.dataset.lbModalTab === period;
+          t.classList.toggle('is-active', isMatch);
+          t.setAttribute('aria-selected', isMatch ? 'true' : 'false');
+        });
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+        renderModalTable(period);
+      });
+
+      modalClose?.addEventListener('click', closeModal);
+      modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && modal.style.display !== 'none') closeModal(); });
+
+      function closeModal() {
+        modal.style.display = 'none';
+        document.body.style.overflow = '';
+      }
+    }
+
+    renderBoard('month');
+  }());
 }());
