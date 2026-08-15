@@ -1,10 +1,19 @@
 /.claude
 Meeting Agenda – 2026-06-21.pdf
 
-# This repo tracks only plugins/toastmasters-portal (the one plugin we author).
-# Everything else in wp-content — themes, third-party plugins, uploads, mu-plugins,
-# caches — is server-managed, not deployed via git. Ignore it all so it can sit
-# alongside this repo locally without being accidentally re-added.
+# This repo tracks plugins/toastmasters-portal (the one plugin we author) plus
+# theme-overrides/ (our custom Astra child files — page-toastmasters-portal.php
+# and its assets). Everything else in wp-content — the rest of the theme,
+# third-party plugins, uploads, mu-plugins, caches — is server-managed, not
+# deployed via git. Ignore it all so it can sit alongside this repo locally
+# without being accidentally re-added.
+#
+# theme-overrides/ is NOT wp-content/themes/astra itself — on the server, the
+# real files under wp-content/themes/astra/ that we own (page-toastmasters-portal.php,
+# assets/toastmasters-portal.js, assets/toastmasters-portal.css) are symlinked
+# to the copies deployed here, so a git pull updates them without needing
+# wp-content/themes/ in this repo at all. The symlinks themselves are created
+# once on the server (ln -s), not by git — see theme-overrides/README.md.
 /themes/
 /plugins/*
 !/plugins/toastmasters-portal/
