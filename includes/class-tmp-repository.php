@@ -6331,15 +6331,38 @@ class TMP_Repository {
     }
 
     /**
+     * A speech-role meeting counts toward A2 alongside service roles, but only
+     * for members who've shown they're not just cherry-picking speeches: at
+     * least 2 meetings attended, an attendance rate of 50%+ this period, and
+     * at least 1 genuine service-role meeting. Below that bar, speeches don't
+     * count and A2 falls back to service roles only.
+     *
+     * Why: a flat "any speech counts" rule let members who attended once and
+     * only ever spoke hit a 100% A2 rate off a single data point. Gating on
+     * consistency + actual service closes that without re-penalizing regular
+     * members whose meeting slot that week happened to be a speech instead of
+     * a service role.
+     */
+    private static function speech_credit_eligible($attended, $total_meetings, $service_count) {
+        if ($total_meetings <= 0 || $attended < 2 || $service_count < 1) {
+            return false;
+        }
+        return ($attended / $total_meetings) >= 0.5;
+    }
+
+    /**
      * Compute recognition scores for all active members over a date range.
      *
      * Scoring (100 pts total):
-     *   A. Club Service (60 pts — rate-based, capped at 1 per meeting)
-     *      A1. Attendance rate × 25
-     *      A2. Service role rate × 35  (service roles taken, max 1 per meeting / total meetings)
-     *   B. Achievements (35 pts)
-     *      B1. Win rate × 20           (wins / total meetings)
-     *      B2. Level up in period = 15 flat pts
+     *   A. Club Service (80 pts — rate-based, capped at 1 per meeting)
+     *      A1. Attendance rate × 40
+     *      A2. Service/speech rate × 40  (service roles, plus speeches for
+     *          members who pass speech_credit_eligible() — max 1 per meeting)
+     *   B. Achievements (15 pts)
+     *      B1. Win rate × 10           (wins / total meetings)
+     *      B2. Level up in period = 5 flat pts (kept small — crossing a level
+     *          threshold lands in whichever period the last project happened
+     *          to finish, so it's timing more than that period's effort)
      *   C. Mentor bonus (5 pts)        (avg mentee rating / 5 × 5)
      *
      * Returns array of members sorted by score desc, each with score_breakdown.
@@ -6381,8 +6404,9 @@ class TMP_Repository {
             $attendance_map[(int) $r['member_id']] = (int) $r['cnt'];
         }
 
-        // A2 — service roles taken, deduplicated to 1 per meeting per member
-        // We count distinct meeting_ids where at least one service role was performed.
+        // A2 — service roles and speech roles, each deduplicated to 1 per meeting per member.
+        // We count distinct meeting_ids where at least one service role — or,
+        // for eligible members, at least one speech role — was performed.
         $history_rows = $wpdb->get_results($wpdb->prepare(
             "SELECT member_id, meeting_id, role_name, role_id
              FROM {$history_tbl}
@@ -6391,13 +6415,21 @@ class TMP_Repository {
         ), ARRAY_A);
 
         $service_meetings_map = []; // member_id → set of meeting_ids with a service role
+        $speech_meetings_map  = []; // member_id → set of meeting_ids with a speech role
         foreach ($history_rows as $r) {
-            $is_service = !empty($r['role_id'])
-                ? self::is_service_role_id($r['role_id'])
+            $mid = (int) $r['member_id'];
+            $role = !empty($r['role_id']) ? self::get_role_catalog_row($r['role_id']) : null;
+
+            $is_service = $role
+                ? (bool) $role['is_service_role']
                 : self::is_service_role($r['role_name']);
             if ($is_service) {
-                $mid = (int) $r['member_id'];
                 $service_meetings_map[$mid][(int) $r['meeting_id']] = true;
+            }
+
+            $is_speech = $role ? (bool) $role['is_speech_role'] : false;
+            if ($is_speech) {
+                $speech_meetings_map[$mid][(int) $r['meeting_id']] = true;
             }
         }
 
@@ -6453,14 +6485,21 @@ class TMP_Repository {
 
             $attended       = $attendance_map[$mid] ?? 0;
             $service_count  = isset($service_meetings_map[$mid]) ? count($service_meetings_map[$mid]) : 0;
+            $speech_count   = isset($speech_meetings_map[$mid])  ? count($speech_meetings_map[$mid])  : 0;
             $wins           = $wins_map[$mid] ?? 0;
             $leveled_up     = isset($levelup_set[$mid]);
             $avg_rating     = $ratings_map[$mid] ?? null;
 
-            $a1 = round(($attended       / $total_meetings) * 25, 2);
-            $a2 = round(($service_count  / $total_meetings) * 35, 2);
-            $b1 = round(($wins           / $total_meetings) * 20, 2);
-            $b2 = $leveled_up ? 15.0 : 0.0;
+            $speech_credit = self::speech_credit_eligible($attended, $total_meetings, $service_count);
+            $contrib_meetings = $speech_credit
+                ? count((isset($service_meetings_map[$mid]) ? $service_meetings_map[$mid] : []) + (isset($speech_meetings_map[$mid]) ? $speech_meetings_map[$mid] : []))
+                : $service_count;
+            $contrib_meetings = min($contrib_meetings, $attended);
+
+            $a1 = round(($attended         / $total_meetings) * 40, 2);
+            $a2 = round(($contrib_meetings / $total_meetings) * 40, 2);
+            $b1 = round(($wins             / $total_meetings) * 10, 2);
+            $b2 = $leveled_up ? 5.0 : 0.0;
             $c  = $avg_rating !== null ? round(($avg_rating / 5) * 5, 2) : 0.0;
 
             $total = $a1 + $a2 + $b1 + $b2 + $c;
@@ -6472,17 +6511,20 @@ class TMP_Repository {
                 'level'       => (int) $m['level'],
                 'score'       => round($total, 2),
                 'breakdown'   => [
-                    'attendance_meetings' => $attended,
-                    'total_meetings'      => $total_meetings,
-                    'attendance_score'    => $a1,
-                    'service_meetings'    => $service_count,
-                    'service_score'       => $a2,
-                    'wins'                => $wins,
-                    'win_score'           => $b1,
-                    'leveled_up'          => $leveled_up,
-                    'level_up_score'      => $b2,
-                    'mentor_avg_rating'   => $avg_rating,
-                    'mentor_score'        => $c,
+                    'attendance_meetings'  => $attended,
+                    'total_meetings'       => $total_meetings,
+                    'attendance_score'     => $a1,
+                    'service_meetings'     => $service_count,
+                    'speech_meetings'      => $speech_count,
+                    'speech_credit_applied'=> $speech_credit,
+                    'contribution_meetings'=> $contrib_meetings,
+                    'service_score'        => $a2,
+                    'wins'                 => $wins,
+                    'win_score'            => $b1,
+                    'leveled_up'           => $leveled_up,
+                    'level_up_score'       => $b2,
+                    'mentor_avg_rating'    => $avg_rating,
+                    'mentor_score'         => $c,
                 ],
             ];
         }
@@ -6493,19 +6535,30 @@ class TMP_Repository {
 
     // ── Public leaderboard (TM of Month / Quarter) ──────────────────────────────
 
-    public static function get_public_leaderboard($period_type, $limit = 5) {
-        $today = gmdate('Y-m-d');
-        $year  = (int) gmdate('Y');
+    /**
+     * Resolves the current calendar month or quarter's [start, end] dates.
+     * Shared by the public leaderboard and each member's own score panel so
+     * both always agree on what "this month" / "this quarter" means.
+     */
+    private static function current_period_range($period_type) {
+        $year = (int) gmdate('Y');
 
         if ($period_type === 'quarter') {
-            $month       = (int) gmdate('n');
-            $q_start_mon = (int) (floor(($month - 1) / 3) * 3) + 1;
+            $month        = (int) gmdate('n');
+            $q_start_mon  = (int) (floor(($month - 1) / 3) * 3) + 1;
             $period_start = sprintf('%04d-%02d-01', $year, $q_start_mon);
             $period_end   = gmdate('Y-m-t', strtotime(sprintf('%04d-%02d-01', $year, $q_start_mon + 2)));
         } else {
             $period_start = gmdate('Y-m-01');
             $period_end   = gmdate('Y-m-t');
         }
+
+        return [$period_start, $period_end];
+    }
+
+    public static function get_public_leaderboard($period_type, $limit = 5) {
+        $today = gmdate('Y-m-d');
+        [$period_start, $period_end] = self::current_period_range($period_type);
 
         $scores = self::compute_recognition_scores($period_start, min($period_end, $today));
 
@@ -6515,6 +6568,37 @@ class TMP_Repository {
             'period_end'   => $period_end,
             'leaders'      => array_slice($scores, 0, max(1, (int) $limit)),
         ];
+    }
+
+    /**
+     * A single member's own recognition score for both the current month and
+     * the current quarter, each with the full breakdown — used by the "My
+     * Dashboard" recognition panel so a member can see exactly how their
+     * score is built, not just where they rank publicly.
+     */
+    public static function get_member_recognition_score($member_id) {
+        $out = [];
+        foreach (['month', 'quarter'] as $period_type) {
+            $today = gmdate('Y-m-d');
+            [$period_start, $period_end] = self::current_period_range($period_type);
+
+            $scores = self::compute_recognition_scores($period_start, min($period_end, $today));
+            $mine   = null;
+            foreach ($scores as $row) {
+                if ($row['member_id'] === (int) $member_id) {
+                    $mine = $row;
+                    break;
+                }
+            }
+
+            $out[$period_type] = [
+                'period_start' => $period_start,
+                'period_end'   => $period_end,
+                'score'        => $mine['score'] ?? 0,
+                'breakdown'    => $mine['breakdown'] ?? null,
+            ];
+        }
+        return $out;
     }
 
     // ── Mentor ratings ────────────────────────────────────────────────────────

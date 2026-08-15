@@ -651,6 +651,13 @@ class TMP_REST_API {
             'callback'            => [__CLASS__, 'get_all_mentor_ratings'],
             'permission_callback' => [__CLASS__, 'can_manage_meetings'],
         ]);
+
+        // My recognition score — logged-in member's own TM of Month/Quarter score + breakdown
+        register_rest_route('toastmasters/v1', '/my-recognition-score', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_my_recognition_score'],
+            'permission_callback' => 'is_user_logged_in',
+        ]);
     }
 
     // ── Permission helpers ─────────────────────────────────────────────────────
@@ -1223,6 +1230,14 @@ class TMP_REST_API {
         $mentor_id    = absint($request->get_param('mentor_id') ?? 0);
         $ratings = TMP_Repository::get_mentor_ratings_list($period_start, $period_end, $mentor_id);
         return rest_ensure_response($ratings);
+    }
+
+    public static function get_my_recognition_score(WP_REST_Request $request) {
+        $member = TMP_Repository::current_member();
+        if (!$member) {
+            return new WP_Error('tmp_unauthorized', 'Not linked to a member.', ['status' => 401]);
+        }
+        return rest_ensure_response(TMP_Repository::get_member_recognition_score($member['id']));
     }
 
     // ── Public dashboard handlers ─────────────────────────────────────────────────

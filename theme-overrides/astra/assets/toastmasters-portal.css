@@ -2261,6 +2261,20 @@ textarea {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  vertical-align: top;
+}
+
+.leaderboard-table th small {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.64rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--muted);
+  opacity: 0.75;
+  white-space: normal;
+  max-width: 130px;
 }
 
 .leaderboard-table tbody tr:hover {

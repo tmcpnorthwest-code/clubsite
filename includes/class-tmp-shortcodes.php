@@ -340,6 +340,16 @@ class TMP_Shortcodes {
                 </form>
             </div>
 
+            <!-- My Recognition Score — TM of Month/Quarter live score + breakdown -->
+            <div class="tmp-panel tmp-wide" data-tmp-my-score-panel>
+                <p class="tmp-eyebrow">Recognition</p>
+                <h3>My Recognition Score</h3>
+                <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 16px;">
+                    Live standings for Toastmaster of the Month &amp; Quarter — attendance, service roles, wins, and level-ups.
+                </p>
+                <div data-tmp-my-score-body>Loading...</div>
+            </div>
+
             <!-- Recognition history — shown by JS if member has any awards -->
             <div class="tmp-panel" data-tmp-my-recognition style="display:none;">
                 <p class="tmp-eyebrow">Recognition</p>

@@ -5569,6 +5569,56 @@
     } catch (_) {}
   }
 
+  // ── Member: My Recognition Score (live TM of Month/Quarter breakdown) ──────
+
+  async function initMyScorePanel() {
+    const panel = qs('[data-tmp-my-score-panel]');
+    if (!panel) return;
+    const bodyEl = qs('[data-tmp-my-score-body]', panel);
+    if (!bodyEl) return;
+
+    function row(label, value, sub) {
+      return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;">
+        <span style="font-size:0.85rem;color:var(--tmp-muted);">${esc(label)}${sub ? ` <span style="font-size:0.76rem;">(${esc(sub)})</span>` : ''}</span>
+        <strong style="font-size:0.9rem;">${esc(value)}</strong>
+      </div>`;
+    }
+
+    function periodCard(title, data) {
+      const b = data.breakdown;
+      if (!b) {
+        return `<div class="tmp-score-card">
+          <p class="tmp-eyebrow" style="margin:0 0 4px;">${esc(title)}</p>
+          <p style="color:var(--tmp-muted);font-size:0.85rem;">No meetings recorded yet this period.</p>
+        </div>`;
+      }
+      const speechNote = b.speech_credit_applied
+        ? 'includes qualifying speeches'
+        : (b.speech_meetings > 0 ? 'speeches not yet counted — keep attending' : null);
+      return `<div class="tmp-score-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <p class="tmp-eyebrow" style="margin:0;">${esc(title)}</p>
+          <span style="font-size:1.4rem;font-weight:800;color:var(--tmp-teal);">${parseFloat(data.score).toFixed(1)}<small style="font-size:0.7rem;font-weight:600;color:var(--tmp-muted);"> / 100</small></span>
+        </div>
+        ${row('Attendance', `${b.attendance_meetings}/${b.total_meetings} meetings`, `${b.attendance_score} pts of 40`)}
+        ${row('Service &amp; Speeches', `${b.contribution_meetings}/${b.total_meetings} meetings`, `${b.service_score} pts of 40${speechNote ? ' — ' + speechNote : ''}`)}
+        ${row('Meeting Wins', `${b.wins}`, `${b.win_score} pts of 10`)}
+        ${row('Level-Up', b.leveled_up ? 'Yes' : 'No', `${b.level_up_score} pts of 5`)}
+        ${row('Mentor Rating', b.mentor_avg_rating != null ? `${b.mentor_avg_rating}/5` : '&mdash;', `${b.mentor_score} pts of 5`)}
+      </div>`;
+    }
+
+    try {
+      const data = await api('/my-recognition-score');
+      bodyEl.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;">
+        ${periodCard('This Month', data.month)}
+        ${periodCard('This Quarter', data.quarter)}
+      </div>`;
+    } catch (_) {
+      bodyEl.innerHTML = '<p style="color:var(--tmp-muted);font-size:0.85rem;">Could not load your score right now.</p>';
+    }
+  }
+
   // ── VPE: Recognition panel ──────────────────────────────────────────────────
 
   function initRecognitionPanel() {
@@ -6082,6 +6132,7 @@
   initRecognitionPanel();
   initMentorRating();
   initMyRecognition();
+  initMyScorePanel();
   initDashboardTabs();
   initFeedbackForm();
 

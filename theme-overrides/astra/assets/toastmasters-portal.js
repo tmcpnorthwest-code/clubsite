@@ -507,8 +507,14 @@
         modalTable.innerHTML =
           '<table class="leaderboard-table">' +
             '<thead><tr>' +
-              '<th>#</th><th>Name</th><th>Attendance</th><th>Service Roles</th>' +
-              '<th>Wins</th><th>Level-Up</th><th>Mentor</th><th>Total</th>' +
+              '<th>#</th>' +
+              '<th>Name</th>' +
+              '<th>Attendance<small>out of 40 &middot; meetings attended</small></th>' +
+              '<th>Service<small>out of 40 &middot; service roles + qualifying speeches</small></th>' +
+              '<th>Wins<small>out of 10 &middot; meeting wins</small></th>' +
+              '<th>Level-Up<small>out of 5 &middot; flat bonus</small></th>' +
+              '<th>Mentor<small>out of 5 &middot; mentee ratings</small></th>' +
+              '<th>Total<small>out of 100</small></th>' +
             '</tr></thead>' +
             '<tbody>' + rows + '</tbody>' +
           '</table>';
