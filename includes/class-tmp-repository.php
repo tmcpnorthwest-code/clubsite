@@ -849,12 +849,15 @@ class TMP_Repository {
             $new_level_completed = (int) $record['level_completed'];
             $wpdb->update($table, $record, array('id' => absint($data['id'])));
             if ($old_level !== null && $new_level > $old_level) {
+                // Record the level_completed transition (what they actually finished),
+                // not the working-toward `level` column (level_completed + 1) — a member
+                // who just completed Level 2 should show "L1 -> L2", not "L2 -> L3".
                 self::record_level_up(
                     absint($data['id']),
                     $record['full_name'],
                     $record['pathway'],
-                    $old_level,
-                    $new_level
+                    $old_level_completed ?? 0,
+                    $new_level_completed
                 );
 
                 // A level-up just got credited (e.g. via TI CSV import). If any

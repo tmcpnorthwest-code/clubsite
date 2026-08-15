@@ -32,7 +32,7 @@ this repo is checked out on the server, and `THEME_PATH` to the live
 `wp-content/themes/astra` directory.
 
 ```bash
-REPO_PATH=~/path/to/clubsite
+REPO_PATH=~/domains/yoursite.com/public_html/wp-content/plugins/toastmasters-portal
 THEME_PATH=~/domains/yoursite.com/public_html/wp-content/themes/astra
 
 # Back up whatever's currently live before replacing with a symlink
@@ -47,6 +47,10 @@ rm "$THEME_PATH/assets/toastmasters-portal.css"
 ln -s "$REPO_PATH/theme-overrides/astra/page-toastmasters-portal.php" "$THEME_PATH/page-toastmasters-portal.php"
 ln -s "$REPO_PATH/theme-overrides/astra/assets/toastmasters-portal.js" "$THEME_PATH/assets/toastmasters-portal.js"
 ln -s "$REPO_PATH/theme-overrides/astra/assets/toastmasters-portal.css" "$THEME_PATH/assets/toastmasters-portal.css"
+
+# Note: this repo is deployed inside the plugin directory itself
+# (wp-content/plugins/toastmasters-portal/), not a separate top-level checkout —
+# adjust REPO_PATH above to match wherever Hostinger actually deployed it.
 
 # Verify
 ls -la "$THEME_PATH/page-toastmasters-portal.php" "$THEME_PATH/assets/toastmasters-portal.js" "$THEME_PATH/assets/toastmasters-portal.css"
