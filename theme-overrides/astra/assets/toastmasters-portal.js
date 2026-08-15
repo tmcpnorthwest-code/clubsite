@@ -483,6 +483,14 @@
       });
     }
 
+    function scoreCell(score, max, cls) {
+      var pct = Math.max(0, Math.min(100, (score / max) * 100));
+      return '<td class="lb-cell">' +
+        '<div class="lb-cell-track"><div class="lb-cell-fill ' + cls + '" style="width:' + pct + '%;"></div></div>' +
+        '<span class="lb-cell-value">' + esc(score) + '</span>' +
+      '</td>';
+    }
+
     function renderModalTable(period) {
       modalTable.innerHTML = '<p style="color:#999;">Loading...</p>';
       fetchPeriod(period).then(function (data) {
@@ -493,15 +501,16 @@
         }
         var rows = leaders.map(function (m, i) {
           var b = m.breakdown || {};
-          return '<tr>' +
-            '<td>' + (i + 1) + '</td>' +
-            '<td>' + esc(m.member_name) + '</td>' +
-            '<td>' + esc(b.attendance_score) + '</td>' +
-            '<td>' + esc(b.service_score) + '</td>' +
-            '<td>' + esc(b.win_score) + '</td>' +
-            '<td>' + (b.leveled_up ? esc(b.level_up_score) : '&mdash;') + '</td>' +
-            '<td>' + (b.mentor_avg_rating != null ? esc(b.mentor_score) : '&mdash;') + '</td>' +
-            '<td><strong>' + esc(m.score) + '</strong></td>' +
+          var mentorScore = b.mentor_avg_rating != null ? b.mentor_score : 0;
+          return '<tr class="' + (i < 3 ? 'lb-top' + (i + 1) : '') + '">' +
+            '<td class="lb-rank">' + (i + 1) + '</td>' +
+            '<td class="lb-name">' + esc(m.member_name) + '</td>' +
+            scoreCell(b.attendance_score, 40, 'lb-fill-attendance') +
+            scoreCell(b.service_score, 40, 'lb-fill-service') +
+            scoreCell(b.win_score, 10, 'lb-fill-wins') +
+            scoreCell(b.level_up_score, 5, 'lb-fill-levelup') +
+            scoreCell(mentorScore, 5, 'lb-fill-mentor') +
+            '<td class="lb-total">' + esc(m.score) + '</td>' +
           '</tr>';
         }).join('');
         modalTable.innerHTML =
@@ -509,15 +518,16 @@
             '<thead><tr>' +
               '<th>#</th>' +
               '<th>Name</th>' +
-              '<th>Attendance<small>out of 40 &middot; meetings attended</small></th>' +
-              '<th>Service<small>out of 40 &middot; service roles + qualifying speeches</small></th>' +
-              '<th>Wins<small>out of 10 &middot; meeting wins</small></th>' +
-              '<th>Level-Up<small>out of 5 &middot; flat bonus</small></th>' +
-              '<th>Mentor<small>out of 5 &middot; mentee ratings</small></th>' +
-              '<th>Total<small>out of 100</small></th>' +
+              '<th>Attendance<span class="lb-th-max">/ 40</span></th>' +
+              '<th>Service<span class="lb-th-max">/ 40</span></th>' +
+              '<th>Wins<span class="lb-th-max">/ 10</span></th>' +
+              '<th>Level-Up<span class="lb-th-max">/ 5</span></th>' +
+              '<th>Mentor<span class="lb-th-max">/ 5</span></th>' +
+              '<th>Total<span class="lb-th-max">/ 100</span></th>' +
             '</tr></thead>' +
             '<tbody>' + rows + '</tbody>' +
-          '</table>';
+          '</table>' +
+          '<p class="lb-legend">Attendance &amp; Service = meetings rate &times; weight &middot; Service includes qualifying speeches once you attend consistently &middot; Wins = vote rate &times; weight &middot; Level-Up = flat bonus &middot; Mentor = mentee rating &times; weight</p>';
       });
     }
 

@@ -149,6 +149,16 @@ class TMP_Shortcodes {
                 </div>
             </div>
 
+            <!-- My Recognition Score — TM of Month/Quarter live score + rank + breakdown -->
+            <div class="tmp-panel tmp-wide" data-tmp-my-score-panel>
+                <p class="tmp-eyebrow">Recognition</p>
+                <h3>My Recognition Score</h3>
+                <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 16px;">
+                    Live standings for Toastmaster of the Month &amp; Quarter — attendance, service roles, wins, and level-ups.
+                </p>
+                <div data-tmp-my-score-body>Loading...</div>
+            </div>
+
             <!-- SAA Attendance panel — shown by JS only when logged-in member is today's SAA -->
             <article class="tmp-panel tmp-wide" data-tmp-saa-panel style="display:none;border-left:4px solid var(--tmp-teal);">
                 <div class="tmp-card-head">
@@ -338,16 +348,6 @@ class TMP_Shortcodes {
                     <button class="tmp-button tmp-primary" type="submit">Submit Rating</button>
                     <span data-tmp-mentor-rating-status style="margin-left:10px;font-size:0.82rem;"></span>
                 </form>
-            </div>
-
-            <!-- My Recognition Score — TM of Month/Quarter live score + breakdown -->
-            <div class="tmp-panel tmp-wide" data-tmp-my-score-panel>
-                <p class="tmp-eyebrow">Recognition</p>
-                <h3>My Recognition Score</h3>
-                <p style="font-size:0.82rem;color:var(--tmp-muted);margin:0 0 16px;">
-                    Live standings for Toastmaster of the Month &amp; Quarter — attendance, service roles, wins, and level-ups.
-                </p>
-                <div data-tmp-my-score-body>Loading...</div>
             </div>
 
             <!-- Recognition history — shown by JS if member has any awards -->

@@ -6365,10 +6365,19 @@ class TMP_Repository {
      *          to finish, so it's timing more than that period's effort)
      *   C. Mentor bonus (5 pts)        (avg mentee rating / 5 × 5)
      *
+     * $rating_period_end lets callers pass the *nominal* calendar period end
+     * (e.g. the last day of the month) separately from $period_end, which
+     * callers like the live leaderboard truncate to today so unheld meetings
+     * aren't counted. Mentor ratings are stored against the full calendar
+     * period regardless of how many meetings have happened, so truncating
+     * $period_end would wrongly hide a rating submitted mid-month. Defaults
+     * to $period_end when omitted, so existing callers are unaffected.
+     *
      * Returns array of members sorted by score desc, each with score_breakdown.
      */
-    public static function compute_recognition_scores($period_start, $period_end) {
+    public static function compute_recognition_scores($period_start, $period_end, $rating_period_end = null) {
         global $wpdb;
+        $rating_period_end = $rating_period_end ?? $period_end;
 
         $members_tbl    = self::member_table();
         $attendance_tbl = self::attendance_table();
@@ -6457,13 +6466,15 @@ class TMP_Repository {
             $levelup_set[(int) $r['member_id']] = true;
         }
 
-        // C — mentor ratings (avg per mentor over period)
+        // C — mentor ratings (avg per mentor over period). Uses the nominal
+        // calendar period end, not the meeting-truncated $period_end — see
+        // the $rating_period_end note on this method's docblock.
         $rating_rows = $wpdb->get_results($wpdb->prepare(
             "SELECT mentor_id, AVG(rating) as avg_rating, COUNT(*) as cnt
              FROM {$ratings_tbl}
              WHERE period_start >= %s AND period_end <= %s
              GROUP BY mentor_id",
-            $period_start, $period_end
+            $period_start, $rating_period_end
         ), ARRAY_A);
         $ratings_map = [];
         foreach ($rating_rows as $r) {
@@ -6560,7 +6571,7 @@ class TMP_Repository {
         $today = gmdate('Y-m-d');
         [$period_start, $period_end] = self::current_period_range($period_type);
 
-        $scores = self::compute_recognition_scores($period_start, min($period_end, $today));
+        $scores = self::compute_recognition_scores($period_start, min($period_end, $today), $period_end);
 
         return [
             'period_type'  => $period_type,
@@ -6582,20 +6593,24 @@ class TMP_Repository {
             $today = gmdate('Y-m-d');
             [$period_start, $period_end] = self::current_period_range($period_type);
 
-            $scores = self::compute_recognition_scores($period_start, min($period_end, $today));
+            $scores = self::compute_recognition_scores($period_start, min($period_end, $today), $period_end);
             $mine   = null;
-            foreach ($scores as $row) {
+            $rank   = null;
+            foreach ($scores as $i => $row) {
                 if ($row['member_id'] === (int) $member_id) {
                     $mine = $row;
+                    $rank = $i + 1;
                     break;
                 }
             }
 
             $out[$period_type] = [
-                'period_start' => $period_start,
-                'period_end'   => $period_end,
-                'score'        => $mine['score'] ?? 0,
-                'breakdown'    => $mine['breakdown'] ?? null,
+                'period_start'  => $period_start,
+                'period_end'    => $period_end,
+                'score'         => $mine['score'] ?? 0,
+                'rank'          => $rank,
+                'total_members' => count($scores),
+                'breakdown'     => $mine['breakdown'] ?? null,
             ];
         }
         return $out;

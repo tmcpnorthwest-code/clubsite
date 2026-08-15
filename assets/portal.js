@@ -5584,6 +5584,16 @@
       </div>`;
     }
 
+    function pct(score, max) {
+      return `${Math.round((score / max) * 100)}%`;
+    }
+
+    function ordinal(n) {
+      const s = ['th', 'st', 'nd', 'rd'];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    }
+
     function periodCard(title, data) {
       const b = data.breakdown;
       if (!b) {
@@ -5595,16 +5605,22 @@
       const speechNote = b.speech_credit_applied
         ? 'includes qualifying speeches'
         : (b.speech_meetings > 0 ? 'speeches not yet counted — keep attending' : null);
+      const rankLabel = data.rank
+        ? `Ranked ${ordinal(data.rank)} of ${data.total_members}`
+        : 'Not ranked yet';
       return `<div class="tmp-score-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
           <p class="tmp-eyebrow" style="margin:0;">${esc(title)}</p>
           <span style="font-size:1.4rem;font-weight:800;color:var(--tmp-teal);">${parseFloat(data.score).toFixed(1)}<small style="font-size:0.7rem;font-weight:600;color:var(--tmp-muted);"> / 100</small></span>
         </div>
-        ${row('Attendance', `${b.attendance_meetings}/${b.total_meetings} meetings`, `${b.attendance_score} pts of 40`)}
-        ${row('Service &amp; Speeches', `${b.contribution_meetings}/${b.total_meetings} meetings`, `${b.service_score} pts of 40${speechNote ? ' — ' + speechNote : ''}`)}
-        ${row('Meeting Wins', `${b.wins}`, `${b.win_score} pts of 10`)}
-        ${row('Level-Up', b.leveled_up ? 'Yes' : 'No', `${b.level_up_score} pts of 5`)}
-        ${row('Mentor Rating', b.mentor_avg_rating != null ? `${b.mentor_avg_rating}/5` : '&mdash;', `${b.mentor_score} pts of 5`)}
+        <div style="margin-bottom:10px;">
+          <span class="tmp-score-rank">${esc(rankLabel)}</span>
+        </div>
+        ${row('Attendance', `${b.attendance_meetings}/${b.total_meetings} meetings`, pct(b.attendance_score, 40))}
+        ${row('Service & Speeches', `${b.contribution_meetings}/${b.total_meetings} meetings`, `${pct(b.service_score, 40)}${speechNote ? ' — ' + speechNote : ''}`)}
+        ${row('Meeting Wins', `${b.wins}`, pct(b.win_score, 10))}
+        ${row('Level-Up', b.leveled_up ? 'Yes' : 'No', pct(b.level_up_score, 5))}
+        ${row('Mentor Rating', b.mentor_avg_rating != null ? `${b.mentor_avg_rating}/5` : '—', pct(b.mentor_score, 5))}
       </div>`;
     }
 

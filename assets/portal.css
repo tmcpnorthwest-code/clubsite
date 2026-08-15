@@ -57,6 +57,16 @@
   background: var(--tmp-bg, #fafafa);
 }
 
+.tmp-score-rank {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--tmp-teal);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
 /* ── Member summary card (single-line identity + condensed progress) ─────── */
 
 .tmp-member-summary-card { display: flex; flex-direction: column; gap: 18px; }
