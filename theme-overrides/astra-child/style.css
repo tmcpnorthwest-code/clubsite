@@ -1,0 +1,15 @@
+/*
+Theme Name: Toastmasters Club Astra Child
+Template: astra
+Description: Child theme for Toastmasters Club of Pune North West. Holds
+  the club's custom home page template and its assets, isolated from Astra's
+  own updates (a child theme folder is never touched when the Astra parent
+  theme is updated).
+Version: 1.0.0
+*/
+
+/* This file must exist with the header above for WordPress to recognize
+   this as a valid child theme, but it intentionally has no rules — the
+   custom home page loads its own stylesheet (assets/toastmasters-portal.css)
+   directly via wp_enqueue_style() in functions.php, and other pages inherit
+   Astra's own parent style.css (enqueued below) unmodified. */
