@@ -16,9 +16,9 @@ setup (see "History" below): no per-file symlinks, no separate
 `functions-custom.php` + `require_once` trick, and nothing to manually
 re-link after every Astra update.
 
-`astra/` (the old, superseded setup) is kept in the repo for reference
-until the live site is confirmed running on `astra-child/` — safe to delete
-after that.
+The old per-file-symlink setup (`astra/`) has been migrated away from and
+removed from this repo — see "History" below for why it existed and why it
+was replaced.
 
 ## Structure
 
@@ -66,9 +66,23 @@ Then in wp-admin:
    normal — it should be unaffected, still rendering through Astra's own
    chrome via the parent theme.
 
-Once confirmed working, the old per-file symlinks inside
-`wp-content/themes/astra/` (from the superseded setup below) can be removed,
-and `theme-overrides/astra/` can be deleted from this repo.
+**Migrated and confirmed working 2026-08-18.** The leftover per-file
+symlinks inside `wp-content/themes/astra/` (from the superseded setup
+below) should still be removed on the server — they're inert now that the
+child theme is active, but leaving them adds confusion:
+
+```bash
+THEME_PATH=~/domains/tmcpunenorthwest.com/public_html/wp-content/themes/astra
+rm -f "$THEME_PATH/page-toastmasters-portal.php" "$THEME_PATH/functions-custom.php"
+rm -f "$THEME_PATH/assets/toastmasters-portal.css" "$THEME_PATH/assets/toastmasters-portal.js"
+rm -f "$THEME_PATH/assets"/logo.png "$THEME_PATH/assets"/hero-photo.jpeg "$THEME_PATH/assets"/club-hero.png "$THEME_PATH/assets"/*.jpeg
+```
+
+(If a `require_once __DIR__ . '/functions-custom.php';` line was ever added
+to the bottom of `wp-content/themes/astra/functions.php` during recovery,
+remove it too — it would point at a deleted symlink. Doesn't matter either
+way now: the child theme's own `functions.php` runs independently and
+already includes this same logic.)
 
 After this one-time setup, edit these files only through this repo
 (locally, then commit/push) — the live site picks up changes immediately
