@@ -2125,12 +2125,6 @@
 
         const isSpeakerSlot = baseRole.toLowerCase().startsWith("speaker");
         const isGuestSlot   = /^ad hoc speaker/i.test(baseRole) || /^fun session/i.test(baseRole);
-        const timerDurVal   = primary.timer_duration != null
-          ? primary.timer_duration
-          : (isSpeakerSlot ? Math.max(1, (Number(primary.duration) || 8) - 1) : "");
-        const timerMeta = isSpeakerSlot
-          ? `<div class="tmp-role-meta"><span class="tmp-role-meta-label">Timer</span><input type="number" min="1" data-assign-timer-duration="${esc(primary.id)}" value="${esc(timerDurVal)}" placeholder="—" /></div>`
-          : "";
         const assignedMember = primary.member_id
           ? (root._allMembers || []).find((m) => String(m.id) === String(primary.member_id))
           : null;
@@ -2186,7 +2180,6 @@
             <div class="tmp-role-picker-row">
               ${memberField}
               <div class="tmp-role-meta"><span class="tmp-role-meta-label">Duration</span><input type="number" min="0" data-assign-duration="${esc(primary.id)}" value="${esc(primary.duration || '')}" placeholder="—" /></div>
-              ${timerMeta}
             </div>
             ${speakerExtras}
           </div>
@@ -2217,7 +2210,6 @@
         panel.addEventListener("change", async (e) => {
           const sel           = e.target.closest("[data-assign-roles]");
           const durInput      = e.target.matches("[data-assign-duration]")       ? e.target : null;
-          const timerDurInput = e.target.matches("[data-assign-timer-duration]") ? e.target : null;
           const projectSel    = e.target.matches("[data-assign-project]")        ? e.target : null;
           const pathwaySel    = e.target.matches("[data-assign-pathway-member]") ? e.target : null;
 
@@ -2246,18 +2238,6 @@
               alert("Failed to update duration: " + err.message);
             } finally {
               durInput.disabled = false;
-            }
-          } else if (timerDurInput) {
-            const assignId = parseInt(timerDurInput.dataset.assignTimerDuration);
-            const timerDur = Number(timerDurInput.value) || null;
-            timerDurInput.disabled = true;
-            try {
-              await api("/assignments", { method: "POST", body: JSON.stringify({ id: assignId, timer_duration: timerDur }) });
-              await renderMeetings(meetingSelect.value);
-            } catch (err) {
-              alert("Failed to update timer duration: " + err.message);
-            } finally {
-              timerDurInput.disabled = false;
             }
           } else if (projectSel) {
             const assignId = parseInt(projectSel.dataset.assignProject);
@@ -3401,16 +3381,13 @@
       if (!open) await renderRoleGateSettings();
     });
 
-    // -- Timer defaults settings panel ----------------------------------------
+    // -- Meeting defaults settings panel ---------------------------------------
     async function renderTimingSettings() {
       const body = qs("[data-tmp-timing-settings-body]", root);
       if (!body) return;
-      let rules, clubSettings;
+      let clubSettings;
       try {
-        [rules, clubSettings] = await Promise.all([
-          api("/settings/timing-rules"),
-          api("/settings/club"),
-        ]);
+        clubSettings = await api("/settings/club");
       } catch (err) {
         body.innerHTML = `<p style="color:var(--tmp-burgundy)">Could not load settings: ${esc(err.message)}</p>`;
         return;
@@ -3451,25 +3428,9 @@
             <button class="tmp-small-button tmp-primary" id="tmp-dur-save">Save</button>
             <span id="tmp-dur-status" style="font-size:12px;color:var(--tmp-muted);"></span>
           </div>
-        </div>
-        <p style="font-size:12px;color:var(--tmp-muted);margin-bottom:10px;">
-          Enter times as M:SS (e.g. <strong>5:00</strong>). These defaults auto-fill when you create a new meeting.
-          You can override per slot in the Role Assignment form.
-        </p>
-        <table class="tmp-table" style="font-size:0.88rem;">
-          <thead><tr><th>Agenda Slot Type</th><th style="color:#2e7d32;">● Green</th><th style="color:#f9a825;">● Yellow</th><th style="color:#c62828;">● Red</th></tr></thead>
-          <tbody>${rules.map((r) => `
-            <tr>
-              <td>${esc(r.label)}</td>
-              <td><input type="text" data-timing-key="${esc(r.key)}" data-timing-field="green"  value="${esc(fmtSecs(r.green))}"  style="width:70px;padding:3px 6px;" /></td>
-              <td><input type="text" data-timing-key="${esc(r.key)}" data-timing-field="yellow" value="${esc(fmtSecs(r.yellow))}" style="width:70px;padding:3px 6px;" /></td>
-              <td><input type="text" data-timing-key="${esc(r.key)}" data-timing-field="red"    value="${esc(fmtSecs(r.red))}"    style="width:70px;padding:3px 6px;" /></td>
-            </tr>`).join("")}
-          </tbody>
-        </table>
-        <div style="margin-top:12px;">
-          <button class="tmp-small-button tmp-primary" id="tmp-timing-save">Save Timer Defaults</button>
-          <span id="tmp-timing-status" style="margin-left:10px;font-size:12px;color:var(--tmp-muted);"></span>
+          <p style="font-size:12px;color:var(--tmp-muted);margin-top:8px;">
+            Every role's timer range (green/yellow/red) is derived automatically from the duration set on its agenda slot — edit the slot's duration in the Role Assignment form to change its timer.
+          </p>
         </div>`;
 
       qs("#tmp-venue-save", root)?.addEventListener("click", async () => {
@@ -3544,37 +3505,13 @@
           btn.disabled = false;
         }
       });
-
-      qs("#tmp-timing-save", root)?.addEventListener("click", async () => {
-        const saveBtn    = qs("#tmp-timing-save", root);
-        const statusSpan = qs("#tmp-timing-status", root);
-        saveBtn.disabled = true;
-        if (statusSpan) statusSpan.textContent = "Saving…";
-        const updated = rules.map((r) => ({
-          key:    r.key,
-          label:  r.label,
-          green:  parseMSS(body.querySelector(`[data-timing-key="${r.key}"][data-timing-field="green"]`)?.value)  ?? r.green,
-          yellow: parseMSS(body.querySelector(`[data-timing-key="${r.key}"][data-timing-field="yellow"]`)?.value) ?? r.yellow,
-          red:    parseMSS(body.querySelector(`[data-timing-key="${r.key}"][data-timing-field="red"]`)?.value)    ?? r.red,
-        }));
-        try {
-          await api("/settings/timing-rules", { method: "POST", body: JSON.stringify(updated) });
-          rules = updated;
-          if (statusSpan) { statusSpan.textContent = "Saved!"; statusSpan.style.color = "#2e7d32"; }
-          setTimeout(() => { if (statusSpan) statusSpan.textContent = ""; }, 2000);
-        } catch (err) {
-          if (statusSpan) { statusSpan.textContent = "Error: " + err.message; statusSpan.style.color = "#c62828"; }
-        } finally {
-          saveBtn.disabled = false;
-        }
-      });
     }
 
     const timingSection = document.createElement("section");
     timingSection.className = "tmp-panel";
     timingSection.innerHTML = `
       <button class="tmp-collapsible-toggle" data-tmp-timing-settings-toggle aria-expanded="false" style="width:100%;text-align:left;">
-        Timer Defaults
+        Meeting Defaults
         <span class="tmp-chevron" aria-hidden="true">&#9658;</span>
       </button>
       <div data-tmp-timing-settings-body style="display:none;margin-top:14px;"></div>`;

@@ -296,20 +296,6 @@ class TMP_REST_API {
             'permission_callback' => '__return_true',
         ]);
 
-        // ── Timer defaults ────────────────────────────────────────────────────
-        register_rest_route('toastmasters/v1', '/settings/timing-rules', [
-            [
-                'methods'             => WP_REST_Server::READABLE,
-                'callback'            => [__CLASS__, 'get_timing_rules'],
-                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
-            ],
-            [
-                'methods'             => WP_REST_Server::CREATABLE,
-                'callback'            => [__CLASS__, 'save_timing_rules'],
-                'permission_callback' => [__CLASS__, 'can_manage_meetings'],
-            ],
-        ]);
-
         // ── Club defaults (venue, etc.) ────────────────────────────────────────
         register_rest_route('toastmasters/v1', '/settings/club', [
             [
@@ -1040,6 +1026,13 @@ class TMP_REST_API {
     public static function save_assignment(WP_REST_Request $request) {
         $assignment = TMP_Repository::save_assignment($request->get_json_params());
         if (is_wp_error($assignment)) return $assignment;
+
+        // Bust common WordPress page-cache plugins so the public agenda updates immediately
+        if (function_exists('wp_cache_clear_cache')) wp_cache_clear_cache(); // WP Super Cache
+        if (function_exists('w3tc_pgcache_flush'))   w3tc_pgcache_flush();   // W3 Total Cache
+        do_action('litespeed_purge_all');                                      // LiteSpeed Cache
+        do_action('rocket_clean_home');                                        // WP Rocket
+
         return rest_ensure_response($assignment);
     }
 
@@ -1730,30 +1723,6 @@ class TMP_REST_API {
         ]);
     }
 
-    public static function get_timing_rules() {
-        return rest_ensure_response(TMP_Repository::get_timing_defaults());
-    }
-
-    public static function save_timing_rules(WP_REST_Request $request) {
-        $body = $request->get_json_params();
-        if (!is_array($body)) {
-            return new WP_Error('invalid_data', 'Expected array of timing rules', ['status' => 400]);
-        }
-        $sanitized = [];
-        foreach ($body as $rule) {
-            if (empty($rule['key'])) continue;
-            $sanitized[] = [
-                'key'    => sanitize_key($rule['key']),
-                'label'  => sanitize_text_field($rule['label'] ?? ''),
-                'green'  => absint($rule['green']  ?? 0),
-                'yellow' => absint($rule['yellow'] ?? 0),
-                'red'    => absint($rule['red']    ?? 0),
-            ];
-        }
-        update_option('tmp_timing_rules', wp_json_encode($sanitized));
-        return rest_ensure_response(['success' => true]);
-    }
-
     // ── Pathways level progress callbacks ──────────────────────────────────────
 
     public static function get_my_suggested_path() {
@@ -2112,6 +2081,13 @@ class TMP_REST_API {
 
         $result = TMP_Repository::update_speech_title_for_member($assignment_id, (int) $member['id'], $speech_title);
         if (is_wp_error($result)) return $result;
+
+        // Bust common WordPress page-cache plugins so the public agenda updates immediately
+        if (function_exists('wp_cache_clear_cache')) wp_cache_clear_cache(); // WP Super Cache
+        if (function_exists('w3tc_pgcache_flush'))   w3tc_pgcache_flush();   // W3 Total Cache
+        do_action('litespeed_purge_all');                                      // LiteSpeed Cache
+        do_action('rocket_clean_home');                                        // WP Rocket
+
         return rest_ensure_response(['ok' => true]);
     }
 }

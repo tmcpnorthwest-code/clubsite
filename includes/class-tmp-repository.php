@@ -1276,7 +1276,7 @@ class TMP_Repository {
      * type are needed. Each returned item carries role_id (never a bare
      * string) plus enough metadata for the caller to build/preserve
      * role_assignments rows: role_id, role_key, segment_label,
-     * instance_number, instance_group, duration, timer_duration.
+     * instance_number, instance_group, duration.
      *
      * @param string[] $selected_role_keys role_key values the VPE checked (e.g. ['saa','tmod',...])
      * @param int $speech_slots
@@ -1362,12 +1362,10 @@ class TMP_Repository {
     private static function build_expanded_agenda_item($item, $instance, $instance_total, $durs) {
         $role_key = $item['role_key'];
         $duration = (int) ($item['default_duration_minutes'] ?? 0);
-        $timer_duration = null;
 
         // Duration overrides for roles the club tunes via settings.
         if ($role_key === 'speaker' && $item['instance_group'] === 'speech_block' && $item['segment_label'] === 'Speech') {
             $duration = (int) ($durs['speaker'] ?? $duration);
-            $timer_duration = max(1, $duration - 1);
         } elseif ($role_key === 'ad_hoc_speaker') {
             $duration = (int) ($durs['speaker'] ?? $duration);
         } elseif ($role_key === 'table_topics_master') {
@@ -1398,7 +1396,6 @@ class TMP_Repository {
             'template_item_id' => (int) $item['id'],
             'requires_role_key'=> $item['requires_role_key'] ?? null,
             'duration'         => $duration,
-            'timer_duration'   => $timer_duration,
         ];
     }
 
@@ -1434,12 +1431,12 @@ class TMP_Repository {
         // (role_id IS NULL rows — legacy, never backfilled — fall back to
         // base role_name matching so nothing is silently dropped on rebuild).
         $existing = $wpdb->get_results($wpdb->prepare(
-            "SELECT role_name, role_id, instance_number, member_id, guest_name, speech_title, project_name, presentation_series, status, duration, timer_duration
+            "SELECT role_name, role_id, instance_number, member_id, guest_name, speech_title, project_name, presentation_series, status, duration
              FROM {$atbl} WHERE meeting_id = %d ORDER BY sort_order",
             $meeting_id
         ), ARRAY_A);
 
-        $saved       = []; // "{role_id}:{instance_number|0}" → {member_id, guest_name, speech_title, project_name, presentation_series, status, duration, timer_duration}
+        $saved       = []; // "{role_id}:{instance_number|0}" → {member_id, guest_name, speech_title, project_name, presentation_series, status, duration}
         $legacy_saved = []; // base_role_name (fallback for role_id IS NULL rows) → same shape
         $selected_role_ids = [];
         $speech_count = 0;
@@ -1457,7 +1454,6 @@ class TMP_Repository {
                 'presentation_series' => $row['presentation_series'] ?? null,
                 'status'              => $row['status'] ?? 'Planned',
                 'duration'            => $row['duration'] ?? null,
-                'timer_duration'      => $row['timer_duration'] ?? null,
             ];
 
             if ($row['role_id']) {
@@ -1507,9 +1503,8 @@ class TMP_Repository {
                 $s = $legacy_saved[self::get_base_role_name($full_name)] ?? null;
             }
 
-            $dur       = ($s && $s['duration'] > 0) ? (int) $s['duration'] : $item['duration'];
-            $timer_dur = $s['timer_duration'] ?? $item['timer_duration'];
-            [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $dur, $timer_dur);
+            $dur = ($s && $s['duration'] > 0) ? (int) $s['duration'] : $item['duration'];
+            [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $dur);
 
             self::save_assignment([
                 'meeting_id'          => $meeting_id,
@@ -1519,7 +1514,6 @@ class TMP_Repository {
                 'instance_number'     => $item['instance_number'],
                 'template_item_id'    => $item['template_item_id'],
                 'duration'            => $dur,
-                'timer_duration'      => $timer_dur,
                 'status'              => ($s && ($s['member_id'] || $s['guest_name'])) ? ($s['status'] ?: 'Confirmed') : 'Planned',
                 'sort_order'          => $order,
                 'time_green'          => $tg,
@@ -1718,8 +1712,8 @@ class TMP_Repository {
                 // Fallback: compute timing for rows created before timing columns existed
                 if ($assignment['time_green'] === null) {
                     [$tg, $ty, $tr] = !empty($assignment['role_id'])
-                        ? self::get_timing_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null, (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null)
-                        : self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null);
+                        ? self::get_timing_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null, (int) ($assignment['duration'] ?? 0))
+                        : self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0));
                     $assignment['time_green']  = $tg;
                     $assignment['time_yellow'] = $ty;
                     $assignment['time_red']    = $tr;
@@ -1756,8 +1750,8 @@ class TMP_Repository {
         foreach ($meeting['assignments'] as &$assignment) {
             if ($assignment['time_green'] === null) {
                 [$tg, $ty, $tr] = !empty($assignment['role_id'])
-                    ? self::get_timing_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null, (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null)
-                    : self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null);
+                    ? self::get_timing_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null, (int) ($assignment['duration'] ?? 0))
+                    : self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0));
                 $assignment['time_green']  = $tg;
                 $assignment['time_yellow'] = $ty;
                 $assignment['time_red']    = $tr;
@@ -3621,7 +3615,7 @@ class TMP_Repository {
                             && !empty($item['requires_role_key'] ?? null)
                             && in_array($item['requires_role_key'], $newly_selected_keys, true);
                         if (!$is_target_role && !$is_tmod_intro_for_target) continue;
-                        [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $item['duration'], $item['timer_duration']);
+                        [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $item['duration']);
                         self::save_assignment([
                             'meeting_id'       => $id,
                             'role_name'        => self::synthesize_role_name($item),
@@ -3630,7 +3624,6 @@ class TMP_Repository {
                             'instance_number'  => $item['instance_number'],
                             'template_item_id' => $item['template_item_id'],
                             'duration'         => $item['duration'],
-                            'timer_duration'   => $item['timer_duration'],
                             'status'           => 'Planned',
                             'sort_order'       => $order,
                             'time_green'       => $tg, 'time_yellow' => $ty, 'time_red' => $tr,
@@ -3660,7 +3653,7 @@ class TMP_Repository {
                         $is_new_fun     = $group === 'fun_block'    && $inst > $current_fun;
                         if (!$is_new_speaker && !$is_new_adhoc && !$is_new_fun) continue;
 
-                        [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $item['duration'], $item['timer_duration']);
+                        [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $item['duration']);
                         self::save_assignment([
                             'meeting_id'       => $id,
                             'role_name'        => self::synthesize_role_name($item),
@@ -3669,7 +3662,6 @@ class TMP_Repository {
                             'instance_number'  => $item['instance_number'],
                             'template_item_id' => $item['template_item_id'],
                             'duration'         => $item['duration'],
-                            'timer_duration'   => $item['timer_duration'],
                             'status'           => 'Planned',
                             'sort_order'       => $order,
                             'time_green'       => $tg, 'time_yellow' => $ty, 'time_red' => $tr,
@@ -3691,7 +3683,7 @@ class TMP_Repository {
 
             $order = 10;
             foreach ($expanded as $item) {
-                [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $item['duration'], $item['timer_duration']);
+                [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $item['duration']);
                 self::save_assignment([
                     'meeting_id'       => $id,
                     'role_name'        => self::synthesize_role_name($item),
@@ -3700,7 +3692,6 @@ class TMP_Repository {
                     'instance_number'  => $item['instance_number'],
                     'template_item_id' => $item['template_item_id'],
                     'duration'         => $item['duration'],
-                    'timer_duration'   => $item['timer_duration'],
                     'status'           => 'Planned',
                     'sort_order'       => $order,
                     'time_green'       => $tg,
@@ -3727,37 +3718,6 @@ class TMP_Repository {
         return ['speaker' => 7, 'ttm' => 20];
     }
 
-    public static function get_timing_defaults() {
-        $saved = get_option('tmp_timing_rules', null);
-        if ($saved) {
-            $decoded = json_decode($saved, true);
-            if (is_array($decoded) && !empty($decoded)) return $decoded;
-        }
-        return [
-            ['key' => 'saa',            'label' => 'SAA / Sergeant at Arms',                   'green' => 60,  'yellow' => 90,  'red' => 120],
-            ['key' => 'intro',          'label' => 'Role Introductions (short intro slots)',    'green' => 60,  'yellow' => 90,  'red' => 120],
-            ['key' => 'tmod_intro',     'label' => 'TMOD – Intro of Theme',                    'green' => 120, 'yellow' => 180, 'red' => 240],
-            ['key' => 'ttm',            'label' => 'Table Topics Master',                       'green' => 600, 'yellow' => 720, 'red' => 840],
-            ['key' => 'tt_evaluator',   'label' => 'Table Topics Evaluator',                    'green' => 120, 'yellow' => 180, 'red' => 240],
-            ['key' => 'presiding',      'label' => 'Presiding Officer',                         'green' => 180, 'yellow' => 240, 'red' => 300],
-            ['key' => 'speaker',        'label' => 'Prepared Speech',                           'green' => 300, 'yellow' => 360, 'red' => 420],
-            ['key' => 'evaluator_eval', 'label' => 'Evaluator (Evaluation speech)',             'green' => 180, 'yellow' => 240, 'red' => 300],
-            ['key' => 'timer_report',   'label' => 'Timer Report',                              'green' => 60,  'yellow' => 90,  'red' => 120],
-            ['key' => 'ah_counter',     'label' => 'Ah-Counter Report',                         'green' => 60,  'yellow' => 120, 'red' => 180],
-            ['key' => 'grammarian',     'label' => 'Grammarian Report',                         'green' => 60,  'yellow' => 120, 'red' => 180],
-            ['key' => 'gen_evaluator',  'label' => 'General Evaluator',                         'green' => 180, 'yellow' => 240, 'red' => 300],
-        ];
-    }
-
-    /**
-     * role_key => [green, yellow, red] in seconds. NULL means "use the
-     * duration-based formula". Table Topics Master's TI-mandated 10/15/20
-     * lives here (default_time_* on its role_catalog row); Timer's Report
-     * segment is the one true segment-level override (Timer's own default
-     * is the 60/90/120 role-intro timing) — special-cased by segment_label
-     * below rather than adding a template-item timing column, per the
-     * phase-1 plan's open decision.
-     */
     private static function role_catalog_cache() {
         static $cache = null;
         if ($cache === null) {
@@ -3784,34 +3744,19 @@ class TMP_Repository {
     }
 
     /**
-     * Formula-based timer defaults, keyed by role_id.
-     * $timer_duration overrides $duration as the effective timed duration (e.g. 7-min speech in an 8-min agenda slot).
-     *
-     * Special cases (role catalog / segment driven, not formula):
-     *   - Timer + segment_label "Report" → 0:30 / 0:45 / 1:00 (TI sub-minute reporting standard)
-     *   - Any role with catalog default_time_* set (e.g. Table Topics Master → 10:00/15:00/20:00) uses that
-     *   - role_key 'break' → no timer
-     *
-     * Formula for everything else:
-     *   X ≤ 3 min  → green = (X−1) min, so 3-min slots give 2:00 / 2:30 / 3:00
+     * Formula-based timer range, driven purely by the agenda row's own
+     * duration — every role uses the same rule, no per-role catalog
+     * overrides or segment special-cases:
+     *   X ≤ 1 min  → no timer (Break included)
+     *   X ≤ 3 min  → green = (X−1) min, so 2-min slots give 1:00 / 1:30 / 2:00
      *   X ≥ 4 min  → green = (X−2) min, so 5-min slots give 3:00 / 4:00 / 5:00
      *   yellow = midpoint of green and red in both cases
-     *   X ≤ 1 min or Break → null (no timer)
      */
-    public static function get_timing_for_role_id($role_id, $segment_label = null, $duration = 0, $timer_duration = null) {
-        $role      = self::get_role_catalog_row($role_id);
-        $effective = (int) ($timer_duration ?? $duration);
-
+    public static function get_timing_for_role_id($role_id, $segment_label = null, $duration = 0) {
+        $role = self::get_role_catalog_row($role_id);
         if (!$role || $role['role_key'] === 'break') return [null, null, null];
 
-        if ($role['role_key'] === 'timer' && strtolower(trim((string) $segment_label)) === 'report') {
-            return [30, 45, 60];
-        }
-
-        if ($role['default_time_green'] !== null) {
-            return [(int) $role['default_time_green'], (int) $role['default_time_yellow'], (int) $role['default_time_red']];
-        }
-
+        $effective = (int) $duration;
         if ($effective <= 1) return [null, null, null];
 
         $green  = ($effective <= 3) ? ($effective - 1) * 60 : max(($effective - 2) * 60, 60);
@@ -3826,13 +3771,13 @@ class TMP_Repository {
      * and resolves it to a role_id via backfill_classify_role_name()'s
      * classifier). Prefer get_timing_for_role_id() in new code.
      */
-    public static function get_timing_for_role($role_name, $duration = 0, $timer_duration = null) {
+    public static function get_timing_for_role($role_name, $duration = 0) {
         $cache = self::role_catalog_cache();
         $classified = self::backfill_classify_role_name($role_name, $cache['by_display_name']);
         if ($classified['status'] !== 'matched') {
             return [null, null, null];
         }
-        return self::get_timing_for_role_id($classified['role_id'], $classified['segment_label'], $duration, $timer_duration);
+        return self::get_timing_for_role_id($classified['role_id'], $classified['segment_label'], $duration);
     }
 
     // -------------------------------------------------------------------------
@@ -3892,15 +3837,12 @@ class TMP_Repository {
         if (array_key_exists('time_green',  $data)) $record['time_green']  = $parse_time($data['time_green']);
         if (array_key_exists('time_yellow', $data)) $record['time_yellow'] = $parse_time($data['time_yellow']);
         if (array_key_exists('time_red',    $data)) $record['time_red']    = $parse_time($data['time_red']);
-        if (array_key_exists('timer_duration', $data)) {
-            $record['timer_duration'] = ($data['timer_duration'] !== null && $data['timer_duration'] !== '') ? absint($data['timer_duration']) : null;
-        }
 
         $record['updated_at'] = $now;
 
         if (!empty($data['id'])) {
             $old = $wpdb->get_row($wpdb->prepare(
-                "SELECT status, member_id, role_name, role_id, segment_label, meeting_id, presentation_series, project_name, duration, timer_duration FROM {$table} WHERE id = %d",
+                "SELECT status, member_id, role_name, role_id, segment_label, meeting_id, presentation_series, project_name, duration FROM {$table} WHERE id = %d",
                 $data['id']
             ), ARRAY_A);
 
@@ -3959,19 +3901,17 @@ class TMP_Repository {
                 } // end else (not break)
             }
 
-            // Auto-recompute timing when duration or timer_duration changes but no explicit timer values given
+            // Auto-recompute timing when duration changes but no explicit timer values given
             $timing_explicit = array_key_exists('time_green', $data) || array_key_exists('time_yellow', $data) || array_key_exists('time_red', $data);
-            $timing_inputs_changed = isset($data['duration']) || array_key_exists('timer_duration', $data);
-            if ($timing_inputs_changed && !$timing_explicit && $old) {
-                $eff_dur       = isset($record['duration'])                          ? (int) $record['duration']    : (int) ($old['duration'] ?? 0);
-                $eff_timer_dur = array_key_exists('timer_duration', $record)         ? $record['timer_duration']    : ($old['timer_duration'] ?? null);
-                $eff_role_id   = array_key_exists('role_id', $record)                ? $record['role_id']           : ($old['role_id'] ?? null);
-                $eff_segment   = array_key_exists('segment_label', $record)          ? $record['segment_label']     : ($old['segment_label'] ?? null);
+            if (isset($data['duration']) && !$timing_explicit && $old) {
+                $eff_dur     = isset($record['duration'])   ? (int) $record['duration']   : (int) ($old['duration'] ?? 0);
+                $eff_role_id = array_key_exists('role_id', $record) ? $record['role_id']  : ($old['role_id'] ?? null);
+                $eff_segment = array_key_exists('segment_label', $record) ? $record['segment_label'] : ($old['segment_label'] ?? null);
                 if (!empty($eff_role_id)) {
-                    [$tg, $ty, $tr] = self::get_timing_for_role_id($eff_role_id, $eff_segment, $eff_dur, $eff_timer_dur);
+                    [$tg, $ty, $tr] = self::get_timing_for_role_id($eff_role_id, $eff_segment, $eff_dur);
                 } else {
-                    $eff_role       = $record['role_name'] ?? ($old['role_name'] ?? '');
-                    [$tg, $ty, $tr] = self::get_timing_for_role($eff_role, $eff_dur, $eff_timer_dur);
+                    $eff_role = $record['role_name'] ?? ($old['role_name'] ?? '');
+                    [$tg, $ty, $tr] = self::get_timing_for_role($eff_role, $eff_dur);
                 }
                 $record['time_green']   = $tg;
                 $record['time_yellow']  = $ty;
@@ -5001,8 +4941,8 @@ class TMP_Repository {
         foreach ($meeting['assignments'] as &$assignment) {
             if ($assignment['time_green'] === null) {
                 [$tg, $ty, $tr] = !empty($assignment['role_id'])
-                    ? self::get_timing_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null, (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null)
-                    : self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0), $assignment['timer_duration'] ?? null);
+                    ? self::get_timing_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null, (int) ($assignment['duration'] ?? 0))
+                    : self::get_timing_for_role($assignment['role_name'], (int) ($assignment['duration'] ?? 0));
                 $assignment['time_green']  = $tg;
                 $assignment['time_yellow'] = $ty;
                 $assignment['time_red']    = $tr;

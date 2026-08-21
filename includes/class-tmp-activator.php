@@ -26,6 +26,7 @@ class TMP_Activator {
         self::migrate_v250_seed_role_catalog();
         self::migrate_v250_seed_agenda_template();
         self::migrate_v260_pathways_project_column();
+        self::migrate_v280_timing_overhaul();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -80,6 +81,7 @@ class TMP_Activator {
         self::migrate_v250_seed_role_catalog();
         self::migrate_v250_seed_agenda_template();
         self::migrate_v260_pathways_project_column();
+        self::migrate_v280_timing_overhaul();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -975,7 +977,7 @@ class TMP_Activator {
             ['general_evaluator', 'Explains role', 0, null, 0, null, 2],
             ['table_topics_evaluator', 'Introduction of role', 1, null, 0, null, 2],
             ['tmod', 'Introduces Educational Presentation', 1, 'educational_presentation', 0, null, 1],
-            ['educational_presentation', 'Presentation', 1, null, 0, null, 5],
+            ['educational_presentation', 'Presentation', 1, null, 0, null, 7],
             ['evaluator', 'Introduces speaker', 0, null, 1, 'speech_block', 2],
             ['speaker', 'Speech', 0, null, 1, 'speech_block', 6],
             ['timer', 'Report', 0, null, 0, null, 1],
@@ -983,6 +985,7 @@ class TMP_Activator {
             ['tmod', 'Theme interlude', 0, null, 0, null, 2],
             ['table_topics_master', 'Table Topics Session', 1, null, 0, null, 10],
             ['table_topics_evaluator', 'Table Topics Session Evaluation', 1, null, 0, null, 3],
+            ['timer', 'Report', 0, null, 0, null, 1],
             ['tmod', 'Introduces Evaluation Session', 0, null, 0, null, 1],
             ['evaluator', 'Evaluation', 0, null, 1, 'eval_block', 3],
             ['timer', 'Report', 0, null, 0, null, 1],
@@ -990,10 +993,10 @@ class TMP_Activator {
             ['ad_hoc_speaker', 'Guest Speech', 1, null, 1, 'adhoc_block', 5],
             ['tmod', 'Introduces Fun Session', 1, null, 1, 'fun_block', 1],
             ['fun_session', 'Organizes fun session', 1, null, 1, 'fun_block', 10],
-            ['grammarian', 'Report', 0, null, 0, null, 4],
+            ['grammarian', 'Report', 0, null, 0, null, 3],
             ['ah_counter', 'Report', 0, null, 0, null, 3],
-            ['active_listener', 'Report', 1, null, 0, null, 3],
-            ['general_evaluator', 'Final Report', 0, null, 0, null, 9],
+            ['active_listener', 'Report', 1, null, 0, null, 5],
+            ['general_evaluator', 'Final Report', 0, null, 0, null, 5],
             ['tmod', 'Theme Closure', 0, null, 0, null, 2],
             ['presiding_officer', 'Closing Remarks, Feedback and Announcements', 0, null, 0, null, 6],
         ];
@@ -1046,6 +1049,112 @@ class TMP_Activator {
         $hcols = $wpdb->get_col("DESCRIBE {$history}");
         if (!in_array('project_name', $hcols, true)) {
             $wpdb->query("ALTER TABLE {$history} ADD COLUMN project_name VARCHAR(190) NULL AFTER presentation_series");
+        }
+    }
+
+    /**
+     * v0.28.0: retires the per-role fixed timer overrides (role_catalog's
+     * default_time_green/yellow/red and the Timer+Report sub-minute special
+     * case) in favour of one universal, duration-driven formula for every
+     * role — see get_timing_for_role_id(). This migration:
+     *   1. updates the default template's Report-segment durations to match
+     *      the club's specified values (Grammarian 3, Active Listener 5,
+     *      General Evaluator's Final Report 5) and bumps Educational
+     *      Presentation's default from 5 to 7 min;
+     *   2. adds a third Timer "Report" slot after the Table Topics session
+     *      (the template previously only had one after Speeches and one
+     *      after Evaluation);
+     *   3. recomputes time_green/yellow/red on every existing assignment row
+     *      so stale values from the retired fixed overrides don't linger
+     *      until someone happens to touch that row's duration again.
+     */
+    private static function migrate_v280_timing_overhaul() {
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'tmp_agenda_template_items';
+        $catalog     = $wpdb->prefix . 'tmp_role_catalog';
+        $assignments = $wpdb->prefix . 'tmp_role_assignments';
+        $now         = current_time('mysql');
+
+        $template_id = $wpdb->get_var(
+            "SELECT id FROM {$wpdb->prefix}tmp_agenda_template WHERE is_default = 1 AND is_active = 1 LIMIT 1"
+        );
+
+        if ($template_id) {
+            $role_id_for = function ($key) use ($wpdb, $catalog) {
+                $id = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$catalog} WHERE role_key = %s", $key));
+                return $id ? (int) $id : null;
+            };
+
+            $duration_updates = [
+                ['grammarian', 'Report', 3],
+                ['active_listener', 'Report', 5],
+                ['general_evaluator', 'Final Report', 5],
+                ['educational_presentation', 'Presentation', 7],
+            ];
+            foreach ($duration_updates as [$role_key, $segment_label, $minutes]) {
+                $role_id = $role_id_for($role_key);
+                if (!$role_id) continue;
+                $wpdb->update(
+                    $items_table,
+                    ['default_duration_minutes' => $minutes, 'updated_at' => $now],
+                    ['template_id' => $template_id, 'role_id' => $role_id, 'segment_label' => $segment_label]
+                );
+            }
+
+            $timer_role_id   = $role_id_for('timer');
+            $tt_eval_role_id = $role_id_for('table_topics_evaluator');
+            if ($timer_role_id && $tt_eval_role_id) {
+                $tt_eval_sort = $wpdb->get_var($wpdb->prepare(
+                    "SELECT sort_order FROM {$items_table} WHERE template_id = %d AND role_id = %d AND segment_label = %s",
+                    $template_id, $tt_eval_role_id, 'Table Topics Session Evaluation'
+                ));
+                if ($tt_eval_sort !== null) {
+                    $tt_eval_sort = (int) $tt_eval_sort;
+                    $next_sort = $wpdb->get_var($wpdb->prepare(
+                        "SELECT MIN(sort_order) FROM {$items_table} WHERE template_id = %d AND sort_order > %d",
+                        $template_id, $tt_eval_sort
+                    ));
+                    $next_sort = $next_sort !== null ? (int) $next_sort : $tt_eval_sort + 10;
+
+                    $already_exists = (int) $wpdb->get_var($wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$items_table}
+                          WHERE template_id = %d AND role_id = %d AND segment_label = %s
+                            AND sort_order > %d AND sort_order < %d",
+                        $template_id, $timer_role_id, 'Report', $tt_eval_sort, $next_sort
+                    ));
+
+                    if (!$already_exists) {
+                        $wpdb->insert($items_table, [
+                            'template_id'               => $template_id,
+                            'role_id'                   => $timer_role_id,
+                            'segment_label'              => 'Report',
+                            'instance_group'             => null,
+                            'sort_order'                 => intdiv($tt_eval_sort + $next_sort, 2),
+                            'is_optional'                => 0,
+                            'requires_role_key'          => null,
+                            'default_duration_minutes'   => 1,
+                            'default_timer_minutes'      => null,
+                            'repeat_per_speech'          => 0,
+                            'created_at'                 => $now,
+                            'updated_at'                 => $now,
+                        ]);
+                    }
+                }
+            }
+        }
+
+        // Stale time_green/yellow/red from the retired fixed-catalog overrides
+        // won't self-correct until a duration is edited — recompute them all now.
+        $rows = $wpdb->get_results("SELECT id, role_id, role_name, segment_label, duration FROM {$assignments}", ARRAY_A);
+        foreach ($rows as $row) {
+            [$tg, $ty, $tr] = !empty($row['role_id'])
+                ? TMP_Repository::get_timing_for_role_id((int) $row['role_id'], $row['segment_label'], (int) ($row['duration'] ?? 0))
+                : TMP_Repository::get_timing_for_role($row['role_name'], (int) ($row['duration'] ?? 0));
+            $wpdb->update(
+                $assignments,
+                ['time_green' => $tg, 'time_yellow' => $ty, 'time_red' => $tr],
+                ['id' => (int) $row['id']]
+            );
         }
     }
 
