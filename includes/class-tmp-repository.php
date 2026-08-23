@@ -1724,16 +1724,37 @@ class TMP_Repository {
         return $rows;
     }
 
-    public static function get_published_agenda() {
+    /**
+     * @param bool $require_published When true (default), only a meeting explicitly marked
+     *                                is_published=1 is returned — used by the public agenda
+     *                                page, which should hide drafts. When false, the meeting
+     *                                is picked by date instead (today's, else the most recent),
+     *                                regardless of the publish flag — used by the Meeting Hub,
+     *                                which should stay usable even if VPE forgot to publish.
+     */
+    public static function get_published_agenda($require_published = true) {
         global $wpdb;
         $meetings    = self::meeting_table();
         $assignments = self::assignment_table();
         $members     = self::member_table();
 
-        $meeting = $wpdb->get_row(
-            "SELECT * FROM {$meetings} WHERE is_published = 1 ORDER BY meeting_date ASC LIMIT 1",
-            ARRAY_A
-        );
+        if ($require_published) {
+            $meeting = $wpdb->get_row(
+                "SELECT * FROM {$meetings} WHERE is_published = 1 ORDER BY meeting_date ASC LIMIT 1",
+                ARRAY_A
+            );
+        } else {
+            $meeting = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$meetings} WHERE meeting_date = %s ORDER BY id DESC LIMIT 1",
+                current_time('Y-m-d')
+            ), ARRAY_A);
+            if (!$meeting) {
+                $meeting = $wpdb->get_row(
+                    "SELECT * FROM {$meetings} ORDER BY meeting_date DESC LIMIT 1",
+                    ARRAY_A
+                );
+            }
+        }
         if (!$meeting) return null;
 
         $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
@@ -5791,12 +5812,13 @@ class TMP_Repository {
 
     /**
      * Data for the public [tm_meeting_hub] page — one static link that hosts every
-     * speaker's feedback link plus the Moment of Glory vote link for whichever
-     * meeting is currently published. Follows the same is_published visibility
-     * rule already used by get_published_agenda()/the public agenda section.
+     * speaker's feedback link plus the Moment of Glory vote link. Unlike the public
+     * agenda section, this ignores the is_published flag and just picks today's
+     * meeting (falling back to the most recent one), so the vote link still works
+     * even if VPE never clicked "Publish" for that week's agenda.
      */
     public static function get_meeting_hub_data() {
-        $meeting = self::get_published_agenda();
+        $meeting = self::get_published_agenda(false);
         if (!$meeting) return null;
 
         $speakers = [];
