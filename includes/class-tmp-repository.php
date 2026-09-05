@@ -1749,10 +1749,10 @@ class TMP_Repository {
                 current_time('Y-m-d')
             ), ARRAY_A);
             if (!$meeting) {
-                $meeting = $wpdb->get_row(
-                    "SELECT * FROM {$meetings} ORDER BY meeting_date DESC LIMIT 1",
-                    ARRAY_A
-                );
+                $meeting = $wpdb->get_row($wpdb->prepare(
+                    "SELECT * FROM {$meetings} ORDER BY ABS(DATEDIFF(meeting_date, %s)) ASC, id DESC LIMIT 1",
+                    current_time('Y-m-d')
+                ), ARRAY_A);
             }
         }
         if (!$meeting) return null;
