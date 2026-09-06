@@ -2162,9 +2162,10 @@
              ${pathwayField}
              ${projectField}`
           : "";
+        const guestNameInput = `<input type="text" class="tmp-role-guest-name" data-assign-guest-name="${esc(primary.id)}" value="${esc(primary.guest_name || '')}" placeholder="or type a non-member name" ${primary.member_id ? "disabled" : ""} />`;
         const memberField = isGuestSlot
           ? `<input type="text" data-assign-guest-name="${esc(primary.id)}" value="${esc(primary.guest_name || '')}" placeholder="Guest name (not a club member)" />`
-          : `<select data-assign-roles="${esc(allIds)}">${opts}</select>`;
+          : `<select data-assign-roles="${esc(allIds)}" ${primary.guest_name ? "disabled" : ""}>${opts}</select>${guestNameInput}`;
         const memberName = primary.member_name || primary.guest_name || "";
         const initials = memberName
           ? memberName.trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("")
@@ -2219,7 +2220,8 @@
             sel.disabled   = true;
             try {
               for (const id of ids) {
-                await api("/assignments", { method: "POST", body: JSON.stringify({ id: parseInt(id), member_id: memberId, status: memberId ? "Confirmed" : "Planned" }) });
+                // Assigning a member clears any non-member name previously typed on this slot.
+                await api("/assignments", { method: "POST", body: JSON.stringify({ id: parseInt(id), member_id: memberId, guest_name: memberId ? "" : undefined, status: memberId ? "Confirmed" : "Planned" }) });
               }
               await renderMeetings(meetingSelect.value);
               updateMemberDashboard().catch(() => {});
@@ -2310,8 +2312,10 @@
           clearTimeout(inp._saveTimer);
           inp._saveTimer = setTimeout(async () => {
             const aid = inp.dataset.assignGuestName;
+            const name = inp.value.trim();
             try {
-              await api("/assignments", { method: "POST", body: JSON.stringify({ id: parseInt(aid), guest_name: inp.value, status: inp.value ? "Confirmed" : "Planned" }) });
+              // Typing a non-member name clears any club member assigned to this slot.
+              await api("/assignments", { method: "POST", body: JSON.stringify({ id: parseInt(aid), guest_name: name, member_id: name ? "" : undefined, status: name ? "Confirmed" : "Planned" }) });
               await renderMeetings(meetingSelect.value);
             } catch (err) {
               console.warn("Guest name save failed", err);

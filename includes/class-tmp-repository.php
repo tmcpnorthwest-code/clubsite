@@ -5314,27 +5314,35 @@ class TMP_Repository {
         $assignments_table = self::assignment_table();
         $members_table     = self::member_table();
 
+        // Non-member role players (guest_name, no member_id) are eligible nominees
+        // too — they show up in voting by display name only. They never enter
+        // wp_tmp_members, participation_history, or recognition.
         $assignments = $wpdb->get_results($wpdb->prepare(
-            "SELECT a.id, a.role_name, a.role_id, a.member_id, m.full_name
+            "SELECT a.id, a.role_name, a.role_id, a.member_id, a.guest_name,
+                    COALESCE(m.full_name, a.guest_name) AS full_name
                FROM {$assignments_table} a
           LEFT JOIN {$members_table} m ON m.id = a.member_id
-              WHERE a.meeting_id = %d AND a.member_id IS NOT NULL",
+              WHERE a.meeting_id = %d
+                AND (a.member_id IS NOT NULL OR (a.guest_name IS NOT NULL AND a.guest_name <> ''))",
             $meeting_id
         ), ARRAY_A);
 
         $existing = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, category, member_id FROM {$nominees_table}
+            "SELECT id, category, member_id, role_name FROM {$nominees_table}
               WHERE meeting_id = %d AND category IN ('main_role', 'aux_role', 'speaker', 'evaluator')",
             $meeting_id
         ), ARRAY_A);
+        // Members re-match by (category, member_id); guests (member_id NULL) by
+        // (category, base role name) since they have no stable id to key on.
         $existing_by_key = [];
         foreach ($existing as $row) {
-            $existing_by_key[$row['category'] . '_' . $row['member_id']] = (int) $row['id'];
+            $ident = $row['member_id'] ? 'm' . $row['member_id'] : 'g:' . strtolower(trim($row['role_name']));
+            $existing_by_key[$row['category'] . '_' . $ident] = (int) $row['id'];
         }
 
         $sort = 0;
         $now  = current_time('mysql');
-        $seen = []; // deduplicate: one nominee per (member_id, category)
+        $seen = []; // deduplicate: one nominee per (member_id|guest role, category)
         foreach ($assignments as $a) {
             // Base role name strips the agenda-segment detail in parentheses
             $base_role = trim(preg_replace('/\s*\(.*\)$/', '', $a['role_name']));
@@ -5342,7 +5350,9 @@ class TMP_Repository {
             $cat       = $role_id ? self::nominee_category_for_role_id($role_id) : self::nominee_category_for_role($base_role);
             if (!$cat) continue;
 
-            $key = $cat . '_' . $a['member_id'];
+            $member_id = !empty($a['member_id']) ? (int) $a['member_id'] : null;
+            $ident     = $member_id ? 'm' . $member_id : 'g:' . strtolower($base_role);
+            $key       = $cat . '_' . $ident;
             if (isset($seen[$key])) continue;
             $seen[$key] = true;
 
@@ -5360,7 +5370,7 @@ class TMP_Repository {
             $wpdb->insert($nominees_table, [
                 'meeting_id'   => (int) $meeting_id,
                 'category'     => $cat,
-                'member_id'    => (int) $a['member_id'],
+                'member_id'    => $member_id,
                 'display_name' => $a['full_name'] ?? '',
                 'role_name'    => $base_role,
                 'role_id'      => $role_id,

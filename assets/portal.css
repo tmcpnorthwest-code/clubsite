@@ -2064,6 +2064,16 @@
   border-radius: 7px;
   font-size: 0.85rem;
 }
+.tmp-role-guest-name {
+  flex: 1 1 100%;
+  min-width: 180px;
+  margin-top: 4px;
+  padding: 6px 9px;
+  border: 1px dashed var(--tmp-line);
+  border-radius: 7px;
+  font-size: 0.8rem;
+}
+.tmp-role-guest-name:disabled { opacity: 0.5; }
 .tmp-role-meta { display: flex; align-items: center; gap: 6px; }
 .tmp-role-meta .tmp-role-meta-label { font-size: 0.72rem; color: var(--tmp-muted); white-space: nowrap; }
 .tmp-role-meta input {
