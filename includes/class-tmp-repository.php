@@ -1508,7 +1508,14 @@ class TMP_Repository {
                 $s = $legacy_saved[self::get_base_role_name($full_name)] ?? null;
             }
 
-            $dur = ($s && $s['duration'] > 0) ? (int) $s['duration'] : $item['duration'];
+            // "Explains role" intro segments (Timer, Ah-Counter, Grammarian,
+            // Active Listener, General Evaluator) are a fixed script, not a
+            // per-meeting scheduling choice — always take the template's
+            // duration here rather than preserving a possibly-stale saved
+            // value. Every other segment (e.g. Report/Final Report) keeps
+            // an officer's manually-set duration across rebuilds.
+            $is_fixed_intro = strpos($item['segment_label'] ?? '', 'Explains role') === 0;
+            $dur = (!$is_fixed_intro && $s && $s['duration'] > 0) ? (int) $s['duration'] : $item['duration'];
             [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $dur);
 
             self::save_assignment([
