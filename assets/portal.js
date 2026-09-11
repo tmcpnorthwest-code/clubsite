@@ -2088,6 +2088,11 @@
         .map(([baseRole, group]) => {
         const primary = group[0];
         const allIds  = group.map((a) => a.id).join(",");
+        // Duration belongs to the role's Report/Final Report segment, not its
+        // "Explains role" intro (which stays fixed at the template default) —
+        // find the last Report-labeled row in the group, falling back to
+        // primary for roles with no such segment (TMOD, Evaluator, etc.).
+        const durationRow = [...group].reverse().find((a) => /report/i.test(a.segment_label || a.role_name)) || primary;
         const minLevel = roleGateLevel(primary.role_name);
 
         // Mark members already assigned to OTHER roles in this meeting
@@ -2180,7 +2185,7 @@
             </div>
             <div class="tmp-role-picker-row">
               ${memberField}
-              <div class="tmp-role-meta"><span class="tmp-role-meta-label">Duration</span><input type="number" min="0" data-assign-duration="${esc(primary.id)}" value="${esc(primary.duration || '')}" placeholder="—" /></div>
+              <div class="tmp-role-meta"><span class="tmp-role-meta-label">Duration</span><input type="number" min="0" data-assign-duration="${esc(durationRow.id)}" value="${esc(durationRow.duration || '')}" placeholder="—" /></div>
             </div>
             ${speakerExtras}
           </div>
