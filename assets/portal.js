@@ -2088,11 +2088,13 @@
         .map(([baseRole, group]) => {
         const primary = group[0];
         const allIds  = group.map((a) => a.id).join(",");
-        // Duration belongs to the role's Report/Final Report segment, not its
-        // "Explains role" intro (which stays fixed at the template default) —
-        // find the last Report-labeled row in the group, falling back to
-        // primary for roles with no such segment (TMOD, Evaluator, etc.).
-        const durationRow = [...group].reverse().find((a) => /report/i.test(a.segment_label || a.role_name)) || primary;
+        // Duration belongs to the role's substantive/closing segment (Report,
+        // Evaluation, Closing Remarks, ...), not its opening intro segment
+        // (which stays fixed at the template default) — every multi-segment
+        // role in the template follows intro-first, substance-last ordering,
+        // so the last row in sort order is always the one Duration should
+        // control. Single-segment roles are unaffected (group has one row).
+        const durationRow = group[group.length - 1];
         const minLevel = roleGateLevel(primary.role_name);
 
         // Mark members already assigned to OTHER roles in this meeting
