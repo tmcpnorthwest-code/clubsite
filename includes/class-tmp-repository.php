@@ -1428,15 +1428,20 @@ class TMP_Repository {
         $atbl       = self::assignment_table();
 
         // Step 1: Snapshot member assignments keyed by role_id + instance_number
-        // (role_id IS NULL rows — legacy, never backfilled — fall back to
-        // base role_name matching so nothing is silently dropped on rebuild).
+        // + segment_label (role_id IS NULL rows — legacy, never backfilled —
+        // fall back to base role_name matching so nothing is silently dropped
+        // on rebuild). segment_label must be part of the key: a role can have
+        // several non-repeating segments (e.g. Grammarian's "Explains role"
+        // and "Report") that all share instance_number NULL/0 — without the
+        // label they'd collide onto one key and overwrite each other's saved
+        // duration/assignment.
         $existing = $wpdb->get_results($wpdb->prepare(
-            "SELECT role_name, role_id, instance_number, member_id, guest_name, speech_title, project_name, presentation_series, status, duration
+            "SELECT role_name, role_id, instance_number, segment_label, member_id, guest_name, speech_title, project_name, presentation_series, status, duration
              FROM {$atbl} WHERE meeting_id = %d ORDER BY sort_order",
             $meeting_id
         ), ARRAY_A);
 
-        $saved       = []; // "{role_id}:{instance_number|0}" → {member_id, guest_name, speech_title, project_name, presentation_series, status, duration}
+        $saved       = []; // "{role_id}:{instance_number|0}:{segment_label}" → {member_id, guest_name, speech_title, project_name, presentation_series, status, duration}
         $legacy_saved = []; // base_role_name (fallback for role_id IS NULL rows) → same shape
         $selected_role_ids = [];
         $speech_count = 0;
@@ -1460,7 +1465,7 @@ class TMP_Repository {
                 $role_id = (int) $row['role_id'];
                 $selected_role_ids[$role_id] = true;
                 $instance = $row['instance_number'] ? (int) $row['instance_number'] : 0;
-                $key = "{$role_id}:{$instance}";
+                $key = "{$role_id}:{$instance}:{$row['segment_label']}";
                 if (!isset($saved[$key]) || (!$saved[$key]['member_id'] && $entry['member_id'])) {
                     $saved[$key] = $entry;
                 }
@@ -1495,7 +1500,7 @@ class TMP_Repository {
         // Step 4: Insert rows in prescribed order, re-applying saved assignments.
         $order = 10;
         foreach ($expanded as $item) {
-            $instance_key = "{$item['role_id']}:" . ($item['instance_number'] ?: 0);
+            $instance_key = "{$item['role_id']}:" . ($item['instance_number'] ?: 0) . ":{$item['segment_label']}";
             $s = $saved[$instance_key] ?? null;
 
             $full_name = self::synthesize_role_name($item);
