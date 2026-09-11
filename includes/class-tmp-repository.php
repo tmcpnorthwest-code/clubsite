@@ -1509,15 +1509,18 @@ class TMP_Repository {
             }
 
             // Fixed-script intro segments — "Explains role" (Timer, Ah-Counter,
-            // Grammarian, Active Listener, General Evaluator) and Evaluator's
-            // "Introduces speaker" — are not a per-meeting scheduling choice,
-            // so always take the template's duration here rather than
-            // preserving a possibly-stale saved value. Every other segment
-            // (Report/Final Report, Evaluator's own Evaluation, etc.) keeps
-            // an officer's manually-set duration across rebuilds.
+            // Grammarian, Active Listener, General Evaluator), Evaluator's
+            // "Introduces speaker", and Table Topics Evaluator's "Introduction
+            // of role" — are not a per-meeting scheduling choice, so always
+            // take the template's duration here rather than preserving a
+            // possibly-stale saved value. Every other segment (Report/Final
+            // Report, Evaluator's Evaluation, TT Evaluator's Table Topics
+            // Session Evaluation, etc.) keeps an officer's manually-set
+            // duration across rebuilds.
             $segment_label   = $item['segment_label'] ?? '';
             $is_fixed_intro  = strpos($segment_label, 'Explains role') === 0
-                || ($item['role_key'] === 'evaluator' && $segment_label === 'Introduces speaker');
+                || ($item['role_key'] === 'evaluator' && $segment_label === 'Introduces speaker')
+                || ($item['role_key'] === 'table_topics_evaluator' && $segment_label === 'Introduction of role');
             $dur = (!$is_fixed_intro && $s && $s['duration'] > 0) ? (int) $s['duration'] : $item['duration'];
             [$tg, $ty, $tr] = self::get_timing_for_role_id($item['role_id'], $item['segment_label'], $dur);
 
