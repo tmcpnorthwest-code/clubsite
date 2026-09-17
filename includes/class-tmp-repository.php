@@ -2986,6 +2986,31 @@ class TMP_Repository {
             return new WP_Error('tmp_db_error', 'Failed to update assignment: ' . $wpdb->last_error, ['status' => 500]);
         }
 
+        // Singular roles (TMOD, GE, Grammarian, Ah-Counter, etc.) repeat across
+        // multiple agenda segments and must be held by the same member throughout —
+        // propagate this approval to every other open segment sharing the role.
+        $row_role_row = $role_id ? self::get_role_catalog_row($role_id) : null;
+        $is_singular  = $row_role_row ? ($row_role_row['is_numbered'] == 0) : self::is_singular_role($base_role);
+        if ($is_singular) {
+            if ($role_id) {
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE {$assignments} SET member_id = %d, status = 'Confirmed', updated_at = %s
+                     WHERE meeting_id = %d AND role_id = %d
+                       AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                       AND status NOT IN ('Confirmed', 'Completed')",
+                    $member_id, $now, $meeting_id, $role_id
+                ));
+            } else {
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE {$assignments} SET member_id = %d, status = 'Confirmed', updated_at = %s
+                     WHERE meeting_id = %d AND role_name REGEXP %s
+                       AND (member_id IS NULL OR member_id = 0 OR member_id = '')
+                       AND status NOT IN ('Confirmed', 'Completed')",
+                    $member_id, $now, $meeting_id, $slot_pattern
+                ));
+            }
+        }
+
         // Mark this request Approved and record which slot was assigned
         $wpdb->update(
             $requests,
