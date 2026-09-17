@@ -1688,7 +1688,8 @@ class TMP_Repository {
 
             $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
                 "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name,
-                        m.pathway AS member_pathway, m.level_completed AS member_level_completed,
+                        m.pathway AS member_pathway, m.level AS member_level,
+                        m.level_completed AS member_level_completed,
                         m.current_project AS member_current_project
                  FROM {$assignments} a
                  LEFT JOIN {$members} m ON m.id = a.member_id
@@ -1777,7 +1778,8 @@ class TMP_Repository {
 
         $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
             "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name,
-                    m.pathway AS member_pathway, m.level_completed AS member_level_completed,
+                    m.pathway AS member_pathway, m.level AS member_level,
+                    m.level_completed AS member_level_completed,
                     m.current_project AS member_current_project
              FROM {$assignments} a
              LEFT JOIN {$members} m ON m.id = a.member_id
@@ -4992,7 +4994,8 @@ class TMP_Repository {
 
         $meeting['assignments'] = $wpdb->get_results($wpdb->prepare(
             "SELECT a.*, COALESCE(m.full_name, a.guest_name) AS member_name, m.email,
-                    m.pathway AS member_pathway, m.level_completed AS member_level_completed,
+                    m.pathway AS member_pathway, m.level AS member_level,
+                    m.level_completed AS member_level_completed,
                     m.current_project AS member_current_project
              FROM " . self::assignment_table() . " a
              LEFT JOIN " . self::member_table() . " m ON m.id = a.member_id
@@ -5193,7 +5196,7 @@ class TMP_Repository {
      */
     public static function format_speaker_pathway_label($assignment) {
         $pathway  = trim((string) ($assignment['member_pathway'] ?? ''));
-        $level    = $assignment['member_level_completed'] ?? null;
+        $level    = $assignment['member_level'] ?? null;
         $project  = trim((string) ($assignment['member_current_project'] ?? ''));
         if ($pathway === '' && $level === null && $project === '') {
             return '';
