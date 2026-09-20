@@ -793,37 +793,10 @@ class TMP_Shortcodes {
                     <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
                         Uses the meeting selected above. Add Table Topics speakers as they step up — the voting form on the home page updates automatically.
                     </p>
-                    <div data-tmp-tt-entry style="display:none;">
-                        <p class="tmp-eyebrow" style="margin-top:20px;">Table Topics Speakers</p>
-                        <div class="tmp-tt-add-row" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
-                            <div style="flex:1;min-width:0;">
-                                <label style="display:block;margin-bottom:4px;font-size:0.88rem;font-weight:700;">Add speaker</label>
-                                <select data-tmp-tt-member-select style="display:block;width:100%;">
-                                    <option value="">— select member —</option>
-                                </select>
-                            </div>
-                            <button class="tmp-button tmp-primary" data-tmp-tt-add-btn style="flex-shrink:0;white-space:nowrap;">+ Add</button>
-                        </div>
-                        <div data-tmp-tt-guest-wrap style="display:none;margin-bottom:10px;">
-                            <input type="text" data-tmp-tt-name placeholder="Enter guest name" style="display:block;width:100%;" />
-                        </div>
-                        <div data-tmp-tt-speaker-list></div>
-                    </div>
-                    <div data-tmp-voting-nominees style="display:none;margin-top:20px;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
-                            <p class="tmp-eyebrow" style="margin:0;">Current Nominees</p>
-                            <button class="tmp-small-button" data-tmp-refresh-nominees-btn title="Re-sync main and auxiliary nominees from confirmed role assignments">&#8635; Refresh from Assignments</button>
-                        </div>
-                        <div data-tmp-nominees-summary></div>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
-                            <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Open Moment of Glory Votes</button>
-                            <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
-                        </div>
-                    </div>
 
                     <!-- Attendance — roles performed, walk-ins, guests. Editable by Ex Com; kept in
-                         sync with the "Refresh from Assignments" button above via a shared refresh. -->
-                    <div data-tmp-attendance-content style="margin-top:24px;padding-top:20px;border-top:1px solid var(--tmp-line);">
+                         sync with the "Refresh from Assignments" button below via a shared refresh. -->
+                    <div data-tmp-attendance-content style="margin-top:20px;">
                         <p class="tmp-eyebrow" style="margin:0 0 10px;">Attendance</p>
                         <div style="margin-bottom:20px;">
                             <div class="tmp-wrapup-stat-row">
@@ -849,6 +822,34 @@ class TMP_Shortcodes {
                                 <button class="tmp-button tmp-primary" data-tmp-add-guest-btn style="flex-shrink:0;white-space:nowrap;padding:8px 14px;">+ Add Guest</button>
                             </div>
                             <div data-tmp-guests-list class="tmp-chip-list" style="margin-top:0;"></div>
+                        </div>
+                    </div>
+
+                    <div data-tmp-tt-entry style="display:none;margin-top:24px;padding-top:20px;border-top:1px solid var(--tmp-line);">
+                        <p class="tmp-eyebrow" style="margin-top:0;">Table Topics Speakers</p>
+                        <div class="tmp-tt-add-row" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
+                            <div style="flex:1;min-width:0;">
+                                <label style="display:block;margin-bottom:4px;font-size:0.88rem;font-weight:700;">Add speaker</label>
+                                <select data-tmp-tt-member-select style="display:block;width:100%;">
+                                    <option value="">— select member —</option>
+                                </select>
+                            </div>
+                            <button class="tmp-button tmp-primary" data-tmp-tt-add-btn style="flex-shrink:0;white-space:nowrap;">+ Add</button>
+                        </div>
+                        <div data-tmp-tt-guest-wrap style="display:none;margin-bottom:10px;">
+                            <input type="text" data-tmp-tt-name placeholder="Enter guest name" style="display:block;width:100%;" />
+                        </div>
+                        <div data-tmp-tt-speaker-list></div>
+                    </div>
+                    <div data-tmp-voting-nominees style="display:none;margin-top:20px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                            <p class="tmp-eyebrow" style="margin:0;">Current Nominees</p>
+                            <button class="tmp-small-button" data-tmp-refresh-nominees-btn title="Re-sync main and auxiliary nominees from confirmed role assignments">&#8635; Refresh from Assignments</button>
+                        </div>
+                        <div data-tmp-nominees-summary></div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
+                            <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Open Moment of Glory Votes</button>
+                            <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
                         </div>
                     </div>
 
