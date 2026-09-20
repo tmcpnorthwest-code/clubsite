@@ -3861,7 +3861,7 @@
     function setPollOpenUI(isOpen) {
       pollIsOpen = isOpen;
       if (openPollBtn) {
-        openPollBtn.textContent = isOpen ? 'Close Moment of Glory' : 'Moment of Glory';
+        openPollBtn.textContent = isOpen ? 'Close Moment of Glory' : 'Open Moment of Glory Votes';
         openPollBtn.style.background = isOpen ? '#a33' : '';
       }
       if (pollStatus) {
@@ -3939,7 +3939,8 @@
         .finally(() => { ttAddBtn.disabled = false; });
     });
 
-    // Refresh nominees from assignments — blocked while the poll is open to avoid disturbing live votes
+    // Refresh nominees from assignments — blocked while the poll is open to avoid disturbing live votes.
+    // Also re-syncs the Attendance section below (role performers, walk-ins, guests) in the same click.
     refreshBtn.addEventListener('click', () => {
       if (!currentMeetingId || pollIsOpen) return;
       refreshBtn.disabled = true;
@@ -3951,6 +3952,7 @@
         })
         .catch(err => alert('Refresh failed: ' + err.message))
         .finally(() => { refreshBtn.disabled = pollIsOpen; refreshBtn.textContent = '↻ Refresh from Assignments'; });
+      qs("[data-tmp-vpe]")?._wrapupPanel?.refreshAttendance();
     });
 
     // Open / close poll
@@ -4145,25 +4147,27 @@
     const panel = qs('[data-tmp-wrapup-panel]');
     if (!panel) return;
 
+    // Attendance fields now live in the Day-of tab's voting panel (a sibling section),
+    // not inside this Wrap-Up panel — look them up document-wide.
     const meetingSelect      = qs('[data-tmp-wrapup-meeting-select]', panel);
     const wrapupContent      = qs('[data-tmp-wrapup-content]', panel);
     const wrapupBadge        = qs('[data-tmp-wrapup-badge]', panel);
-    const roleCountEl        = qs('[data-tmp-role-attendance-count]', panel);
-    const refreshRoleBtn     = qs('[data-tmp-refresh-role-attendance]', panel);
-    const walkinSearch       = qs('[data-tmp-walkin-search]', panel);
-    const walkinDropdown     = qs('[data-tmp-walkin-dropdown]', panel);
-    const walkinList         = qs('[data-tmp-walkin-list]', panel);
-    const guestNameInput     = qs('[data-tmp-guest-name]', panel);
-    const addGuestBtn        = qs('[data-tmp-add-guest-btn]', panel);
-    const guestsList         = qs('[data-tmp-guests-list]', panel);
+    const roleCountEl        = qs('[data-tmp-role-attendance-count]');
+    const walkinSearch       = qs('[data-tmp-walkin-search]');
+    const walkinDropdown     = qs('[data-tmp-walkin-dropdown]');
+    const walkinList         = qs('[data-tmp-walkin-list]');
+    const guestNameInput     = qs('[data-tmp-guest-name]');
+    const addGuestBtn        = qs('[data-tmp-add-guest-btn]');
+    const guestsList         = qs('[data-tmp-guests-list]');
     const completeBtn          = qs('[data-tmp-complete-meeting-btn]', panel);
     const saveStatus           = qs('[data-tmp-wrapup-save-status]', panel);
     const feedbackEmailStatus  = qs('[data-tmp-speaker-feedback-email-status]', panel);
     const rateSpeakerSection   = qs('[data-tmp-rate-speaker-section]', panel);
     const speakerFeedbackList  = qs('[data-tmp-speaker-feedback-list]', panel);
-    const statRolesEl   = qs('[data-tmp-stat-roles]', panel);
-    const statPresentEl = qs('[data-tmp-stat-present]', panel);
-    const statGuestsEl  = qs('[data-tmp-stat-guests]', panel);
+    const statRolesEl   = qs('[data-tmp-stat-roles]');
+    const statPresentEl = qs('[data-tmp-stat-present]');
+    const statGuestsEl  = qs('[data-tmp-stat-guests]');
+    const attendanceContent = qs('[data-tmp-attendance-content]');
 
     function updateWrapupStats() {
       if (statRolesEl)   statRolesEl.textContent   = rolePerformers.length;
@@ -4207,6 +4211,7 @@
 
     function renderWrapUp(data) {
       wrapupContent.style.display = 'block';
+      if (attendanceContent) attendanceContent.style.display = '';
       const done = data.wrapped_up;
       wrapupBadge.style.display = done ? '' : 'none';
       completeBtn.textContent = done ? '↻ Update Records' : '✓ Complete Meeting';
@@ -4373,16 +4378,6 @@
       walkinSearch.addEventListener('blur', () => setTimeout(() => { walkinDropdown.style.display = 'none'; }, 150));
     }
 
-    if (refreshRoleBtn) {
-      refreshRoleBtn.addEventListener('click', () => {
-        if (!currentMeetingId) return;
-        refreshRoleBtn.textContent = 'Refreshing…';
-        refreshRoleBtn.disabled = true;
-        loadWrapUp(currentMeetingId);
-        setTimeout(() => { refreshRoleBtn.textContent = '↺ Refresh from Assignments'; refreshRoleBtn.disabled = false; }, 1200);
-      });
-    }
-
     // ── Guests ────────────────────────────────────────────────────────────────
     function appendGuestRow(name) {
       const row = document.createElement('span');
@@ -4479,8 +4474,15 @@
       setMeeting: (mid) => {
         const id = parseInt(mid, 10);
         if (id) loadWrapUp(id);
-        else { wrapupContent.style.display = 'none'; wrapupBadge.style.display = 'none'; }
-      }
+        else {
+          wrapupContent.style.display = 'none';
+          wrapupBadge.style.display = 'none';
+          if (attendanceContent) attendanceContent.style.display = 'none';
+        }
+      },
+      // Called by the Day-of "Refresh from Assignments" button so one click re-syncs
+      // both voting nominees and role-attendance counts.
+      refreshAttendance: () => { if (currentMeetingId) loadWrapUp(currentMeetingId); },
     };
   }
 

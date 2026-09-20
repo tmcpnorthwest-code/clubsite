@@ -816,8 +816,39 @@ class TMP_Shortcodes {
                         </div>
                         <div data-tmp-nominees-summary></div>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
-                            <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Moment of Glory</button>
+                            <button class="tmp-button tmp-primary" data-tmp-open-poll-btn style="flex-shrink:0;">Open Moment of Glory Votes</button>
                             <span data-tmp-poll-status style="font-size:0.82rem;color:var(--tmp-muted);"></span>
+                        </div>
+                    </div>
+
+                    <!-- Attendance — roles performed, walk-ins, guests. Editable by Ex Com; kept in
+                         sync with the "Refresh from Assignments" button above via a shared refresh. -->
+                    <div data-tmp-attendance-content style="margin-top:24px;padding-top:20px;border-top:1px solid var(--tmp-line);">
+                        <p class="tmp-eyebrow" style="margin:0 0 10px;">Attendance</p>
+                        <div style="margin-bottom:20px;">
+                            <div class="tmp-wrapup-stat-row">
+                                <div class="tmp-wrapup-stat"><b data-tmp-stat-roles>0</b>Roles performed</div>
+                                <div class="tmp-wrapup-stat"><b data-tmp-stat-present>0</b>Members present</div>
+                                <div class="tmp-wrapup-stat"><b data-tmp-stat-guests>0</b>Guests</div>
+                            </div>
+                            <p data-tmp-role-attendance-count style="margin:6px 0 0;font-size:0.82rem;color:var(--tmp-muted);">Loading…</p>
+                        </div>
+                        <div style="margin-bottom:20px;">
+                            <p class="tmp-eyebrow" style="margin-bottom:6px;">Also Attended <span style="font-weight:400;font-size:0.78rem;color:var(--tmp-muted);">(no assigned role)</span></p>
+                            <div style="position:relative;">
+                                <input type="text" data-tmp-walkin-search placeholder="Search member name…" autocomplete="off"
+                                       style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
+                                <div data-tmp-walkin-dropdown style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid var(--tmp-line);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:100;max-height:220px;overflow-y:auto;"></div>
+                            </div>
+                            <div data-tmp-walkin-list style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+                        </div>
+                        <div>
+                            <p class="tmp-eyebrow" style="margin-bottom:6px;">Guests</p>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <input type="text" data-tmp-guest-name placeholder="Guest name" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
+                                <button class="tmp-button tmp-primary" data-tmp-add-guest-btn style="flex-shrink:0;white-space:nowrap;padding:8px 14px;">+ Add Guest</button>
+                            </div>
+                            <div data-tmp-guests-list class="tmp-chip-list" style="margin-top:0;"></div>
                         </div>
                     </div>
 
@@ -846,33 +877,10 @@ class TMP_Shortcodes {
                     <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
                         Uses the meeting selected above. Meeting Pulse on the home page updates once you complete this.
                     </p>
+                    <p style="color:var(--tmp-muted);font-size:0.82rem;margin:0 0 16px;">
+                        Attendance is now tracked from the Day-of tab. Review it there, then complete the meeting here.
+                    </p>
                     <div data-tmp-wrapup-content style="display:none;">
-                        <div style="margin-bottom:20px;">
-                            <div class="tmp-wrapup-stat-row">
-                                <div class="tmp-wrapup-stat"><b data-tmp-stat-roles>0</b>Roles performed</div>
-                                <div class="tmp-wrapup-stat"><b data-tmp-stat-present>0</b>Members present</div>
-                                <div class="tmp-wrapup-stat"><b data-tmp-stat-guests>0</b>Guests</div>
-                            </div>
-                            <p data-tmp-role-attendance-count style="margin:6px 0 0;font-size:0.82rem;color:var(--tmp-muted);">Loading…</p>
-                            <button class="tmp-link-button" data-tmp-refresh-role-attendance style="font-size:0.82rem;color:var(--tmp-teal);margin-top:4px;">↺ Refresh from Assignments</button>
-                        </div>
-                        <div style="margin-bottom:20px;">
-                            <p class="tmp-eyebrow" style="margin-bottom:6px;">Also Attended <span style="font-weight:400;font-size:0.78rem;color:var(--tmp-muted);">(no assigned role)</span></p>
-                            <div style="position:relative;">
-                                <input type="text" data-tmp-walkin-search placeholder="Search member name…" autocomplete="off"
-                                       style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
-                                <div data-tmp-walkin-dropdown style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid var(--tmp-line);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:100;max-height:220px;overflow-y:auto;"></div>
-                            </div>
-                            <div data-tmp-walkin-list style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
-                        </div>
-                        <div style="margin-bottom:20px;">
-                            <p class="tmp-eyebrow" style="margin-bottom:6px;">Guests</p>
-                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                                <input type="text" data-tmp-guest-name placeholder="Guest name" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:6px;font-size:0.88rem;" />
-                                <button class="tmp-button tmp-primary" data-tmp-add-guest-btn style="flex-shrink:0;white-space:nowrap;padding:8px 14px;">+ Add Guest</button>
-                            </div>
-                            <div data-tmp-guests-list class="tmp-chip-list" style="margin-top:0;"></div>
-                        </div>
                         <?php if ($can_manage_meetings): ?>
                         <div data-tmp-rate-speaker-section style="display:none;margin-bottom:20px;">
                             <p class="tmp-eyebrow" style="margin:0 0 4px;">Rate the Speaker</p>
