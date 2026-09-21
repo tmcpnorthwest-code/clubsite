@@ -5657,6 +5657,54 @@ class TMP_Repository {
     // -------------------------------------------------------------------------
 
     /**
+     * Who's actually present at a meeting right now — assigned role players
+     * (on the agenda by default) plus members and guests marked present on the
+     * Day-of Attendance card. Used to keep the Table Topics "Add speaker"
+     * dropdown limited to people who are truly in the room, instead of the
+     * full member roster.
+     */
+    public static function get_present_roster($meeting_id) {
+        global $wpdb;
+        $meeting_id      = (int) $meeting_id;
+        $assignments_tbl = self::assignment_table();
+        $members_tbl     = self::member_table();
+        $attendance_tbl  = self::attendance_table();
+
+        $role_member_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT member_id FROM {$assignments_tbl}
+              WHERE meeting_id = %d AND member_id IS NOT NULL AND member_id > 0
+                AND role_name NOT LIKE 'Break%%'",
+            $meeting_id
+        )));
+
+        $attended_member_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT member_id FROM {$attendance_tbl} WHERE meeting_id = %d AND member_id IS NOT NULL",
+            $meeting_id
+        )));
+
+        $present_ids = array_unique(array_merge($role_member_ids, $attended_member_ids));
+
+        $members = [];
+        if ($present_ids) {
+            $placeholders = implode(',', array_fill(0, count($present_ids), '%d'));
+            $members = $wpdb->get_results($wpdb->prepare(
+                "SELECT id, full_name FROM {$members_tbl} WHERE id IN ({$placeholders}) ORDER BY full_name",
+                ...$present_ids
+            ), ARRAY_A) ?: [];
+        }
+
+        $guests = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, guest_name FROM {$attendance_tbl} WHERE meeting_id = %d AND member_id IS NULL ORDER BY guest_name",
+            $meeting_id
+        ), ARRAY_A) ?: [];
+
+        return [
+            'members' => array_map(fn($m) => ['member_id' => (int) $m['id'], 'full_name' => $m['full_name']], $members),
+            'guests'  => array_map(fn($g) => ['attendance_id' => (int) $g['id'], 'guest_name' => $g['guest_name']], $guests),
+        ];
+    }
+
+    /**
      * Load all data needed to render the VPE wrap-up panel for a meeting.
      */
     public static function get_wrap_up_data($meeting_id) {
@@ -5933,6 +5981,64 @@ class TMP_Repository {
             ]);
         }
         return true;
+    }
+
+    /**
+     * Incremental attendance add/remove — used by the Day-of Attendance card so
+     * walk-ins and guests save the instant they're added or crossed off, instead
+     * of waiting for the Wrap-Up tab's "Complete Meeting" full save. Only touches
+     * the attendance table; role-performer counts already derive live elsewhere.
+     */
+    public static function add_walkin_attendance($meeting_id, $member_id) {
+        global $wpdb;
+        $tbl = self::attendance_table();
+        $meeting_id = (int) $meeting_id;
+        $member_id  = (int) $member_id;
+
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$tbl} WHERE meeting_id = %d AND member_id = %d",
+            $meeting_id, $member_id
+        ));
+        if ($existing) return (int) $existing;
+
+        $wpdb->insert($tbl, [
+            'meeting_id' => $meeting_id,
+            'member_id'  => $member_id,
+            'guest_name' => null,
+            'marked_by'  => (int) get_current_user_id(),
+            'created_at' => current_time('mysql'),
+        ]);
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function remove_walkin_attendance($meeting_id, $member_id) {
+        global $wpdb;
+        return (bool) $wpdb->delete(self::attendance_table(), [
+            'meeting_id' => (int) $meeting_id,
+            'member_id'  => (int) $member_id,
+        ]);
+    }
+
+    public static function add_guest_attendance($meeting_id, $name) {
+        global $wpdb;
+        $tbl = self::attendance_table();
+        $wpdb->insert($tbl, [
+            'meeting_id' => (int) $meeting_id,
+            'member_id'  => null,
+            'guest_name' => sanitize_text_field($name),
+            'marked_by'  => (int) get_current_user_id(),
+            'created_at' => current_time('mysql'),
+        ]);
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function remove_guest_attendance($meeting_id, $attendance_id) {
+        global $wpdb;
+        return (bool) $wpdb->delete(self::attendance_table(), [
+            'meeting_id' => (int) $meeting_id,
+            'id'         => (int) $attendance_id,
+            'member_id'  => null,
+        ]);
     }
 
     /**

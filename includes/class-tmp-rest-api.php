@@ -529,6 +529,33 @@ class TMP_REST_API {
             ],
         ]);
 
+        // ── Day-of attendance — incremental add/remove, autosaves as Ex Com edits ──
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/attendance/walkin', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'add_walkin_attendance'],
+            'permission_callback' => [__CLASS__, 'can_ex_com_meeting'],
+        ]);
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/attendance/walkin/(?P<member_id>\d+)', [
+            'methods'             => WP_REST_Server::DELETABLE,
+            'callback'            => [__CLASS__, 'remove_walkin_attendance'],
+            'permission_callback' => [__CLASS__, 'can_ex_com_meeting'],
+        ]);
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/attendance/guest', [
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => [__CLASS__, 'add_guest_attendance'],
+            'permission_callback' => [__CLASS__, 'can_ex_com_meeting'],
+        ]);
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/attendance/guest/(?P<attendance_id>\d+)', [
+            'methods'             => WP_REST_Server::DELETABLE,
+            'callback'            => [__CLASS__, 'remove_guest_attendance'],
+            'permission_callback' => [__CLASS__, 'can_ex_com_meeting'],
+        ]);
+        register_rest_route('toastmasters/v1', '/meetings/(?P<id>\d+)/attendance/present', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => [__CLASS__, 'get_present_roster'],
+            'permission_callback' => [__CLASS__, 'can_ex_com_meeting'],
+        ]);
+
         register_rest_route('toastmasters/v1', '/voting/open-poll/(?P<meeting_id>\d+)', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [__CLASS__, 'open_poll'],
@@ -1598,6 +1625,45 @@ class TMP_REST_API {
 
         $summary = TMP_Repository::get_meeting_summary($meeting_id);
         return rest_ensure_response(['success' => true, 'summary' => $summary]);
+    }
+
+    public static function add_walkin_attendance(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('id');
+        $member_id  = (int) $req->get_param('member_id');
+        if (!$meeting_id || !$member_id) {
+            return new WP_Error('missing_params', 'meeting_id and member_id are required', ['status' => 400]);
+        }
+        $id = TMP_Repository::add_walkin_attendance($meeting_id, $member_id);
+        return rest_ensure_response(['success' => true, 'id' => $id]);
+    }
+
+    public static function remove_walkin_attendance(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('id');
+        $member_id  = (int) $req->get_param('member_id');
+        TMP_Repository::remove_walkin_attendance($meeting_id, $member_id);
+        return rest_ensure_response(['success' => true]);
+    }
+
+    public static function add_guest_attendance(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('id');
+        $name       = sanitize_text_field($req->get_param('name'));
+        if (!$meeting_id || !$name) {
+            return new WP_Error('missing_params', 'meeting_id and name are required', ['status' => 400]);
+        }
+        $id = TMP_Repository::add_guest_attendance($meeting_id, $name);
+        return rest_ensure_response(['success' => true, 'id' => $id]);
+    }
+
+    public static function remove_guest_attendance(WP_REST_Request $req) {
+        $meeting_id    = (int) $req->get_param('id');
+        $attendance_id = (int) $req->get_param('attendance_id');
+        TMP_Repository::remove_guest_attendance($meeting_id, $attendance_id);
+        return rest_ensure_response(['success' => true]);
+    }
+
+    public static function get_present_roster(WP_REST_Request $req) {
+        $meeting_id = (int) $req->get_param('id');
+        return rest_ensure_response(TMP_Repository::get_present_roster($meeting_id));
     }
 
     public static function toggle_publish_agenda(WP_REST_Request $request) {

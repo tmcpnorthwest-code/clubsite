@@ -3843,20 +3843,37 @@
       if (meetingSelect.value) onMeetingChange(meetingSelect.value);
     }).catch(() => {});
 
-    // Populate member options for TT speaker select; Guest option first, then members
-    api('/members').then(members => {
-      if (!members) return;
-      const guestOpt = document.createElement('option');
-      guestOpt.value = '__guest__';
-      guestOpt.textContent = '✎ Guest speaker (enter name)…';
-      ttMemberSelect.appendChild(guestOpt);
-      members.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m.id;
-        opt.textContent = m.full_name;
-        ttMemberSelect.appendChild(opt);
-      });
-    }).catch(() => {});
+    // Populate the TT speaker dropdown from who's actually present — role players plus
+    // members/guests marked on the Attendance card — not the full club roster. Guests
+    // already marked present appear by name (value "g<attendance_id>"); anyone not yet
+    // recorded can still be added via the free-text "other guest" option.
+    function loadPresentRoster() {
+      if (!currentMeetingId) return;
+      api('/meetings/' + currentMeetingId + '/attendance/present').then(data => {
+        const prevValue = ttMemberSelect.value;
+        ttMemberSelect.innerHTML = '<option value="">— select member —</option>';
+        (data.members || []).forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = 'm' + m.member_id;
+          opt.textContent = m.full_name;
+          ttMemberSelect.appendChild(opt);
+        });
+        (data.guests || []).forEach(g => {
+          const opt = document.createElement('option');
+          opt.value = 'g' + g.attendance_id;
+          opt.textContent = g.guest_name + ' (guest)';
+          ttMemberSelect.appendChild(opt);
+        });
+        const guestOpt = document.createElement('option');
+        guestOpt.value = '__guest__';
+        guestOpt.textContent = '✎ Other guest (enter name)…';
+        ttMemberSelect.appendChild(guestOpt);
+        // Keep the current selection if it's still a valid option after refresh
+        if (prevValue && ttMemberSelect.querySelector(`option[value="${prevValue}"]`)) {
+          ttMemberSelect.value = prevValue;
+        }
+      }).catch(() => {});
+    }
 
     // Show/hide guest name input based on selection
     ttMemberSelect.addEventListener('change', () => {
@@ -3881,7 +3898,8 @@
       nomineesBlock.style.display = 'block';
       if (postMeetingActions) postMeetingActions.style.display = 'block';
       loadNominees();
-      pollTimer = setInterval(loadNominees, 30000);
+      loadPresentRoster();
+      pollTimer = setInterval(() => { loadNominees(); loadPresentRoster(); }, 30000);
     }
 
     function loadNominees() {
@@ -3944,9 +3962,13 @@
         name     = ttNameInput.value.trim();
         memberId = null;
         if (!name) { ttNameInput.focus(); return; }
-      } else if (sel) {
+      } else if (sel.startsWith('m')) {
         name     = ttMemberSelect.options[ttMemberSelect.selectedIndex].textContent;
-        memberId = sel;
+        memberId = sel.slice(1);
+      } else if (sel.startsWith('g')) {
+        // Already-present guest — display name only, no member_id.
+        name     = ttMemberSelect.options[ttMemberSelect.selectedIndex].textContent.replace(/ \(guest\)$/, '');
+        memberId = null;
       } else {
         ttMemberSelect.focus();
         return;
@@ -4153,7 +4175,7 @@
 
     // Bridge for the VPE Meetings tab's shared "Current Meeting" selector — no-op on the ExCom page
     const vpeRoot = qs("[data-tmp-vpe]");
-    if (vpeRoot) vpeRoot._votingPanel = { setMeeting: onMeetingChange };
+    if (vpeRoot) vpeRoot._votingPanel = { setMeeting: onMeetingChange, refreshRoster: loadPresentRoster };
   }
 
   // ── VPE Meeting Wrap-Up Panel ────────────────────────────────────────────────
@@ -4249,12 +4271,12 @@
       // ── Walk-in members ───────────────────────────────────────────────────
       otherMembers = data.other_members || [];
       walkinList.innerHTML = '';
-      (data.walk_ins || []).forEach(m => addWalkinChip(m.member_id, m.full_name));
+      (data.walk_ins || []).forEach(m => addWalkinChip(m.member_id, m.full_name, /* alreadySaved */ true));
       refreshWalkinSearch();
 
       // ── Guests ────────────────────────────────────────────────────────────
       guestsList.innerHTML = '';
-      (data.guests || []).forEach(g => appendGuestRow(g.guest_name));
+      (data.guests || []).forEach(g => appendGuestRow(g.guest_name, g.id, /* alreadySaved */ true));
 
       updateWrapupStats();
       renderRateSpeakers(currentMeetingId, rolePerformers);
@@ -4350,19 +4372,45 @@
       return Array.from(walkinList.querySelectorAll('[data-walkin-id]')).map(el => parseInt(el.dataset.walkinId, 10));
     }
 
-    function addWalkinChip(memberId, fullName) {
+    // Tell the Voting panel's Table Topics dropdown to re-sync with who's present,
+    // so a newly-marked walk-in/guest shows up immediately instead of after 30s.
+    function notifyRosterChanged() {
+      qs("[data-tmp-vpe]")?._votingPanel?.refreshRoster();
+    }
+
+    function addWalkinChip(memberId, fullName, alreadySaved) {
       if (walkinList.querySelector('[data-walkin-id="' + memberId + '"]')) return;
       const chip = document.createElement('span');
       chip.className = 'tmp-walkin-chip';
       chip.dataset.walkinId = memberId;
       chip.innerHTML = `${esc(fullName)} <button type="button" aria-label="Remove">✕</button>`;
-      chip.querySelector('button').addEventListener('click', () => {
-        chip.remove();
-        refreshWalkinSearch();
-        updateWrapupStats();
+      const removeBtn = chip.querySelector('button');
+      removeBtn.addEventListener('click', () => {
+        removeBtn.disabled = true;
+        api('/meetings/' + currentMeetingId + '/attendance/walkin/' + memberId, { method: 'DELETE' })
+          .then(() => {
+            chip.remove();
+            refreshWalkinSearch();
+            updateWrapupStats();
+            notifyRosterChanged();
+          })
+          .catch(err => { removeBtn.disabled = false; alert('Could not remove: ' + err.message); });
       });
       walkinList.appendChild(chip);
       updateWrapupStats();
+
+      if (!alreadySaved && currentMeetingId) {
+        api('/meetings/' + currentMeetingId + '/attendance/walkin', {
+          method: 'POST',
+          body: JSON.stringify({ member_id: memberId }),
+        }).then(() => notifyRosterChanged())
+          .catch(err => {
+            chip.remove();
+            refreshWalkinSearch();
+            updateWrapupStats();
+            alert('Could not save: ' + err.message);
+          });
+      }
     }
 
     function refreshWalkinSearch() {
@@ -4394,15 +4442,36 @@
     }
 
     // ── Guests ────────────────────────────────────────────────────────────────
-    function appendGuestRow(name) {
+    function appendGuestRow(name, attendanceId, alreadySaved) {
       const row = document.createElement('span');
       row.className = 'tmp-chip';
       row.dataset.guestName = name;
+      if (attendanceId) row.dataset.attendanceId = attendanceId;
       row.innerHTML = `${esc(name)}
         <button type="button" class="tmp-wrapup-remove-guest" aria-label="Remove">✕</button>`;
-      row.querySelector('.tmp-wrapup-remove-guest').addEventListener('click', () => { row.remove(); updateWrapupStats(); });
+      const removeBtn = row.querySelector('.tmp-wrapup-remove-guest');
+      removeBtn.addEventListener('click', () => {
+        const id = row.dataset.attendanceId;
+        if (!id) { row.remove(); updateWrapupStats(); return; }
+        removeBtn.disabled = true;
+        api('/meetings/' + currentMeetingId + '/attendance/guest/' + id, { method: 'DELETE' })
+          .then(() => { row.remove(); updateWrapupStats(); notifyRosterChanged(); })
+          .catch(err => { removeBtn.disabled = false; alert('Could not remove: ' + err.message); });
+      });
       guestsList.appendChild(row);
       updateWrapupStats();
+
+      if (!alreadySaved && currentMeetingId) {
+        api('/meetings/' + currentMeetingId + '/attendance/guest', {
+          method: 'POST',
+          body: JSON.stringify({ name }),
+        }).then(res => { row.dataset.attendanceId = res.id; notifyRosterChanged(); })
+          .catch(err => {
+            row.remove();
+            updateWrapupStats();
+            alert('Could not save: ' + err.message);
+          });
+      }
     }
 
     addGuestBtn.addEventListener('click', () => {
@@ -4430,7 +4499,7 @@
       });
 
       const guests = [];
-      guestsList.querySelectorAll('.tmp-wrapup-guest-row').forEach(row => {
+      guestsList.querySelectorAll('[data-guest-name]').forEach(row => {
         if (row.dataset.guestName) guests.push({ name: row.dataset.guestName });
       });
 
