@@ -166,7 +166,8 @@
       const a       = assignments[i];
       const start   = formatTime(t);
       const dur     = Number(a.duration || 0);
-      t += dur;
+      const buf     = Number(a.schedule_buffer || 0);
+      t += dur + buf;
       const rLow    = a.role_name.toLowerCase();
       const isBreak = rLow.startsWith("break");
 
@@ -1881,7 +1882,8 @@
         const agendaRows = assignments.map((a, aIdx) => {
           const start   = formatTime(t);
           const dur     = Number(a.duration || 0);
-          t += dur;
+          const buf     = Number(a.schedule_buffer || 0);
+          t += dur + buf;
           const end     = formatTime(t);
           const isBreak = a.role_name.toLowerCase().startsWith("break");
           const isFirst = aIdx === 0;
@@ -1925,7 +1927,7 @@
           return `<tr>
             ${moveCell}
             <td>${start}</td>
-            <td>${dur}m</td>
+            <td>${dur}m${buf ? `<span style="color:var(--tmp-muted);font-size:0.8em;"> (+${buf}m)</span>` : ""}</td>
             <td>${end}</td>
             <td>
               <input type="text" class="tmp-agenda-line-input" data-edit-agenda-line="${a.id}" value="${esc(a.role_name)}" style="width:100%;min-width:180px;padding:3px 5px;border:1px solid transparent;border-radius:4px;font-size:0.88rem;background:transparent;" />

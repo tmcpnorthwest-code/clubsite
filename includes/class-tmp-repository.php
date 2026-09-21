@@ -1737,6 +1737,10 @@ class TMP_Repository {
                     $assignment['time_yellow'] = $ty;
                     $assignment['time_red']    = $tr;
                 }
+
+                $assignment['schedule_buffer'] = !empty($assignment['role_id'])
+                    ? self::get_schedule_buffer_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null)
+                    : self::get_schedule_buffer_for_role($assignment['role_name']);
             }
         }
 
@@ -1805,6 +1809,10 @@ class TMP_Repository {
             $assignment['pathway_label'] = ($is_speaker_row && !empty($assignment['member_id']))
                 ? self::format_speaker_pathway_label($assignment)
                 : '';
+
+            $assignment['schedule_buffer'] = !empty($assignment['role_id'])
+                ? self::get_schedule_buffer_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null)
+                : self::get_schedule_buffer_for_role($assignment['role_name']);
         }
 
         return $meeting;
@@ -3846,6 +3854,57 @@ class TMP_Repository {
         return self::get_timing_for_role_id($classified['role_id'], $classified['segment_label'], $duration);
     }
 
+    /**
+     * One-minute scheduling buffer added on top of a role's own timer
+     * duration when walking the agenda clock (start/end times, total
+     * used minutes) — covers the transition/handover time between
+     * agenda items that the timer's green/yellow/red range itself must
+     * NOT reflect (timer colors stay driven purely by duration).
+     *
+     * Applies to: Speeches (Speaker, Ad Hoc Speaker), Evaluations
+     * (Evaluator, Table Topics Evaluator, General Evaluator), and any
+     * "Report"/"Final Report" role-player segment (Timer, Ah-Counter,
+     * Grammarian, Active Listener, General Evaluator).
+     */
+    public static function get_schedule_buffer_for_role_id($role_id, $segment_label = null) {
+        $role = self::get_role_catalog_row($role_id);
+        if (!$role) return 0;
+
+        $role_key = $role['role_key'];
+
+        // Speeches (not the TMOD/Evaluator intro lines around them).
+        if (in_array($role_key, ['speaker', 'ad_hoc_speaker'], true)) {
+            return 1;
+        }
+
+        // Actual evaluation segments — not an evaluator's short "Introduces
+        // speaker" line before a speech, which needs no extra handover time.
+        if (in_array($role_key, ['evaluator', 'table_topics_evaluator', 'general_evaluator'], true)
+            && $segment_label && preg_match('/evaluat/i', $segment_label)) {
+            return 1;
+        }
+
+        // Any role-player's Report / Final Report line.
+        if ($segment_label && preg_match('/report/i', $segment_label)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    /**
+     * String-based compatibility shim mirroring get_timing_for_role() —
+     * resolves role_name to a role_id/segment_label pair before delegating
+     * to get_schedule_buffer_for_role_id().
+     */
+    public static function get_schedule_buffer_for_role($role_name) {
+        $cache = self::role_catalog_cache();
+        $classified = self::backfill_classify_role_name($role_name, $cache['by_display_name']);
+        if ($classified['status'] !== 'matched') {
+            return 0;
+        }
+        return self::get_schedule_buffer_for_role_id($classified['role_id'], $classified['segment_label'] ?? null);
+    }
+
     // -------------------------------------------------------------------------
     // Reorder agenda items
     // -------------------------------------------------------------------------
@@ -5014,6 +5073,9 @@ class TMP_Repository {
                 $assignment['time_yellow'] = $ty;
                 $assignment['time_red']    = $tr;
             }
+            $assignment['schedule_buffer'] = !empty($assignment['role_id'])
+                ? self::get_schedule_buffer_for_role_id($assignment['role_id'], $assignment['segment_label'] ?? null)
+                : self::get_schedule_buffer_for_role($assignment['role_name']);
             if (!empty($assignment['email'])) $bcc_emails[] = $assignment['email'];
         }
         unset($assignment);
@@ -5241,7 +5303,10 @@ class TMP_Repository {
         foreach ($meeting['assignments'] as $a) {
             $start = $fmt_time($t);
             $dur   = (int) ($a['duration'] ?? 0);
-            $t    += $dur;
+            $buf   = (int) ($a['schedule_buffer'] ?? (!empty($a['role_id'])
+                ? self::get_schedule_buffer_for_role_id($a['role_id'], $a['segment_label'] ?? null)
+                : self::get_schedule_buffer_for_role($a['role_name'])));
+            $t    += $dur + $buf;
             $is_break = stripos($a['role_name'], 'break') === 0;
 
             if ($is_break) {

@@ -27,6 +27,7 @@ class TMP_Activator {
         self::migrate_v250_seed_agenda_template();
         self::migrate_v260_pathways_project_column();
         self::migrate_v280_timing_overhaul();
+        self::migrate_v290_speaker_feedback();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -82,6 +83,7 @@ class TMP_Activator {
         self::migrate_v250_seed_agenda_template();
         self::migrate_v260_pathways_project_column();
         self::migrate_v280_timing_overhaul();
+        self::migrate_v290_speaker_feedback();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -981,6 +983,7 @@ class TMP_Activator {
             ['educational_presentation', 'Presentation', 1, null, 0, null, 7],
             ['evaluator', 'Introduces speaker', 0, null, 1, 'speech_block', 2],
             ['speaker', 'Speech', 0, null, 1, 'speech_block', 6],
+            ['tmod', 'Speaker Feedback', 0, null, 1, 'speech_block', 1],
             ['timer', 'Report', 0, null, 0, null, 1],
             ['break', 'Networking', 0, null, 0, null, 5],
             ['tmod', 'Theme interlude', 0, null, 0, null, 2],
@@ -1157,6 +1160,67 @@ class TMP_Activator {
                 ['id' => (int) $row['id']]
             );
         }
+    }
+
+    /**
+     * v0.29.0: adds a 1-minute "Speaker Feedback" TMOD line to the
+     * speech_block instance group, right after each numbered Speech, on
+     * clubs whose default template was already seeded by v0.25.0 before
+     * this row existed in migrate_v250_seed_agenda_template()'s array.
+     */
+    private static function migrate_v290_speaker_feedback() {
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'tmp_agenda_template_items';
+        $catalog     = $wpdb->prefix . 'tmp_role_catalog';
+        $now         = current_time('mysql');
+
+        $template_id = $wpdb->get_var(
+            "SELECT id FROM {$wpdb->prefix}tmp_agenda_template WHERE is_default = 1 AND is_active = 1 LIMIT 1"
+        );
+        if (!$template_id) return;
+
+        $tmod_role_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$catalog} WHERE role_key = %s", 'tmod'
+        ));
+        if (!$tmod_role_id) return;
+
+        $already_exists = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$items_table}
+              WHERE template_id = %d AND role_id = %d AND instance_group = %s AND segment_label = %s",
+            $template_id, (int) $tmod_role_id, 'speech_block', 'Speaker Feedback'
+        ));
+        if ($already_exists) return;
+
+        $speech_sort = $wpdb->get_var($wpdb->prepare(
+            "SELECT ti.sort_order FROM {$items_table} ti
+             JOIN {$catalog} rc ON rc.id = ti.role_id
+             WHERE ti.template_id = %d AND ti.instance_group = %s AND rc.role_key = %s
+             LIMIT 1",
+            $template_id, 'speech_block', 'speaker'
+        ));
+        if ($speech_sort === null) return;
+        $speech_sort = (int) $speech_sort;
+
+        $next_sort = $wpdb->get_var($wpdb->prepare(
+            "SELECT MIN(sort_order) FROM {$items_table} WHERE template_id = %d AND sort_order > %d",
+            $template_id, $speech_sort
+        ));
+        $next_sort = $next_sort !== null ? (int) $next_sort : $speech_sort + 10;
+
+        $wpdb->insert($items_table, [
+            'template_id'               => $template_id,
+            'role_id'                   => (int) $tmod_role_id,
+            'segment_label'              => 'Speaker Feedback',
+            'instance_group'             => 'speech_block',
+            'sort_order'                 => intdiv($speech_sort + $next_sort, 2),
+            'is_optional'                => 0,
+            'requires_role_key'          => null,
+            'default_duration_minutes'   => 1,
+            'default_timer_minutes'      => null,
+            'repeat_per_speech'          => 1,
+            'created_at'                 => $now,
+            'updated_at'                 => $now,
+        ]);
     }
 
     private static function migrate_v180_chapter_number() {
