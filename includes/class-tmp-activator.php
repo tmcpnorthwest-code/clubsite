@@ -28,6 +28,7 @@ class TMP_Activator {
         self::migrate_v260_pathways_project_column();
         self::migrate_v280_timing_overhaul();
         self::migrate_v290_speaker_feedback();
+        self::migrate_v291_general_evaluator_duration();
         update_option('tmp_plugin_version', TMP_VERSION);
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
@@ -84,6 +85,7 @@ class TMP_Activator {
         self::migrate_v260_pathways_project_column();
         self::migrate_v280_timing_overhaul();
         self::migrate_v290_speaker_feedback();
+        self::migrate_v291_general_evaluator_duration();
         if (!get_option('tmp_role_cooloff_weeks')) {
             update_option('tmp_role_cooloff_weeks', 4);
         }
@@ -1000,7 +1002,7 @@ class TMP_Activator {
             ['grammarian', 'Report', 0, null, 0, null, 3],
             ['ah_counter', 'Report', 0, null, 0, null, 3],
             ['active_listener', 'Report', 1, null, 0, null, 5],
-            ['general_evaluator', 'Final Report', 0, null, 0, null, 5],
+            ['general_evaluator', 'Final Report', 0, null, 0, null, 8],
             ['tmod', 'Theme Closure', 0, null, 0, null, 2],
             ['presiding_officer', 'Closing Remarks, Feedback and Announcements', 0, null, 0, null, 6],
         ];
@@ -1221,6 +1223,34 @@ class TMP_Activator {
             'created_at'                 => $now,
             'updated_at'                 => $now,
         ]);
+    }
+
+    /**
+     * v0.29.1: bumps General Evaluator's "Final Report" default duration
+     * from 5 to 8 minutes on the default template (matches the updated
+     * seed value in migrate_v250_seed_agenda_template()'s array).
+     */
+    private static function migrate_v291_general_evaluator_duration() {
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'tmp_agenda_template_items';
+        $catalog     = $wpdb->prefix . 'tmp_role_catalog';
+        $now         = current_time('mysql');
+
+        $template_id = $wpdb->get_var(
+            "SELECT id FROM {$wpdb->prefix}tmp_agenda_template WHERE is_default = 1 AND is_active = 1 LIMIT 1"
+        );
+        if (!$template_id) return;
+
+        $role_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$catalog} WHERE role_key = %s", 'general_evaluator'
+        ));
+        if (!$role_id) return;
+
+        $wpdb->update(
+            $items_table,
+            ['default_duration_minutes' => 8, 'updated_at' => $now],
+            ['template_id' => $template_id, 'role_id' => (int) $role_id, 'segment_label' => 'Final Report']
+        );
     }
 
     private static function migrate_v180_chapter_number() {
