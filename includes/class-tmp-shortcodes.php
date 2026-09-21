@@ -794,22 +794,22 @@ class TMP_Shortcodes {
 
                 <!-- Voting panel -->
                 <div data-tmp-stage-body="dayof">
-                <section class="tmp-panel" data-tmp-voting-panel>
+
+                <!-- Attendance — roles performed, walk-ins, guests. Editable by Ex Com; stays in
+                     sync with role assignments automatically. Its own card so it reads as the
+                     first thing to do on meeting day, ahead of Table Topics &amp; voting. -->
+                <section class="tmp-panel" data-tmp-attendance-panel>
                     <div class="tmp-card-head">
                         <div>
                             <p class="tmp-eyebrow">Meeting Day</p>
-                            <h3 style="margin:0;">Voting &amp; Table Topics</h3>
+                            <h2 style="margin:0;font-size:1.5rem;">Attendance</h2>
                         </div>
                         <span data-tmp-voting-meeting-label style="color:var(--tmp-muted);font-size:0.85rem;"></span>
                     </div>
                     <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
-                        Uses the meeting selected above. Add Table Topics speakers as they step up — the voting form on the home page updates automatically.
+                        Uses the meeting selected above. Record who attended — role players sync automatically from assignments.
                     </p>
-
-                    <!-- Attendance — roles performed, walk-ins, guests. Editable by Ex Com; kept in
-                         sync with the "Refresh from Assignments" button below via a shared refresh. -->
                     <div data-tmp-attendance-content style="margin-top:20px;">
-                        <p class="tmp-eyebrow" style="margin:0 0 10px;">Attendance</p>
                         <div style="margin-bottom:20px;">
                             <div class="tmp-wrapup-stat-row">
                                 <div class="tmp-wrapup-stat"><b data-tmp-stat-roles>0</b>Roles performed</div>
@@ -836,8 +836,20 @@ class TMP_Shortcodes {
                             <div data-tmp-guests-list class="tmp-chip-list" style="margin-top:0;"></div>
                         </div>
                     </div>
+                </section>
 
-                    <div data-tmp-tt-entry style="display:none;margin-top:24px;padding-top:20px;border-top:1px solid var(--tmp-line);">
+                <section class="tmp-panel" data-tmp-voting-panel style="margin-top:20px;">
+                    <div class="tmp-card-head">
+                        <div>
+                            <p class="tmp-eyebrow">Meeting Day</p>
+                            <h3 style="margin:0;">Voting &amp; Table Topics</h3>
+                        </div>
+                    </div>
+                    <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
+                        Add Table Topics speakers as they step up — the voting form on the home page updates automatically.
+                    </p>
+
+                    <div data-tmp-tt-entry style="display:none;margin-top:20px;">
                         <p class="tmp-eyebrow" style="margin-top:0;">Table Topics Speakers</p>
                         <div class="tmp-tt-add-row" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
                             <div style="flex:1;min-width:0;">
