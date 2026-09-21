@@ -1282,6 +1282,10 @@
     const orientationDatetime   = qs("[data-tmp-orientation-datetime]", root);
     const orientationMeetLink   = qs("[data-tmp-orientation-meet-link]", root);
     const orientationApplyBtn   = qs("[data-tmp-orientation-apply]", root);
+    const contestFields         = qs("[data-tmp-contest-fields]", root);
+    const contestDateInput      = qs("[data-tmp-contest-date]", root);
+    const contestFormLinkInput  = qs("[data-tmp-contest-form-link]", root);
+    const contestApplyBtn       = qs("[data-tmp-contest-apply]", root);
     const selectedMemberIds = new Set(); // string member IDs, survives re-render across filter/sort changes
 
     function getBulkEditor() {
@@ -1309,21 +1313,53 @@
           + `<p>We'll walk you through how the club runs, how Pathways works, and how to request your first role.</p>`
           + `<p>Looking forward to meeting you there!</p><p>&nbsp;</p><p>Regards,<br>VP Education</p>`,
       },
+      contest: {
+        subject: "Upcoming Contest — Toastmasters Club of Pune North West",
+        body: (o) =>
+          `<p>Hi {{name}},</p><p>&nbsp;</p>`
+          + `<p>It is my pleasure to announce the upcoming contest events${o.date ? ` on <strong>${esc(o.date)}</strong>` : " on <strong>[contest date]</strong>"}, on behalf of Toastmasters Club of Pune North West. `
+          + `There are two ongoing contests conducted by various Toastmasters clubs now. Members who win the club contests can progress to participate at Area level and then to Division contests.</p>`
+          + `<p>So, what are you waiting for?</p>`
+          + `<p><strong>HSC:</strong><br>If you think you can make great humorous speeches, participate in the Humorous Speech Contest. You need to deliver a humorous speech of 5-7 minutes in this contest. `
+          + `We will have judges rating you to pick the best speaker. At the end of the contest, you get a certificate of participation and an opportunity to move to the next level if you are a winner in this contest.</p>`
+          + `<p><strong>ESC:</strong><br>Evaluation is another important aspect of Toastmasters. If you think you have great evaluation skills, you can participate in the Evaluation Speech Contest. In this contest, all participants will get to listen to and evaluate a test speech. `
+          + `We will have a speaker deliver a speech for this activity. All evaluators will evaluate the same speech. Once you have noted your observations, you get to deliver a 2-3 minute Evaluation Speech. `
+          + `There will be judges rating your evaluation skill, and at the end of the contest you get a certificate of participation and a chance to move to the next level if you end up being a winner of this contest.</p>`
+          + `<p>There is no qualifying criteria for these speeches for participating as a contestant.</p>`
+          + `<p>If you are unable to participate, you may also pick some roles to be on the other side and help contestants participate effectively.</p>`
+          + `<p>You may choose to pick one of these roles: SAA, Timer, Ballot Counter, Contest Chair.</p>`
+          + (o.formLink
+              ? `<p>Let us know your interest (as a contestant or in one of the roles above) here: <a href="${esc(o.formLink)}">${esc(o.formLink)}</a></p>`
+              : `<p>[Add the interest/role sign-up form link above and click "Insert into message".]</p>`)
+          + `<p><em>P.S. There will be no regular meeting on the day of the contest. Contest timings will be announced soon.</em></p>`
+          + `<p>&nbsp;</p><p>Regards,<br>VP Education</p>`,
+      },
     };
 
     bulkEmailTemplateSel?.addEventListener("change", () => {
       const key = bulkEmailTemplateSel.value;
       if (orientationFields) orientationFields.style.display = key === "orientation" ? "block" : "none";
+      if (contestFields) contestFields.style.display = key === "contest" ? "block" : "none";
       if (!key) { bulkEmailSubject.value = ""; setBulkEditorContent(""); return; }
       const tpl = EMAIL_TEMPLATES[key];
       if (!tpl) return;
       bulkEmailSubject.value = tpl.subject;
-      setBulkEditorContent(tpl.body({ datetime: orientationDatetime?.value || "", meetLink: orientationMeetLink?.value || "" }));
+      setBulkEditorContent(tpl.body({
+        datetime: orientationDatetime?.value || "",
+        meetLink: orientationMeetLink?.value || "",
+        date: contestDateInput?.value || "",
+        formLink: contestFormLinkInput?.value || "",
+      }));
     });
 
     orientationApplyBtn?.addEventListener("click", () => {
       const tpl = EMAIL_TEMPLATES.orientation;
       setBulkEditorContent(tpl.body({ datetime: orientationDatetime?.value || "", meetLink: orientationMeetLink?.value || "" }));
+    });
+
+    contestApplyBtn?.addEventListener("click", () => {
+      const tpl = EMAIL_TEMPLATES.contest;
+      setBulkEditorContent(tpl.body({ date: contestDateInput?.value || "", formLink: contestFormLinkInput?.value || "" }));
     });
 
     function wireMemberCheckboxes() {
@@ -3779,7 +3815,6 @@
     const ttSpeakerList   = qs('[data-tmp-tt-speaker-list]', panel);
     const nomineesBlock   = qs('[data-tmp-voting-nominees]', panel);
     const nomineesSummary = qs('[data-tmp-nominees-summary]', panel);
-    const refreshBtn      = qs('[data-tmp-refresh-nominees-btn]', panel);
     const resultsBtn      = qs('[data-tmp-voting-results-btn]', panel);
     const resultsBlock    = qs('[data-tmp-voting-results]', panel);
     const openPollBtn     = qs('[data-tmp-open-poll-btn]', panel);
@@ -3867,10 +3902,6 @@
       if (pollStatus) {
         pollStatus.textContent = isOpen ? '🟢 Poll is OPEN — members can vote' : '⚪ Poll is closed';
       }
-      if (refreshBtn) {
-        refreshBtn.disabled = isOpen;
-        refreshBtn.title = isOpen ? 'Close the poll before refreshing nominees' : '';
-      }
     }
 
     function renderTTSpeakers(speakers) {
@@ -3937,22 +3968,6 @@
         }
       }).catch(err => alert('Failed: ' + err.message))
         .finally(() => { ttAddBtn.disabled = false; });
-    });
-
-    // Refresh nominees from assignments — blocked while the poll is open to avoid disturbing live votes.
-    // Also re-syncs the Attendance section below (role performers, walk-ins, guests) in the same click.
-    refreshBtn.addEventListener('click', () => {
-      if (!currentMeetingId || pollIsOpen) return;
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = 'Refreshing…';
-      api('/voting/refresh-nominees/' + currentMeetingId, { method: 'POST' })
-        .then(data => {
-          renderTTSpeakers(data.nominees.table_topics || []);
-          renderNomineesSummary(data.nominees);
-        })
-        .catch(err => alert('Refresh failed: ' + err.message))
-        .finally(() => { refreshBtn.disabled = pollIsOpen; refreshBtn.textContent = '↻ Refresh from Assignments'; });
-      qs("[data-tmp-vpe]")?._wrapupPanel?.refreshAttendance();
     });
 
     // Open / close poll
@@ -4480,9 +4495,6 @@
           if (attendanceContent) attendanceContent.style.display = 'none';
         }
       },
-      // Called by the Day-of "Refresh from Assignments" button so one click re-syncs
-      // both voting nominees and role-attendance counts.
-      refreshAttendance: () => { if (currentMeetingId) loadWrapUp(currentMeetingId); },
     };
   }
 
@@ -4661,7 +4673,6 @@
     const ttAddBtn          = qs('[data-tmp-saa-tt-add]', panel);
     const ttList            = qs('[data-tmp-saa-tt-list]', panel);
     const nomSummary        = qs('[data-tmp-saa-nominees-summary]', panel);
-    const refreshBtn        = qs('[data-tmp-saa-refresh-btn]', panel);
     const resultsBtn        = qs('[data-tmp-saa-results-btn]', panel);
     const resultsBlock      = qs('[data-tmp-saa-results]', panel);
     const openPollBtn       = qs('[data-tmp-saa-open-poll]', panel);
@@ -4691,10 +4702,6 @@
       openPollBtn.textContent  = isOpen ? 'Close Moment of Glory' : 'Moment of Glory';
       openPollBtn.className    = 'tmp-button ' + (isOpen ? 'tmp-secondary' : 'tmp-primary');
       pollStatusEl.textContent = isOpen ? '🟢 Poll is OPEN — members can vote' : '⚪ Poll is closed';
-      if (refreshBtn) {
-        refreshBtn.disabled = isOpen;
-        refreshBtn.title = isOpen ? 'Close the poll before refreshing nominees' : '';
-      }
     }
 
     function renderTTSpeakers(speakers) {
@@ -4805,20 +4812,6 @@
         }
       }).catch(err => alert('Failed: ' + err.message))
         .finally(() => { ttAddBtn.disabled = false; });
-    });
-
-    // Blocked while the poll is open to avoid disturbing live votes
-    refreshBtn.addEventListener('click', () => {
-      if (!meetingId || pollIsOpen) return;
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = 'Refreshing…';
-      api('/voting/refresh-nominees/' + meetingId, { method: 'POST' })
-        .then(data => {
-          renderTTSpeakers(data.nominees.table_topics || []);
-          renderNomineesSummary(data.nominees);
-        })
-        .catch(err => alert('Refresh failed: ' + err.message))
-        .finally(() => { refreshBtn.disabled = pollIsOpen; refreshBtn.textContent = '↻ Refresh from Assignments'; });
     });
 
     openPollBtn.addEventListener('click', () => {

@@ -234,7 +234,6 @@ class TMP_Shortcodes {
                 <div style="margin-top:20px;">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
                         <p class="tmp-eyebrow" style="margin:0;">Current Nominees</p>
-                        <button class="tmp-small-button" data-tmp-saa-refresh-btn title="Re-sync nominees from role assignments">&#8635; Refresh from Assignments</button>
                     </div>
                     <div data-tmp-saa-nominees-summary></div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
@@ -534,6 +533,7 @@ class TMP_Shortcodes {
                                 <option value="">— Blank —</option>
                                 <option value="orientation">Orientation Invite</option>
                                 <option value="announcement">General Announcement</option>
+                                <option value="contest">Contest Announcement</option>
                             </select>
                         </label>
                         <div data-tmp-orientation-fields style="display:none;margin-bottom:14px;padding:12px;background:#f0f8ff;border:1px solid #cce5ff;border-radius:6px;">
@@ -547,6 +547,18 @@ class TMP_Shortcodes {
                             </div>
                             <button class="tmp-small-button" type="button" data-tmp-orientation-apply>Insert into message</button>
                             <span style="font-size:0.78rem;color:var(--tmp-muted);margin-left:8px;">Create the meeting in Google Calendar/Meet first, then paste its link here.</span>
+                        </div>
+                        <div data-tmp-contest-fields style="display:none;margin-bottom:14px;padding:12px;background:#f0f8ff;border:1px solid #cce5ff;border-radius:6px;">
+                            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+                                <label style="flex:1;min-width:180px;">Contest date
+                                    <input type="text" data-tmp-contest-date placeholder="e.g. 27th September 2026" style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:5px;" />
+                                </label>
+                                <label style="flex:1;min-width:220px;">Interest / role sign-up form link
+                                    <input type="url" data-tmp-contest-form-link placeholder="https://forms.gle/..." style="width:100%;padding:8px 10px;border:1px solid var(--tmp-line);border-radius:5px;" />
+                                </label>
+                            </div>
+                            <button class="tmp-small-button" type="button" data-tmp-contest-apply>Insert into message</button>
+                            <span style="font-size:0.78rem;color:var(--tmp-muted);margin-left:8px;">Create a Google Form for contestant/role sign-up first, then paste its link here.</span>
                         </div>
                         <form data-tmp-bulk-email-form class="tmp-form" style="background:none;border:none;padding:0;">
                             <label style="display:block;margin-bottom:10px;">Subject
@@ -844,7 +856,6 @@ class TMP_Shortcodes {
                     <div data-tmp-voting-nominees style="display:none;margin-top:20px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
                             <p class="tmp-eyebrow" style="margin:0;">Current Nominees</p>
-                            <button class="tmp-small-button" data-tmp-refresh-nominees-btn title="Re-sync main and auxiliary nominees from confirmed role assignments">&#8635; Refresh from Assignments</button>
                         </div>
                         <div data-tmp-nominees-summary></div>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">

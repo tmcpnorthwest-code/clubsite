@@ -1361,8 +1361,14 @@ class TMP_REST_API {
     public static function get_vote_nominees(WP_REST_Request $req) {
         $meeting_id = (int) $req->get_param('meeting_id');
 
-        // Do NOT populate here — use /voting/nominees/refresh for that.
-        // Populating on every GET changes nominee IDs between render and vote submission.
+        // Sync nominees from current role assignments on every read, so the voting list
+        // is always correct regardless of which code path wrote the assignment (manual
+        // save, bulk approve, cascade-reject, agenda rebuild, etc.) — no separate "Refresh
+        // from Assignments" step required. Safe while a poll is open: populate() only
+        // upserts by stable identity (member+category, or guest+role for non-members) and
+        // only ever deletes a nominee that has zero votes, so an in-progress voter's
+        // selected nominee_id never gets invalidated out from under them.
+        TMP_Repository::populate_vote_nominees($meeting_id);
 
         $nominees = TMP_Repository::get_vote_nominees($meeting_id);
         $meeting  = TMP_Repository::get_meeting($meeting_id);
