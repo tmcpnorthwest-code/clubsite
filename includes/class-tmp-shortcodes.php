@@ -801,13 +801,12 @@ class TMP_Shortcodes {
                 <section class="tmp-panel" data-tmp-attendance-panel>
                     <div class="tmp-card-head">
                         <div>
-                            <p class="tmp-eyebrow">Meeting Day</p>
                             <h2 style="margin:0;font-size:1.5rem;">Attendance</h2>
                         </div>
                         <span data-tmp-voting-meeting-label style="color:var(--tmp-muted);font-size:0.85rem;"></span>
                     </div>
                     <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
-                        Uses the meeting selected above. Record who attended — role players sync automatically from assignments.
+                        Mark who was in the room for the meeting selected above. Members and guests who performed a role are counted automatically — you only need to add members and guests here who attended but weren't assigned a role.
                     </p>
                     <div data-tmp-attendance-content style="margin-top:20px;">
                         <div style="margin-bottom:20px;">
@@ -841,12 +840,11 @@ class TMP_Shortcodes {
                 <section class="tmp-panel" data-tmp-voting-panel style="margin-top:20px;">
                     <div class="tmp-card-head">
                         <div>
-                            <p class="tmp-eyebrow">Meeting Day</p>
                             <h3 style="margin:0;">Voting &amp; Table Topics</h3>
                         </div>
                     </div>
                     <p style="color:var(--tmp-muted);font-size:0.88rem;margin-top:6px;">
-                        Add Table Topics speakers as they step up — the voting form on the home page updates automatically.
+                        Everyone with an assigned role — Toastmaster, evaluators, speakers, and so on — is entered into voting automatically as they're assigned; you don't need to add them here. Table Topics speakers are the exception: since they step up spontaneously during the meeting, add each one below right after they finish speaking. Once everyone's in, open the vote so members can pick their favorites.
                     </p>
 
                     <div data-tmp-tt-entry style="display:none;margin-top:20px;">
